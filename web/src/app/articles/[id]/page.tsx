@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { MarkdownView } from "@/components/markdown-view";
+import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,22 @@ const TABS = [
   { key: "hero", label: "Hero brief", desc: "Ảnh minh hoạ" },
 ] as const;
 
+const STEP_HINT: Record<string, string> = {
+  RESEARCH: "Research: Tavily search + GLM tổng hợp nguồn (thường 30–90s)",
+  INSIGHT: "Insight Gate: chấm L2/L3 (thường 20–60s)",
+  WRITE: "Viết 12 sections (thường 60–120s)",
+  FINALIZE: "Fact-check + bản sạch + hero brief (thường 60–120s)",
+};
+
+function tabForArticle(a: Article): string {
+  if (a.cleanPublish) return "clean";
+  if (a.factCheck) return "fact";
+  if (a.draft12) return "draft";
+  if (a.insightGate) return "insight";
+  if (a.researchBrief) return "research";
+  return "research";
+}
+
 function LoadingSkeleton() {
   return (
     <AppShell title="Đang tải..." subtitle="Lấy dữ liệu bài viết" backHref="/dashboard">
@@ -54,65 +71,137 @@ function LoadingSkeleton() {
   );
 }
 
+let logSeq = 0;
+
 export default function ArticleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const [id, setId] = useState<string>("");
   const [article, setArticle] = useState<Article | null>(null);
   const [tab, setTab] = useState<string>("clean");
   const [running, setRunning] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
+  const [runningLabel, setRunningLabel] = useState("");
+  const [logs, setLogs] = useState<PipelineLogLine[]>([]);
   const [notes, setNotes] = useState("");
   const [genning, setGenning] = useState<"flux" | "qwen" | null>(null);
   const [heroError, setHeroError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     params.then((p) => setId(p.id));
   }, [params]);
 
+  const pushLog = useCallback((level: PipelineLogLine["level"], text: string) => {
+    logSeq += 1;
+    setLogs((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${logSeq}`, level, text, at: Date.now() },
+    ]);
+  }, []);
+
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!id) return null;
     const res = await fetch(`/api/articles/${id}`);
-    if (res.ok) {
-      const data = (await res.json()) as { article: Article };
-      setArticle(data.article);
-    }
+    if (!res.ok) return null;
+    const data = (await res.json()) as { article: Article };
+    setArticle(data.article);
+    return data.article;
   }, [id]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function callAction(action: "run-step" | "reset" | "approve" | "publish") {
-    if (!id) return;
-    setRunning(true);
-    setLog((prev) => [...prev, `→ ${action}...`]);
+  async function callAction(
+    action: "run-step" | "reset" | "approve" | "publish",
+  ): Promise<Article | null> {
+    if (!id) return null;
 
-    const res = await fetch(`/api/articles/${id}/actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, notes: notes || undefined }),
-    });
+    const stepBefore = article?.currentStep ?? "RESEARCH";
+    if (action === "run-step") {
+      setRunningLabel(STEP_HINT[stepBefore] || `Đang chạy ${STEP_LABELS[stepBefore] || stepBefore}`);
+      pushLog("info", `→ Bắt đầu ${STEP_LABELS[stepBefore] || stepBefore}...`);
+    } else {
+      setRunningLabel(
+        action === "reset" ? "Đang reset pipeline..." : action === "approve" ? "Đang duyệt..." : "Đang publish...",
+      );
+      pushLog("info", `→ ${action}...`);
+    }
+
+    setRunning(true);
+    setActionError("");
+
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(`/api/articles/${id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, notes: notes || undefined }),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Mất kết nối tới server";
+      setRunning(false);
+      setRunningLabel("");
+      setActionError(msg);
+      pushLog("error", `✗ Không gọi được API: ${msg}`);
+      return null;
+    }
 
     const data = (await res.json()) as { article?: Article; error?: string };
+    const elapsedSec = Math.round((Date.now() - started) / 1000);
     setRunning(false);
+    setRunningLabel("");
 
     if (!res.ok) {
-      setLog((prev) => [...prev, `✗ ${data.error ?? "Lỗi"}`]);
+      const msg = data.error ?? `HTTP ${res.status}`;
+      setActionError(msg);
+      pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       await load();
-      return;
+      return null;
     }
 
-    if (data.article) {
-      setArticle(data.article);
-      setLog((prev) => [
-        ...prev,
-        `✓ ${data.article!.status}${data.article!.currentStep ? ` · ${STEP_LABELS[data.article!.currentStep]}` : ""}`,
-      ]);
+    if (!data.article) {
+      pushLog("error", "✗ API không trả về article");
+      return null;
     }
+
+    const next = data.article;
+    setArticle(next);
+
+    if (next.status === "FAILED") {
+      const msg = next.errorMessage || "Pipeline FAILED";
+      setActionError(msg);
+      pushLog("error", `✗ FAILED · ${msg} (${elapsedSec}s)`);
+      setTab(tabForArticle(next));
+      return next;
+    }
+
+    if (action === "run-step") {
+      const finished = STEP_LABELS[stepBefore] || stepBefore;
+      if (next.status === "PUBLISH_READY") {
+        pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
+      } else {
+        pushLog(
+          "success",
+          `✓ Xong ${finished} · bước tới: ${next.currentStep ? STEP_LABELS[next.currentStep] : "—"} · ${elapsedSec}s`,
+        );
+      }
+      setTab(tabForArticle(next));
+    } else if (action === "reset") {
+      pushLog("warn", `✓ Đã reset pipeline (${elapsedSec}s)`);
+      setActionError("");
+    } else {
+      pushLog("success", `✓ ${action} → ${next.status} (${elapsedSec}s)`);
+    }
+
+    return next;
   }
 
   async function runFullPipeline() {
-    if (!article) return;
+    if (!article || !id) return;
+    setActionError("");
+    pushLog("info", "→ Chạy full pipeline (4 bước)...");
+
     let safety = 0;
     let current = article;
 
@@ -120,15 +209,23 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       safety < 6 &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
-      current.status !== "PUBLISHED"
+      current.status !== "PUBLISHED" &&
+      current.status !== "APPROVED"
     ) {
       safety += 1;
-      await callAction("run-step");
-      const res = await fetch(`/api/articles/${id}`);
-      const data = (await res.json()) as { article: Article };
-      current = data.article;
-      setArticle(current);
+      const next = await callAction("run-step");
+      if (!next) {
+        pushLog("error", "✗ Dừng full pipeline vì lỗi mạng/API");
+        break;
+      }
+      current = next;
       if (current.status === "FAILED" || current.status === "PUBLISH_READY") break;
+    }
+
+    if (current.status === "PUBLISH_READY") {
+      pushLog("success", "✓ Full pipeline hoàn tất — vào Cổng duyệt bên dưới");
+    } else if (current.status === "FAILED") {
+      pushLog("error", "✗ Full pipeline dừng ở FAILED");
     }
   }
 
@@ -136,8 +233,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     if (!id) return;
     setGenning(model);
     setHeroError("");
-    setLog((prev) => [...prev, `→ gen hero (${model})...`]);
+    pushLog("info", `→ Gen hero (${model})...`);
 
+    const started = Date.now();
     const res = await fetch(`/api/articles/${id}/hero`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -145,17 +243,18 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     });
     const data = (await res.json()) as { article?: Article; error?: string; hero?: { modelLabel: string } };
     setGenning(null);
+    const sec = Math.round((Date.now() - started) / 1000);
 
     if (!res.ok) {
       setHeroError(data.error ?? "Gen ảnh thất bại");
-      setLog((prev) => [...prev, `✗ hero ${model}: ${data.error ?? "lỗi"}`]);
+      pushLog("error", `✗ hero ${model}: ${data.error ?? "lỗi"} (${sec}s)`);
       return;
     }
 
     if (data.article) {
       setArticle(data.article);
       setTab("clean");
-      setLog((prev) => [...prev, `✓ hero ${data.hero?.modelLabel ?? model}`]);
+      pushLog("success", `✓ hero ${data.hero?.modelLabel ?? model} (${sec}s)`);
     }
   }
 
@@ -178,14 +277,17 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   const activeTab = TABS.find((t) => t.key === tab);
   const activeContent = contentMap[tab];
+  const displayError = actionError || article.errorMessage;
 
   return (
     <AppShell
       title={article.title || article.topic || "Bài mới"}
       subtitle={
-        article.currentStep
-          ? `Bước tiếp theo: ${STEP_LABELS[article.currentStep]}`
-          : "Pipeline hoàn tất — sẵn sàng duyệt hoặc publish"
+        running
+          ? runningLabel
+          : article.currentStep
+            ? `Bước tiếp theo: ${STEP_LABELS[article.currentStep]}`
+            : "Pipeline hoàn tất — sẵn sàng duyệt hoặc publish"
       }
       backHref="/dashboard"
       backLabel="Pipeline"
@@ -204,15 +306,23 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </div>
       }
     >
-      {article.errorMessage && (
-        <div className="mb-6 rounded-2xl border border-red-200 bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
-          {article.errorMessage}
-        </div>
-      )}
-
       <section className="mb-6">
-        <PipelineSteps currentStep={article.currentStep} status={article.status} />
+        <PipelineSteps
+          currentStep={article.currentStep}
+          status={running ? "RUNNING" : article.status}
+          running={running}
+        />
       </section>
+
+      <PipelineRunPanel
+        running={running}
+        runningLabel={runningLabel}
+        status={article.status}
+        currentStepLabel={article.currentStep ? STEP_LABELS[article.currentStep] : null}
+        errorMessage={displayError}
+        logs={logs}
+        onClear={() => setLogs([])}
+      />
 
       <section className="mb-6 flex flex-wrap gap-2">
         <Button
@@ -242,11 +352,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               const label = article.title || article.topic || "bài này";
               if (!window.confirm(`Xoá pipeline “${label}”? Không hoàn tác được.`)) return;
               setRunning(true);
+              setRunningLabel("Đang xoá bài...");
               const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
               setRunning(false);
+              setRunningLabel("");
               if (!res.ok) {
                 const data = (await res.json().catch(() => ({}))) as { error?: string };
-                setLog((prev) => [...prev, `✗ ${data.error ?? "Không xoá được"}`]);
+                pushLog("error", `✗ ${data.error ?? "Không xoá được"}`);
                 return;
               }
               router.push("/dashboard");
@@ -272,11 +384,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={!!genning || running}
-              onClick={() => generateHero("flux")}
-            >
+            <Button size="sm" disabled={!!genning || running} onClick={() => generateHero("flux")}>
               {genning === "flux" ? "Đang gen Flux..." : "Gen FLUX.1-dev"}
             </Button>
             <Button
@@ -420,22 +528,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           )}
         </article>
       </section>
-
-      {log.length > 0 && (
-        <section className="mt-6 surface-card p-5">
-          <h3 className="text-sm font-semibold text-[var(--ink)]">Pipeline log</h3>
-          <ul className="mt-3 space-y-1.5 font-mono text-xs text-[var(--ink-muted)]">
-            {log.map((line, i) => (
-              <li
-                key={i}
-                className={`rounded-lg px-2 py-1 ${line.startsWith("✗") ? "bg-[var(--danger-soft)] text-[var(--danger)]" : line.startsWith("✓") ? "bg-[var(--success-soft)] text-[var(--success)]" : ""}`}
-              >
-                {line}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </AppShell>
   );
 }
