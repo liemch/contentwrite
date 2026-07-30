@@ -38,10 +38,10 @@ type Article = {
 const TABS = [
   { key: "clean", label: "Bản sạch", desc: "Copy-paste để đăng" },
   { key: "research", label: "Nghiên cứu", desc: "Nguồn & trade-off" },
-  { key: "insight", label: "Cổng Insight", desc: "L2/L3 + quyết định" },
+  { key: "insight", label: "Cổng Insight", desc: "Gate → Decision → Planning" },
   { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
-  { key: "fact", label: "Fact-check", desc: "Claim → nguồn" },
-  { key: "knowledge", label: "Knowledge", desc: "Metadata biên tập" },
+  { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
+  { key: "knowledge", label: "Review / Knowledge", desc: "Bước 8 → 10 metadata" },
   { key: "hero", label: "Hero brief", desc: "Ảnh minh hoạ" },
 ] as const;
 
@@ -163,6 +163,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         searchHits?: number;
         searchQueries?: number;
         researchPhase?: string;
+        insightPhase?: string;
         writePhase?: string;
         finalizePhase?: string;
       };
@@ -217,39 +218,56 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     if (action === "run-step") {
       const phase = data.timings?.researchPhase;
+      const insightPhase = data.timings?.insightPhase;
       const writePhase = data.timings?.writePhase;
       const finalizePhase = data.timings?.finalizePhase;
       const finished =
         phase === "search"
-          ? "Nghiên cứu · tìm nguồn"
+          ? "1–2 · Memory + Research (Tavily)"
           : phase === "llm"
-            ? "Nghiên cứu · viết brief"
-            : writePhase === "a"
-              ? "Viết · nửa đầu"
-              : writePhase === "b"
-                ? "Viết · nửa sau"
-                : finalizePhase === "a"
-                  ? "Rà soát · fact-check"
-                  : finalizePhase === "b"
-                    ? "Rà soát · bản sạch"
-                    : finalizePhase === "self-check-fail"
-                      ? "Rà soát · self-check"
-                      : STEP_LABELS[stepBefore] || stepBefore;
+            ? "3–4 · Verification + Synthesis"
+            : insightPhase === "gate" || insightPhase === "gate-fail"
+              ? "Gate · Insight L2"
+              : insightPhase === "decision"
+                ? "5 · Editorial Decision"
+                : insightPhase === "planning"
+                  ? "6 · Planning"
+                  : writePhase === "a"
+                    ? "7 · Writing nửa đầu"
+                    : writePhase === "b"
+                      ? "7 · Writing nửa sau"
+                      : finalizePhase === "review"
+                        ? "8 · Review"
+                        : finalizePhase === "fact" || finalizePhase === "a"
+                          ? "9 · Fact Check"
+                          : finalizePhase === "publish" || finalizePhase === "b"
+                            ? "10 · Publish Ready"
+                            : finalizePhase === "self-check-fail"
+                              ? "10 · Self-check"
+                              : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
           "info",
-          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s (bấm bước tiếp để GLM viết brief)`,
+          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s (bước tiếp: Verify + Synth)`,
         );
       } else if (phase === "llm" && data.timings) {
         const l = Math.round((data.timings.llmMs || 0) / 1000);
-        pushLog("info", `·· GLM viết Research Brief · ${l}s`);
+        pushLog("info", `·· Verification + Synthesis → Research Brief · ${l}s`);
       } else if (data.timings?.llmMs != null) {
-        pushLog("info", `·· GLM · ${Math.round((data.timings.llmMs || 0) / 1000)}s`);
+        pushLog("info", `·· NVIDIA · ${Math.round((data.timings.llmMs || 0) / 1000)}s`);
       }
       if (next.status === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
-      } else if (phase === "search" || writePhase === "a" || finalizePhase === "a") {
+      } else if (
+        phase === "search" ||
+        insightPhase === "gate" ||
+        insightPhase === "decision" ||
+        writePhase === "a" ||
+        finalizePhase === "review" ||
+        finalizePhase === "fact" ||
+        finalizePhase === "a"
+      ) {
         pushLog("success", `✓ Xong ${finished} · còn phase tiếp · ${elapsedSec}s`);
       } else {
         pushLog(
@@ -271,13 +289,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
-    pushLog("info", "→ Chạy cả chu trình (Nghiên cứu → Insight → Viết → Rà soát)...");
+    pushLog("info", "→ Chạy cả chu trình AI-TFES (10 bước + Gate)...");
 
     let safety = 0;
     let current = article;
 
     while (
-      safety < 14 &&
+      safety < 18 &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
       current.status !== "PUBLISHED" &&
@@ -350,9 +368,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       ? "Đã có kết quả Tavily (blob). Chạy bước Research lần 2 để GLM/Llama viết Research Brief."
       : article.researchBrief,
     insight: article.insightGate,
-    draft: stripPipelineMarks(article.draft12) || null,
+    draft: article.draft12
+      ? prepareReaderContent(stripPipelineMarks(article.draft12), {
+          stripLeadingHeroImage: true,
+          stripHeroBriefSection: true,
+        })
+      : null,
     fact: article.factCheck,
-    knowledge: article.knowledgeRecord,
+    knowledge: article.knowledgeRecord
+      ? stripPipelineMarks(article.knowledgeRecord)
+      : null,
     hero: article.heroBrief,
   };
 
@@ -388,11 +413,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       }
     >
       <section className="mb-6">
-        <PipelineSteps
-          currentStep={article.currentStep}
-          status={running ? "RUNNING" : article.status}
-          running={running}
-        />
+        <PipelineSteps article={article} running={running} />
       </section>
 
       <PipelineRunPanel

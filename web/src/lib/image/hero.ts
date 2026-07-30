@@ -25,26 +25,46 @@ export const HERO_MODELS: Record<
 function stripMd(value: string): string {
   return value
     .replace(/\*\*/g, "")
+    .replace(/`+/g, "")
+    .replace(/^#+\s*/gm, "")
     .replace(/^["'\s]+|["'\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+/** Lấy prompt English sạch — tránh nhồi cả Hero Brief (markdown/VI) vào FLUX → ảnh đen */
 function extractPromptFromHeroBrief(heroBrief: string | null | undefined, fallbackTopic: string): string {
-  if (!heroBrief?.trim()) {
-    return `Minimal abstract editorial tech illustration about ${fallbackTopic}. Soft teal lighting, geometric forms, no text, no people, no logos, no charts with fake numbers.`;
-  }
+  const fallback = `Minimal abstract editorial tech illustration about ${fallbackTopic}. Soft teal lighting, geometric forms, no text, no people, no logos, no charts with fake numbers.`;
 
-  // Hero brief dạng markdown: **Prompt (English):** "...."
-  // (dấu ':' nằm trong đoạn bold, không phải **Prompt** :)
+  if (!heroBrief?.trim()) return fallback;
+
   const promptMatch =
     heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*"([^"]+)"/i) ||
     heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*'([^']+)'/i) ||
-    heroBrief.match(/Prompt\s*\(English\)\s*:\*\*\s*"([^"]+)"/i) ||
+    heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*([^\n]+)/i) ||
+    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*"([^"]+)"/i) ||
+    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*'([^']+)'/i) ||
+    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*([^\n]+)/i) ||
     heroBrief.match(/English prompt\s*:\s*"([^"]+)"/i) ||
+    heroBrief.match(/English prompt\s*:\s*([^\n]+)/i) ||
     heroBrief.match(/```(?:text|prompt)?\n([\s\S]*?)```/i);
 
-  const base = stripMd(promptMatch?.[1] || heroBrief).slice(0, 1200);
+  let base = stripMd(promptMatch?.[1] || "");
+
+  // Không có dòng Prompt → lấy câu tiếng Anh dài nhất trong brief
+  if (base.length < 40) {
+    const englishLines = heroBrief
+      .split(/\n+/)
+      .map((l) => stripMd(l))
+      .filter((l) => l.length > 40 && /[a-zA-Z]{4,}/.test(l) && !/HERO|Concept|Caption|Alt|Status/i.test(l))
+      .filter((l) => (l.match(/[a-zA-Z]/g)?.length ?? 0) > (l.match(/[àáạảãăằắặẳẵâầấậẩẫèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi)?.length ?? 0) * 2);
+    base = englishLines.sort((a, b) => b.length - a.length)[0] || "";
+  }
+
+  if (base.length < 24) return fallback;
+
+  // Cắt prompt quá dài / dính markdown còn sót
+  base = base.replace(/https?:\/\/\S+/g, "").slice(0, 900);
   return `${base}. Editorial tech magazine hero, abstract, no readable text overlays, no real people, no logos, no fake charts or data visualizations.`;
 }
 
@@ -121,7 +141,6 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) throw new Error("NVIDIA_API_KEY chưa được cấu hình");
 
-  // flux.1-dev ổn định trên NVIDIA cloud; schnell hay timeout local
   const url = "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev";
   const res = await postJsonCurl(
     url,
@@ -129,24 +148,26 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
     {
       prompt,
       width: 1024,
-      height: 1024,
+      height: 576,
       seed: Math.floor(Math.random() * 1_000_000),
-      steps: 28,
+      steps: 20,
     },
-    120000,
+    100000,
   );
 
   if (!res.ok) {
     throw new Error(`FLUX lỗi (${res.status}): ${res.text.slice(0, 240)}`);
   }
 
-  const json = JSON.parse(res.text) as {
-    artifacts?: Array<{ base64?: string }>;
-  };
-  const b64 = json.artifacts?.[0]?.base64;
-  if (!b64) throw new Error("FLUX không trả về ảnh");
+  let json: { artifacts?: Array<{ base64?: string; image?: string }> };
+  try {
+    json = JSON.parse(res.text) as typeof json;
+  } catch {
+    throw new Error(`FLUX trả JSON lỗi: ${res.text.slice(0, 200)}`);
+  }
+  const b64 = json.artifacts?.[0]?.base64 || json.artifacts?.[0]?.image;
+  if (!b64) throw new Error("FLUX không trả về ảnh (artifacts trống)");
   const buffer = Buffer.from(b64, "base64");
-  // Flux đôi khi trả JPEG đen ~6KB khi prompt dính markdown/ký tự lạ
   if (buffer.length < 12_000) {
     throw new Error(
       "FLUX trả ảnh rỗng/đen — thử lại hoặc rút gọn Hero Brief (prompt English sạch, không markdown).",
@@ -163,18 +184,17 @@ async function generateWithQwen(prompt: string): Promise<Buffer> {
     );
   }
 
-  // Sync endpoint fal.run
   const res = await postJsonCurl(
     "https://fal.run/fal-ai/qwen-image",
     { Authorization: `Key ${falKey}` },
     {
       prompt,
-      image_size: "square_hd",
-      num_inference_steps: 30,
+      image_size: "landscape_16_9",
+      num_inference_steps: 28,
       guidance_scale: 3.5,
       enable_safety_checker: true,
     },
-    180000,
+    150000,
   );
 
   if (!res.ok) {
@@ -205,13 +225,26 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
   return raw;
 }
 
+/**
+ * Vercel serverless: public/ không persist / dễ read-only → lưu data URL vào DB.
+ * Local: ghi file public/generated/heroes.
+ */
 async function saveHeroImage(articleId: string, model: HeroImageModel, buffer: Buffer) {
-  const dir = join(process.cwd(), "public", "generated", "heroes");
-  await mkdir(dir, { recursive: true });
-  const filename = `${articleId}-${model}-${Date.now()}.jpg`;
-  const abs = join(dir, filename);
-  await writeFile(abs, buffer);
-  return `/generated/heroes/${filename}`;
+  if (process.env.VERCEL || process.env.HERO_STORE === "data-url") {
+    return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+  }
+
+  try {
+    const dir = join(process.cwd(), "public", "generated", "heroes");
+    await mkdir(dir, { recursive: true });
+    const filename = `${articleId}-${model}-${Date.now()}.jpg`;
+    const abs = join(dir, filename);
+    await writeFile(abs, buffer);
+    return `/generated/heroes/${filename}`;
+  } catch {
+    // Fallback nếu không ghi được disk
+    return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+  }
 }
 
 export async function generateHeroImage(input: {
@@ -241,8 +274,18 @@ export async function generateHeroImage(input: {
 /** Chèn/ghi đè hero image ở đầu bản sạch */
 export function injectHeroIntoCleanPublish(cleanPublish: string | null | undefined, imageUrl: string, alt: string) {
   if (!cleanPublish) return cleanPublish;
-  const mdImage = `![${alt}](${imageUrl})`;
   let body = cleanPublish;
+
+  // Data URL quá lớn cho markdown DB — UI render từ heroImageUrl
+  if (imageUrl.startsWith("data:")) {
+    return body
+      .replace(/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)\s*/g, "")
+      .replace(/\bHERO_IMAGE\b/g, "")
+      .replace(/^\s*!\[[^\]]*]\(data:[^)]+\)\s*/m, "")
+      .trimStart();
+  }
+
+  const mdImage = `![${alt}](${imageUrl})`;
   if (/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)/.test(body)) {
     body = body.replace(/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)/, mdImage);
     return body;
@@ -251,7 +294,6 @@ export function injectHeroIntoCleanPublish(cleanPublish: string | null | undefin
     body = body.replace(/\bHERO_IMAGE\b/g, imageUrl);
     return body;
   }
-  // Bỏ ảnh hero cũ ở đầu (nếu re-gen)
   body = body.replace(/^\s*!\[[^\]]*]\([^)]+\)\s*/m, "").trimStart();
   return `${mdImage}\n\n${body}`;
 }

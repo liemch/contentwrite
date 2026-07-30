@@ -3,6 +3,14 @@ const STATUS_MARKER = "STATUS: Publish Ready";
 
 export const WRITE_HALF_MARK = "<!--TFES_DRAFT_HALF-->";
 export const WRITE_DONE_MARK = "<!--TFES_DRAFT_DONE-->";
+/** Insight Gate ≥ L2 (OP: giữa Synthesis và Decision) */
+export const INSIGHT_GATE_MARK = "<!--TFES_INSIGHT_GATE-->";
+/** Editorial Decision xong (bước 5) */
+export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
+/** Planning xong (bước 6) → được sang Writing */
+export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
+/** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm */
+export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
 
 export type ParsedOutputs = {
   researchBrief?: string;
@@ -76,6 +84,15 @@ export function parseFullOutput(text: string): ParsedOutputs {
     /HERO IMAGE BRIEF/i,
     /STATUS:|=== BẢN SẠCH|BẢN SẠCH ĐỂ ĐĂNG/i,
   );
+
+  // Bản sạch không được kèm Hero Brief (Hero lưu field riêng)
+  if (cleanPublish) {
+    cleanPublish = cleanPublish
+      .replace(/\n+#{0,3}\s*HERO IMAGE BRIEF[\s\S]*$/i, "")
+      .replace(/\n\*{0,2}HERO IMAGE BRIEF\*{0,2}[\s\S]*$/i, "")
+      .replace(/\n*-{3,}\s*\n+#{0,3}\s*HERO IMAGE BRIEF[\s\S]*$/i, "")
+      .trim();
+  }
 
   return {
     researchBrief: extractSection(text, /1\)\s*Research Brief/i, /2\)\s*Insight/i),

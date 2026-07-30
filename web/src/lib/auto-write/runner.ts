@@ -171,8 +171,8 @@ async function pickTopic(
 }
 
 export async function runFullWorkflowToReview(articleId: string) {
-  // Research2 + Insight + Write2 + Finalize2 → tối đa ~8–10 bước
-  for (let i = 0; i < 14; i++) {
+  // Research2 + Insight3 + Write2 + Finalize3 → ~10 tick
+  for (let i = 0; i < 18; i++) {
     const article = await runWorkflowStep(articleId);
     if (
       article.status === ArticleStatus.PUBLISH_READY ||

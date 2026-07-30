@@ -56,7 +56,7 @@ export default function LoginForm() {
             </p>
             <div className="mt-8 grid max-w-md gap-3 text-sm text-[var(--ink-muted)]">
               {[
-                "Chu trình 4 bước: Nghiên cứu → Cổng Insight → Viết bài → Rà soát",
+                "Chu trình AI-TFES 10 bước (+ Insight Gate ≥ L2)",
                 "Thư viện bài đã duyệt, đọc dạng tạp chí nội bộ",
                 "Hero brief sẵn sàng để gen ảnh minh họa",
               ].map((item) => (

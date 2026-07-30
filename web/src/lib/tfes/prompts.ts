@@ -42,7 +42,7 @@ ${domainProfile}
 
 ---
 
-Bạn đang chạy chu trình biên tập web AI-TFES. Mỗi lần gọi chỉ làm ĐÚNG bước được yêu cầu trong user message.
+Bạn đang chạy chu trình biên tập web AI-TFES (10 bước Operating Prompt). Mỗi lần gọi chỉ làm ĐÚNG bước được yêu cầu trong user message.
 Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; không bịa nguồn/số liệu.
 
 ## CẤM (bài sẽ bị coi là FAIL chất lượng)
@@ -51,7 +51,10 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 - Ví dụ bịa "Công ty ABC/DEF/XYZ" không có chi tiết kỹ thuật cụ thể
 - References bịa (tên tác giả giả, paper không tồn tại) — chỉ dùng link/nguồn từ Research Brief
 - Viết meta về "seed_topics / domain profile / Seeding Mode" như thể đó là chủ đề bài
-- Đoạn Deep Analysis chỉ liệt kê chung chung không có trade-off có điều kiện`;
+- Đoạn Deep Analysis chỉ liệt kê chung chung không có trade-off có điều kiện
+- Gắn (L2)/(L3)/L2 vào Title hoặc Subtitle (cấp insight chỉ nằm ở tab Insight)
+- Nhét HERO IMAGE BRIEF vào bản nháp 12 phần (Hero chỉ ở Publish Ready)
+- Lạm dụng markdown table — ưu tiên bullet/numbered list; table chỉ khi so sánh ≤3 cột số liệu thật`;
 }
 
 export function buildDailyTaskPrompt(input: {
@@ -74,35 +77,56 @@ export function buildDailyTaskPrompt(input: {
     .replace("<tùy chọn>", input.topic ?? "đã chọn — xem mục Chủ đề bài");
 }
 
+/** Bước 3+4: Verification + Synthesis → Research Brief (sau khi đã có web search) */
 export function buildResearchPrompt(topic: string, searchBlob: string): string {
   const researchTemplate = readTfesFile("05-Templates/Research-Brief.md");
 
-  return `## Nhiệm vụ bước NGHIÊN CỨU + TỔNG HỢP (AI-TFES)
+  return `## Nhiệm vụ bước 3–4: VERIFICATION + SYNTHESIS (AI-TFES Operating Prompt)
 Chủ đề bài (đã chốt — KHÔNG đổi sang câu hướng dẫn seed_topics): **${topic}**
 
-Thực hiện Research + Synthesis theo Operating Prompt + Domain Profile:
-- ≥3 nguồn độc lập từ web search; ghi rõ Tier theo Domain Profile; ưu tiên Tier 1–2
-- ≥1 góc phản biện / limitations
-- Cross-validation: đồng thuận vs mâu thuẫn → trade-off có điều kiện
-- SĂN insight L2/L3 (điều kiện ẩn, trade-off bị giấu, reframe) — chưa viết bài 12 phần
-- Nếu chưa đủ nguồn tin cậy hoặc không có insight mới → ghi rõ trong brief, không bịa
+Editorial Memory + Research (web-search) đã xong ở tick trước. Bây giờ CHỈ làm:
+
+### 3) Verification
+- Đối chiếu các nguồn trong WEB SEARCH RESULTS; ghi Tier theo Domain Profile
+- Loại / đánh dấu thấp nguồn thiên marketing, không có tác giả, hoặc không kiểm chứng được
+- Phát hiện mâu thuẫn giữa nguồn — PHÂN TÍCH, không chọn bừa một phía
+- ≥3 nguồn độc lập dùng được; khuyến nghị ghi 5–8 nếu có; ≥1 góc phản biện / limitations
+
+### 4) Synthesis (Knowledge Synthesis — CẤM tóm tắt từng bài)
+- So sánh điểm giống / khác → trade-off có điều kiện
+- Rút insight mới (điều kiện ẩn, trade-off bị giấu, reframe) — không paraphrase từng nguồn
+- Điền đủ mục template: Different Perspectives / Cross-validation, Trade-offs, Insights (≥3 có nguồn), Practical Lessons
+
+Chưa viết Insight Gate / Decision / Planning / bài 12 phần.
+Nếu chưa đủ nguồn tin cậy hoặc không có insight mới → ghi rõ trong brief, không bịa.
 
 Chỉ xuất mục **"1) Research Brief"** theo template:
 
 ${researchTemplate}
 
-=== WEB SEARCH RESULTS (nguồn thật) ===
+=== WEB SEARCH RESULTS (nguồn thật — bước 2 Research) ===
 ${searchBlob}`;
 }
 
 type PipelineStep =
   | "insight"
+  | "insight-a"
+  | "insight-decision"
+  | "insight-planning"
+  | "insight-b"
   | "write"
   | "write-a"
   | "write-b"
+  | "finalize-review"
   | "finalize-a"
   | "finalize-b"
   | "finalize";
+
+const FORMAT_RULES_WRITE = `### Định dạng bài (bắt buộc)
+- Title & Subtitle: tiếng Việt rõ nghĩa — CẤM gắn (L2), (L3), L2, cấp insight
+- CẤM viết HERO IMAGE BRIEF / prompt ảnh trong bước này
+- Ưu tiên đoạn văn + bullet list; HẠN CHẾ markdown table (chỉ khi thật sự cần so sánh số liệu ngắn)
+- Không viết meta biên tập ("Insight Gate đạt L2…") vào body bài`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -115,75 +139,134 @@ export function buildPipelinePrompt(step: PipelineStep, context: string): string
   const articleTpl = templateBlock("Article.md (12 phần)", "05-Templates/Article.md");
   const factTpl = templateBlock("FactCheck.md", "05-Templates/FactCheck.md");
   const publishTpl = templateBlock("Publish.md (checklist)", "05-Templates/Publish.md");
+  const reviewTpl = templateBlock("Review.md", "05-Templates/Review.md");
 
   const instructions: Record<PipelineStep, string> = {
-    insight: `## Nhiệm vụ bước INSIGHT GATE (AI-TFES)
-Dựa trên Research Brief trong CONTEXT, thực hiện *** INSIGHT GATE *** + Editorial Decision theo Operating Prompt:
-- Nêu luận điểm trung tâm + xếp L0–L3
-- 3 test: (a) So what (b) Không hiển nhiên (c) Chịu phản biện
-- CHỈ đạt ≥ L2 mới được viết. Nếu < L2 → đề xuất đổi góc/chủ đề, KHÔNG viết bài.
+    insight: `## Nhiệm vụ Insight (full — legacy)
+Gate + Decision + Planning. CHỈ ≥ L2 mới được viết.`,
 
-Xuất đúng mục **"2) Insight Gate result + Editorial Decision"**.`,
+    "insight-a": `## Nhiệm vụ Insight Gate (chèn giữa Synthesis → Decision — Operating Prompt)
+CHỈ đánh giá cổng insight — KHÔNG viết Editorial Decision / Planning / bài / Hero.
 
-    write: `## Nhiệm vụ bước WRITE (AI-TFES)
-Insight đã ≥ L2. Viết mục **"3) Bài viết 12 phần"** theo BAR VIẾT (Operating Prompt) + template Article.md.
-Tiếng Việt, khoảng 1.200–1.800 từ. Insight L2/L3 đặt sớm; có "khi nào KHÔNG".
+Dựa Research Brief (đã Verification + Synthesis) trong CONTEXT:
+1. Nêu luận điểm trung tâm (1–2 câu)
+2. Xếp hạng L0–L3 + giải thích ngắn
+   - L0 hiển nhiên · L1 tổng hợp · L2 điều kiện/ẩn · L3 reframe
+3. 3 test: (a) So what (b) Không hiển nhiên (c) Chịu phản biện — Pass/Fail từng test
+4. Kết luận một dòng: **ĐẠT ≥ L2 — được viết** HOẶC **CHƯA ĐẠT — đổi góc/chủ đề**
+
+Xuất ngắn (~400–700 từ). Không Title/Subtitle đăng bài. Không 12 phần.`,
+
+    "insight-decision": `## Nhiệm vụ bước 5: EDITORIAL DECISION (AI-TFES)
+Insight Gate đã ≥ L2 (xem CONTEXT). CHỈ làm Decision — KHÔNG Planning / Writing / Hero.
+
+Chấm điểm / chốt:
+- Chủ đề góc đã chọn (không đổi vì "đang hot")
+- Category theo Domain Profile
+- Lý do chọn: giá trị thực tiễn + học hỏi + lâu dài (Evergreen)
+- Audience ngắn
+- Nếu chủ đề yếu dù Gate L2 → nêu rủi ro editorial rõ ràng
+
+Xuất mục **"2) Editorial Decision"** (~300–500 từ).`,
+
+    "insight-planning": `## Nhiệm vụ bước 6: PLANNING (AI-TFES)
+Decision đã chốt (CONTEXT). CHỈ Planning — KHÔNG viết bài 12 phần / Hero.
+
+Chốt đủ:
+- Objective
+- Audience
+- 1 Core Message (= insight L2/L3 chính)
+- 3–5 Key Insights (mỗi ý có nguồn từ Research Brief)
+- Ví dụ dự kiến (≥2 hướng)
+- Story Flow (dàn ý các phần Deep Analysis → Recommendations)
+- Khuyến nghị 3 cấp: Cá nhân / Team / Tổ chức (làm gì / khi nào / khi nào KHÔNG)
+- Discussion Questions (3–5 câu mở)
+
+Xuất mục **"2) Planning"** (~500–800 từ).`,
+
+    "insight-b": `## Nhiệm vụ Insight Decision+Planning (legacy gộp)
+Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.`,
+
+    write: `## Nhiệm vụ bước 7: WRITING (AI-TFES)
+Insight ≥ L2 + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md.
+Tiếng Việt ~1.200–1.800 từ. Có "khi nào KHÔNG".
+
+${FORMAT_RULES_WRITE}
 
 ${articleTpl}`,
 
-    "write-a": `## Nhiệm vụ WRITE — Phase A (nửa đầu)
-Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY, không mức đạt):
+    "write-a": `## Nhiệm vụ bước 7 WRITING — Phase A (nửa đầu)
+Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY):
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
-- Hook cụ thể (quan sát/nghịch lý/tình huống) — CẤM mở chung chung
-- Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện, liên kết insight L2/L3
-- Không lặp câu; mỗi đoạn phải thêm thông tin mới
-- Dùng thuật ngữ / cơ chế thật từ Research Brief (không bịa)
+- Hook cụ thể — CẤM mở chung chung
+- Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện (không gắn nhãn L2 vào title)
+- Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
 
-Dừng sau Deep Analysis. KHÔNG viết Examples / Recommendations / Takeaways / Discussion / References.
+Dừng sau Deep Analysis. KHÔNG Examples / Recommendations / Takeaways / Discussion / References / HERO.
 
-${articleTpl}`,
-
-    "write-b": `## Nhiệm vụ WRITE — Phase B (nửa sau)
-Tiếp tục NỬA SAU theo Article.md (khớp insight + nửa đầu trong CONTEXT):
-- Real-world Examples (≥2): tình huống có ràng buộc kỹ thuật cụ thể (stack, scale, failure mode) — CẤM "Công ty ABC cải thiện hiệu suất"
-- Practical Recommendations Cá nhân/Team/Tổ chức: mỗi mục có làm gì / khi nào / khi nào KHÔNG / rủi ro
-- Key Takeaways (3): mỗi ý một câu sắc, không tóm lại tiêu đề
-- Discussion Questions (3): mở, không yes/no nông
-- References: CHỈ nguồn có trong Research Brief (giữ link). Không bịa paper.
-
-KHÔNG viết lại nửa đầu. Tổng Phase B khoảng 600–900 từ chất lượng.
+${FORMAT_RULES_WRITE}
 
 ${articleTpl}`,
 
-    "finalize-a": `## Nhiệm vụ FINALIZE — Phase A
-Chỉ xuất:
-- **"4) Fact-Check Ledger"** theo template FactCheck.md
-- **"5) Knowledge Record"** (Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date)
+    "write-b": `## Nhiệm vụ bước 7 WRITING — Phase B (nửa sau)
+Tiếp tục NỬA SAU theo Article.md + Planning trong CONTEXT:
+- Real-world Examples (≥2): ràng buộc kỹ thuật cụ thể — CẤM "Công ty ABC"
+- Practical Recommendations Cá nhân/Team/Tổ chức: làm gì / khi nào / khi nào KHÔNG / rủi ro
+- Key Takeaways (3) · Discussion Questions (3) · References (chỉ Research Brief)
 
-Không viết Bản sạch / HERO.
+KHÔNG viết lại nửa đầu. KHÔNG HERO IMAGE BRIEF. ~600–900 từ.
+
+${FORMAT_RULES_WRITE}
+
+${articleTpl}`,
+
+    "finalize-review": `## Nhiệm vụ bước 8: REVIEW (AI-TFES Operating Prompt §6)
+Tự review bản nháp 12 phần theo tiêu chí — CHƯA Fact-Check Ledger / Bản sạch / Hero.
+
+Phải đạt hết (ghi Pass/Fail từng mục):
+- Cấu trúc đầy đủ (12 phần)
+- Không lỗi logic
+- Đủ bằng chứng
+- ≥3 insight + ≥1 trade-off + ≥1 góc phản biện + ≥1 bài học
+- Giá trị thực tiễn (biết nên / không nên làm gì)
+- Có câu hỏi thảo luận
+- Không quảng bá · Không sao chép
+- Tránh tuyệt đối hóa ("luôn luôn / chắc chắn / tốt nhất…") trừ khi có bằng chứng
+
+Xuất theo template Review.md. Kết luận: Publish / Minor Revision / Major Revision / Rewrite.
+Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist).
+
+${reviewTpl}`,
+
+    "finalize-a": `## Nhiệm vụ bước 9: FACT CHECK (AI-TFES)
+Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
+- Mỗi khẳng định Fact/Practice → nguồn đã đọc (URL từ Research) → verdict
+- Số liệu & trích dẫn khớp nguồn
+- Gắn nhãn Opinion / Prediction rõ ràng
+
+Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 
 ${factTpl}`,
 
-    "finalize-b": `## Nhiệm vụ RÀ SOÁT — Phase B (Bản sạch)
-Chỉ xuất:
-- **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** — bài hoàn chỉnh copy-paste (gỡ nhãn Section; Title/Subtitle/References; \`![alt](HERO_IMAGE)\`)
-- **HERO IMAGE BRIEF** (concept + prompt English + caption + alt; minh họa, không số liệu giả/người thật/logo)
-- Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
+    "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY (AI-TFES)
+Xuất theo thứ tự:
+1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date
+2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** — bài hoàn chỉnh (gỡ nhãn Section; Title/Subtitle KHÔNG (L2); References; \`![alt](HERO_IMAGE)\`)
+   - Hạn chế table; ưu tiên list
+3. Khối riêng **HERO IMAGE BRIEF**:
+   - Concept · **Prompt (English):** "...." (tiếng Anh sạch) · Caption + Alt
+4. Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
-Bản sạch phải đủ dài (~1.200 từ), giữ insight L2/L3, “khi nào KHÔNG”, references URL từ Research — không rút thành tóm tắt nông.
-Tuân thủ Publish.md + Quality Gates Review.md (G1–G8).
+Bản sạch ~1.200 từ, giữ insight sâu, “khi nào KHÔNG”, references URL.
+Tuân thủ Publish.md.
 
-${publishTpl}
+${publishTpl}`,
 
-### Template: Review.md (Quality Gates)
-
-${readTfesFile("05-Templates/Review.md")}`,
-
-    finalize: `## Nhiệm vụ FINALIZE (full)
-Xuất lần lượt mục 4, 5, 6 theo Operating Prompt + templates.
+    finalize: `## Nhiệm vụ FINALIZE (full legacy)
+Review + Fact-Check + Publish Ready theo Operating Prompt.
 
 ${factTpl}
 

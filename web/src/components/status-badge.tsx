@@ -16,10 +16,10 @@ export const STEP_LABELS: Record<string, string> = {
 };
 
 export const STEP_HINTS: Record<string, string> = {
-  RESEARCH: "Nghiên cứu: tìm nguồn → viết Research Brief + tổng hợp",
-  INSIGHT: "Cổng Insight: chỉ viết tiếp nếu ≥ L2",
-  WRITE: "Viết bài 12 phần (2 lần: nửa đầu → nửa sau)",
-  FINALIZE: "Rà soát: fact-check → bản sạch + self-check",
+  RESEARCH: "1–4: Memory → Research → Verification → Synthesis",
+  INSIGHT: "Gate L2 → 5 Decision → 6 Planning",
+  WRITE: "7 Writing: nửa đầu → nửa sau (12 phần)",
+  FINALIZE: "8 Review → 9 Fact Check → 10 Publish Ready",
 };
 
 const STATUS_STYLES: Record<string, string> = {

@@ -1,86 +1,91 @@
-import { STEP_LABELS } from "@/components/status-badge";
+import {
+  isTrackerStepDone,
+  resolveTrackerIndex,
+  TFES_TRACKER_STEPS,
+} from "@/lib/tfes/tracker";
 
-const STEPS = ["RESEARCH", "INSIGHT", "WRITE", "FINALIZE"] as const;
+type ArticleLite = {
+  status: string;
+  currentStep: string | null;
+  researchBrief?: string | null;
+  insightGate?: string | null;
+  draft12?: string | null;
+  factCheck?: string | null;
+  knowledgeRecord?: string | null;
+  cleanPublish?: string | null;
+};
 
 export function PipelineSteps({
-  currentStep,
-  status,
+  article,
   running = false,
 }: {
-  currentStep: string | null;
-  status: string;
+  article: ArticleLite;
   running?: boolean;
 }) {
-  const currentIndex =
-    status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED"
-      ? STEPS.length
-      : currentStep
-        ? STEPS.indexOf(currentStep as (typeof STEPS)[number])
-        : 0;
+  const activeIndex = resolveTrackerIndex(article);
+  const failedIndex = article.status === "FAILED" ? activeIndex : -1;
 
   return (
-    <ol className="grid gap-3 sm:grid-cols-4">
-      {STEPS.map((step, index) => {
-        const done =
-          index < currentIndex ||
-          status === "PUBLISH_READY" ||
-          status === "APPROVED" ||
-          status === "PUBLISHED";
-        const active =
-          status === "RUNNING"
-            ? index === Math.max(currentIndex, 0)
-            : index === currentIndex &&
-              status !== "PUBLISH_READY" &&
-              status !== "APPROVED" &&
-              status !== "PUBLISHED" &&
-              status !== "FAILED";
-        const failed = status === "FAILED" && index === currentIndex;
-        const showActive = active || (running && index === Math.max(currentIndex, 0) && !failed && !done);
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+        Workflow AI-TFES · 10 bước (+ Insight Gate)
+      </p>
+      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-11">
+        {TFES_TRACKER_STEPS.map((step, index) => {
+          const done = isTrackerStepDone(index, activeIndex, article.status);
+          const active =
+            article.status !== "FAILED" &&
+            index === Math.min(activeIndex, TFES_TRACKER_STEPS.length - 1) &&
+            activeIndex < TFES_TRACKER_STEPS.length;
+          const failed = failedIndex === index;
+          const showActive = (active || (running && active)) && !failed && !done;
 
-        return (
-          <li
-            key={step}
-            className={`rounded-2xl border px-4 py-3 transition ${
-              failed
-                ? "border-red-200 bg-[var(--danger-soft)]"
-                : done && !showActive
-                  ? "border-[rgba(15,118,110,0.25)] bg-[var(--accent-soft)]"
-                  : showActive
-                    ? "border-[var(--accent)] bg-white shadow-[0_0_0_4px_var(--accent-glow)]"
-                    : "border-[var(--line)] bg-[var(--surface)]"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
-                  failed
-                    ? "bg-[var(--danger)] text-white"
-                    : done && !showActive
-                      ? "bg-[var(--accent)] text-white"
-                      : showActive
-                        ? "bg-[var(--accent)] text-white animate-pulse-soft"
-                        : "bg-[var(--surface-muted)] text-[var(--ink-faint)]"
-                }`}
-              >
-                {failed ? "!" : done && !showActive ? "✓" : index + 1}
-              </span>
-              <div className="min-w-0">
-                <span className="block text-sm font-medium text-[var(--ink)]">{STEP_LABELS[step]}</span>
-                {showActive && running && (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
-                    Đang chạy…
-                  </span>
-                )}
-                {failed && (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--danger)]">
-                    Lỗi
-                  </span>
-                )}
+          return (
+            <li
+              key={step.id}
+              title={step.label}
+              className={`rounded-xl border px-2 py-2 transition ${
+                failed
+                  ? "border-red-200 bg-[var(--danger-soft)]"
+                  : done && !showActive
+                    ? "border-[rgba(15,118,110,0.25)] bg-[var(--accent-soft)]"
+                    : showActive
+                      ? "border-[var(--accent)] bg-white shadow-[0_0_0_3px_var(--accent-glow)]"
+                      : "border-[var(--line)] bg-[var(--surface)]"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                    failed
+                      ? "bg-[var(--danger)] text-white"
+                      : done && !showActive
+                        ? "bg-[var(--accent)] text-white"
+                        : showActive
+                          ? "bg-[var(--accent)] text-white animate-pulse-soft"
+                          : "bg-[var(--surface-muted)] text-[var(--ink-faint)]"
+                  }`}
+                >
+                  {failed ? "!" : done && !showActive ? "✓" : index + 1}
+                </span>
+                <span className="truncate text-[11px] font-medium leading-tight text-[var(--ink)]">
+                  {step.short}
+                </span>
               </div>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+              {showActive && running && (
+                <span className="mt-1 block text-[9px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                  Đang chạy…
+                </span>
+              )}
+              {failed && (
+                <span className="mt-1 block text-[9px] font-semibold uppercase tracking-wide text-[var(--danger)]">
+                  Lỗi
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
