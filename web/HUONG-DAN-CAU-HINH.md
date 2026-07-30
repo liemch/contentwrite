@@ -35,7 +35,7 @@ NVIDIA NIM — GLM-5.2 (Insight Gate → Viết → Fact-check)
 Cần có sẵn:
 
 - [ ] Tài khoản [Vercel](https://vercel.com)
-- [ ] **NVIDIA API Key** (`nvapi-...`) — endpoint `https://integrate.api.nvidia.com/v1`, model `z-ai/glm-5.2`
+- [ ] **NVIDIA API Key** (`nvapi-...`) — endpoint `https://integrate.api.nvidia.com/v1`, model `openai/gpt-oss-120b`
 - [ ] **Tavily API Key** (`tvly-...`) — [tavily.com](https://tavily.com) → Dashboard → API Keys
 - [ ] Repo/code đã push lên GitHub (hoặc import trực tiếp)
 
@@ -61,7 +61,8 @@ cp .env.example .env
 | `TAVILY_API_KEY` | ✅ | API key Tavily search |
 | `FAL_KEY` | Tuỳ chọn | Hero **Qwen-Image** qua fal.ai (không có thì chỉ dùng Flux) |
 | `NVIDIA_BASE_URL` | Khuyến nghị | `https://integrate.api.nvidia.com/v1` |
-| `NVIDIA_MODEL` | Khuyến nghị | `z-ai/glm-5.2` |
+| `NVIDIA_MODEL` | Khuyến nghị | `openai/gpt-oss-120b` (Hobby chậm thì thử `openai/gpt-oss-20b`) |
+| `NVIDIA_REASONING_EFFORT` | Khuyến nghị | `low` (gpt-oss; mặc định medium dễ timeout) |
 
 **Ví dụ `.env` local:**
 
@@ -73,7 +74,8 @@ DATABASE_URL=postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=r
 
 NVIDIA_API_KEY=nvapi-xxxx
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=z-ai/glm-5.2
+NVIDIA_MODEL=openai/gpt-oss-120b
+NVIDIA_REASONING_EFFORT=low
 
 TAVILY_API_KEY=tvly-xxxx
 

@@ -12,7 +12,11 @@ export type ChatMessage = {
 
 const BASE_URL =
   process.env.NVIDIA_BASE_URL ?? "https://integrate.api.nvidia.com/v1";
-const MODEL = process.env.NVIDIA_MODEL ?? "z-ai/glm-5.2";
+const MODEL = process.env.NVIDIA_MODEL ?? "openai/gpt-oss-120b";
+const REASONING_EFFORT = (process.env.NVIDIA_REASONING_EFFORT ?? "low") as
+  | "low"
+  | "medium"
+  | "high";
 
 /** Chừa ~12s cho DB/response trước khi Vercel Hobby cắt 60s */
 const VERCEL_CHAT_MS = 45_000;
@@ -32,7 +36,7 @@ function getClient() {
 }
 
 function buildBody(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number }) {
-  return {
+  const body: Record<string, unknown> = {
     model: MODEL,
     messages,
     temperature: options?.temperature ?? 0.7,
@@ -41,6 +45,11 @@ function buildBody(messages: ChatMessage[], options?: { temperature?: number; ma
     seed: 42,
     stream: true,
   };
+  // gpt-oss mặc định reasoning=medium → dễ vượt Hobby 60s
+  if (MODEL.includes("gpt-oss")) {
+    body.reasoning_effort = REASONING_EFFORT;
+  }
+  return body;
 }
 
 function parseSseContent(raw: string): string {
@@ -191,7 +200,7 @@ async function chatViaOpenAISdk(
   options?: { temperature?: number; maxTokens?: number },
 ): Promise<string> {
   const openai = getClient();
-  const stream = await openai.chat.completions.create({
+  const params: Record<string, unknown> = {
     model: MODEL,
     messages: messages as ChatCompletionMessageParam[],
     temperature: options?.temperature ?? 0.7,
@@ -199,11 +208,20 @@ async function chatViaOpenAISdk(
     max_tokens: options?.maxTokens ?? 16384,
     seed: 42,
     stream: true as const,
-  });
+  };
+  if (MODEL.includes("gpt-oss")) {
+    params.reasoning_effort = REASONING_EFFORT;
+  }
+
+  const stream = (await openai.chat.completions.create(
+    params as unknown as Parameters<typeof openai.chat.completions.create>[0],
+  )) as AsyncIterable<{
+    choices?: Array<{ delta?: { content?: string | null } }>;
+  }>;
 
   let content = "";
   for await (const chunk of stream) {
-    content += chunk.choices[0]?.delta?.content || "";
+    content += chunk.choices?.[0]?.delta?.content || "";
   }
 
   if (!content.trim()) {
