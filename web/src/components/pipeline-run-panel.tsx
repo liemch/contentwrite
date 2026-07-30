@@ -74,9 +74,9 @@ export function PipelineRunPanel({
             {running
               ? runningLabel || "Đang gọi AI / search..."
               : errorMessage
-                ? "Pipeline lỗi — xem chi tiết bên dưới"
+                ? "Chu trình lỗi — xem chi tiết bên dưới"
                 : status === "PUBLISH_READY"
-                  ? "Xong pipeline — chờ duyệt"
+                  ? "Xong chu trình — chờ duyệt"
                   : status === "FAILED"
                     ? "Dừng vì lỗi"
                     : currentStepLabel
@@ -114,7 +114,7 @@ export function PipelineRunPanel({
       <div className="max-h-52 overflow-y-auto border-t border-[var(--line)]/70 bg-[rgba(255,255,255,0.55)] px-4 py-3 font-mono text-[11px] leading-relaxed sm:px-5">
         {logs.length === 0 ? (
           <p className="text-[var(--ink-faint)]">
-            Log sẽ hiện ở đây khi anh bấm “Chạy 1 bước” hoặc “Chạy full pipeline”.
+            Log sẽ hiện ở đây khi anh bấm “Chạy bước tiếp” hoặc “Chạy cả chu trình”.
           </p>
         ) : (
           <ul className="space-y-1">

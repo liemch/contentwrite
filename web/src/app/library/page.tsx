@@ -71,14 +71,14 @@ export default async function LibraryPage({
             Chưa có bài đã duyệt
           </h2>
           <p className="mx-auto mt-3 max-w-md text-sm text-[var(--ink-muted)]">
-            Chạy pipeline đến Publish Ready → Approve / Publish. Bài sẽ xuất hiện ở đây để đọc gọn
+            Chạy chu trình đến Chờ duyệt → Approve / Publish. Bài sẽ xuất hiện ở đây để đọc gọn
             như tạp chí nội bộ.
           </p>
           <Link
             href="/dashboard"
             className="mt-6 inline-flex rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white"
           >
-            Về Pipeline
+            Về Biên tập
           </Link>
         </div>
       ) : (

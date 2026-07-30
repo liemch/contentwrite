@@ -12,6 +12,11 @@ import {
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
 import {
+  assertFullDraftQuality,
+  assertWritePhaseQuality,
+  editorialSelfCheck,
+} from "@/lib/tfes/quality";
+import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
   buildResearchPrompt,
@@ -103,7 +108,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
   }
 
   if (article.status === ArticleStatus.PUBLISHED) {
-    throw new Error("Bài đã publish, không thể chạy lại pipeline");
+    throw new Error(`Bài đã đăng, không thể chạy lại chu trình`);
   }
 
   const step = article.currentStep ?? WorkflowStep.RESEARCH;
@@ -130,19 +135,23 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";
       const existingBrief = article.researchBrief ?? "";
 
-      // Phase 1: chỉ Tavily
+      // Phase 1: Tavily — ≥3 nguồn, có góc phản biện (AI-TFES)
       if (!existingBrief.includes(SEARCH_MARK)) {
         const queries = [
-          `${topic} architecture trade-offs`,
-          `${topic} limitations critique`,
+          `${topic} official documentation architecture best practices`,
+          `${topic} trade-offs limitations decisions`,
+          `${topic} critique pitfalls failure modes OR anti-patterns`,
         ];
 
         const searchStarted = Date.now();
         const allResults = await Promise.all(
-          queries.map((q) => webSearch(q, { depth: "basic", maxResults: 4 })),
+          queries.map((q) => webSearch(q, { depth: "basic", maxResults: 5 })),
         );
         const searchMs = Date.now() - searchStarted;
         const hitCount = allResults.reduce((n, r) => n + r.length, 0);
+        const uniqueUrls = new Set(
+          allResults.flat().map((r) => r.url).filter(Boolean),
+        );
         const searchBlob = allResults
           .map((results, i) => `Query ${i + 1}: ${queries[i]}\n${formatSearchResults(results)}`)
           .join("\n\n=====\n\n");
@@ -150,6 +159,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         if (hitCount === 0) {
           throw new Error(
             "Tavily không trả kết quả nào — kiểm tra TAVILY_API_KEY hoặc thử topic khác.",
+          );
+        }
+        if (uniqueUrls.size < 3) {
+          throw new Error(
+            `Chưa đủ ≥3 nguồn độc lập (chỉ ${uniqueUrls.size} URL). Đổi chủ đề hoặc thử lại Research.`,
           );
         }
 
@@ -171,9 +185,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
       }
 
-      // Phase 2: GLM Research Brief (prompt gọn)
+      // Phase 2: Research Brief + Synthesis (AI-TFES)
       const memory = await getEditorialMemory(article.domain);
-      const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 6_000);
+      const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
       const llmStarted = Date.now();
       const researchBrief = await chatCompletion(
         [
@@ -183,7 +197,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             content: buildDailyTaskPrompt({
               domain: article.domain,
               topic: article.topic ?? undefined,
-              editorialMemory: clipText(memory, 1_500),
+              editorialMemory: clipText(memory, 2_500),
             }),
           },
           { role: "user", content: buildResearchPrompt(topic, searchBlob) },
@@ -237,7 +251,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             status: ArticleStatus.FAILED,
             currentStep: WorkflowStep.INSIGHT,
             errorMessage:
-              "Insight Gate chưa đạt ≥ L2 (phản hồi không hợp lệ / góc yếu). Xem tab Insight → Reset pipeline hoặc tạo bài mới với góc/chủ đề khác. Không tiếp tục Write.",
+              "Cổng Insight chưa đạt ≥ L2 (góc yếu / phản hồi không hợp lệ). Xem tab Insight → Làm lại từ đầu hoặc tạo bài mới với góc khác. Không tiếp tục viết.",
           },
         });
         return withTimings(failed, { llmMs: Date.now() - llmStarted });
@@ -280,8 +294,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         if (!partA.trim()) {
-          throw new Error("Write phase A trả về rỗng — chạy lại bước Write");
+          throw new Error("Viết nửa đầu trả về rỗng — chạy lại bước Viết bài");
         }
+        assertWritePhaseQuality(partA, "a");
 
         const updated = await prisma.article.update({
           where: { id: articleId },
@@ -321,13 +336,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         if (!partB.trim()) {
-          throw new Error("Write phase B trả về rỗng — chạy lại bước Write");
+          throw new Error("Viết nửa sau trả về rỗng — chạy lại bước Viết bài");
         }
+        assertWritePhaseQuality(partB, "b");
+        const merged = `${partA}\n\n${partB.trim()}`;
+        assertFullDraftQuality(merged);
 
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
-            draft12: `${partA}\n\n${partB.trim()}\n\n${WRITE_DONE_MARK}`,
+            draft12: `${merged}\n\n${WRITE_DONE_MARK}`,
             currentStep: WorkflowStep.FINALIZE,
             status: ArticleStatus.DRAFT,
             errorMessage: null,
@@ -428,8 +446,38 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
       if (cleanPublish.length < 80) {
         throw new Error(
-          "Finalize không tạo được Bản sạch (quá ngắn). Chạy lại bước Finalize hoặc xem tab 12 sections.",
+          "Rà soát không tạo được Bản sạch (quá ngắn). Chạy lại bước Rà soát hoặc xem tab 12 phần.",
         );
+      }
+
+      const selfCheck = editorialSelfCheck({
+        researchBrief: article.researchBrief,
+        insightGate: article.insightGate,
+        draft12: draftClean,
+        cleanPublish,
+        factCheck: article.factCheck,
+      });
+
+      if (selfCheck.length > 0) {
+        const detail = selfCheck.map((i) => i.message).join(" · ");
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            cleanPublish,
+            heroBrief: parsed.heroBrief,
+            title: cleanPublish.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
+            draft12: article.draft12?.includes(WRITE_DONE_MARK)
+              ? article.draft12
+              : `${draftClean}\n\n${WRITE_DONE_MARK}`,
+            status: ArticleStatus.DRAFT,
+            currentStep: WorkflowStep.FINALIZE,
+            errorMessage: `Self-check AI-TFES chưa đạt: ${detail}`.slice(0, 500),
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "self-check-fail",
+        });
       }
 
       const titleMatch = cleanPublish.match(/^#\s+(.+)$/m);
@@ -443,7 +491,6 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           cleanPublish,
           heroBrief: parsed.heroBrief,
           title,
-          // Giữ nháp 12 phần (đã xong) — không xoá
           draft12: article.draft12?.includes(WRITE_DONE_MARK)
             ? article.draft12
             : `${draftClean}\n\n${WRITE_DONE_MARK}`,
@@ -463,11 +510,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const { redactSecrets } = await import("@/lib/http-client");
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
     const isTimeout = /timed? ?out|timeout|Request timed out|Hobby chỉ cho/i.test(raw);
-    // Timeout: giữ DRAFT để bấm lại tiếp tục (Write/Finalize đã tách phase)
+    const isQuality =
+      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT/i.test(raw);
+    // Timeout / chất lượng: giữ Đang soạn để chạy lại bước
     await prisma.article.update({
       where: { id: articleId },
       data: {
-        status: isTimeout ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+        status: isTimeout || isQuality ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
         errorMessage: redactSecrets(raw).slice(0, 500),
       },
     });

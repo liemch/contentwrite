@@ -42,8 +42,8 @@ export default async function DashboardPage() {
 
   return (
     <AppShell
-      title="Pipeline biên tập"
-      subtitle="Tạo, chạy AI-TFES, duyệt — rồi đưa bài vào Thư viện nội bộ."
+      title="Biên tập"
+      subtitle="Chu trình viết AI-TFES: nghiên cứu → insight → viết → rà soát → duyệt → thư viện."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -129,7 +129,7 @@ export default async function DashboardPage() {
               Workspace
             </p>
             <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold">
-              Hàng đợi pipeline
+              Đang soạn
             </h2>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
               Nháp / đang chạy / lỗi. Bài xong chuyển sang Chờ duyệt.

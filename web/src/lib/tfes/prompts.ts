@@ -42,7 +42,7 @@ ${domainProfile}
 
 ---
 
-Bạn đang chạy pipeline web AI-TFES. Mỗi lần gọi chỉ làm ĐÚNG bước được yêu cầu trong user message.
+Bạn đang chạy chu trình biên tập web AI-TFES. Mỗi lần gọi chỉ làm ĐÚNG bước được yêu cầu trong user message.
 Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; không bịa nguồn/số liệu.
 
 ## CẤM (bài sẽ bị coi là FAIL chất lượng)
@@ -77,15 +77,17 @@ export function buildDailyTaskPrompt(input: {
 export function buildResearchPrompt(topic: string, searchBlob: string): string {
   const researchTemplate = readTfesFile("05-Templates/Research-Brief.md");
 
-  return `## Nhiệm vụ bước RESEARCH (AI-TFES)
+  return `## Nhiệm vụ bước NGHIÊN CỨU + TỔNG HỢP (AI-TFES)
 Chủ đề bài (đã chốt — KHÔNG đổi sang câu hướng dẫn seed_topics): **${topic}**
 
-Thực hiện Research theo Operating Prompt + Domain Profile:
-- Tổng hợp ≥3 nguồn độc lập từ web search (ưu tiên tier trong Domain Profile)
-- Insight tiềm năng + trade-off + cross-validation
-- CHƯA viết bài 12 phần — chỉ xuất mục **"1) Research Brief"**
+Thực hiện Research + Synthesis theo Operating Prompt + Domain Profile:
+- ≥3 nguồn độc lập từ web search; ghi rõ Tier theo Domain Profile; ưu tiên Tier 1–2
+- ≥1 góc phản biện / limitations
+- Cross-validation: đồng thuận vs mâu thuẫn → trade-off có điều kiện
+- SĂN insight L2/L3 (điều kiện ẩn, trade-off bị giấu, reframe) — chưa viết bài 12 phần
+- Nếu chưa đủ nguồn tin cậy hoặc không có insight mới → ghi rõ trong brief, không bịa
 
-### Template Research Brief (bám cấu trúc này)
+Chỉ xuất mục **"1) Research Brief"** theo template:
 
 ${researchTemplate}
 
@@ -164,16 +166,21 @@ Không viết Bản sạch / HERO.
 
 ${factTpl}`,
 
-    "finalize-b": `## Nhiệm vụ FINALIZE — Phase B
+    "finalize-b": `## Nhiệm vụ RÀ SOÁT — Phase B (Bản sạch)
 Chỉ xuất:
-- **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** — bài hoàn chỉnh để copy-paste (gỡ nhãn Section kỹ thuật; có Title/Subtitle/References; chỗ \`![alt](HERO_IMAGE)\`)
+- **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** — bài hoàn chỉnh copy-paste (gỡ nhãn Section; Title/Subtitle/References; \`![alt](HERO_IMAGE)\`)
 - **HERO IMAGE BRIEF** (concept + prompt English + caption + alt; minh họa, không số liệu giả/người thật/logo)
 - Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
-Bắt buộc có đúng dòng marker: === BẢN SẠCH ĐỂ ĐĂNG ===
-Tuân thủ checklist Publish.md (nội dung đăng, không phải form metadata nội bộ).
+Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
+Bản sạch phải đủ dài (~1.200 từ), giữ insight L2/L3, “khi nào KHÔNG”, references URL từ Research — không rút thành tóm tắt nông.
+Tuân thủ Publish.md + Quality Gates Review.md (G1–G8).
 
-${publishTpl}`,
+${publishTpl}
+
+### Template: Review.md (Quality Gates)
+
+${readTfesFile("05-Templates/Review.md")}`,
 
     finalize: `## Nhiệm vụ FINALIZE (full)
 Xuất lần lượt mục 4, 5, 6 theo Operating Prompt + templates.

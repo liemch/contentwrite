@@ -281,7 +281,7 @@ export default function SettingsPage() {
       title="Cấu hình Auto-write"
       subtitle="Lên lịch Agent tự viết bài theo AI-TFES. Bài auto chỉ dừng ở Chờ duyệt — anh duyệt tay."
       backHref="/dashboard"
-      backLabel="Pipeline"
+      backLabel="Biên tập"
     >
       {loading || !config ? (
         <div className="h-64 animate-pulse rounded-2xl bg-[var(--surface-muted)]" />
@@ -292,7 +292,7 @@ export default function SettingsPage() {
               <div>
                 <p className="text-sm font-semibold text-[var(--ink)]">Bật auto-write</p>
                 <p className="text-xs text-[var(--ink-muted)]">
-                  Cron Hobby chạy 1 lần/ngày; mỗi tick chỉ 1 bước pipeline (tránh 504).
+                  Cron Hobby chạy 1 lần/ngày; mỗi lần chỉ chạy 1 bước chu trình (tránh 504).
                 </p>
               </div>
               <button
@@ -445,7 +445,7 @@ export default function SettingsPage() {
                 onClick={runNow}
                 className="rounded-full"
               >
-                {running ? "Đang chạy pipeline..." : "Chạy ngay 1 bài"}
+                {running ? "Đang chạy chu trình..." : "Chạy ngay 1 bài"}
               </Button>
               <Button
                 type="button"
@@ -465,7 +465,7 @@ export default function SettingsPage() {
                 Kiểm tra API
               </p>
               <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                Ping Tavily + NVIDIA để biết key còn sống (không chạy pipeline).
+                Ping Tavily + NVIDIA để biết key còn sống (không chạy chu trình viết).
               </p>
               <Button
                 type="button"

@@ -23,7 +23,7 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
   const [error, setError] = useState("");
 
   async function removeItem(id: string, label: string) {
-    const ok = window.confirm(`Xoá pipeline “${label}”? Không hoàn tác được.`);
+    const ok = window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`);
     if (!ok) return;
 
     setRemoving(id);

@@ -1,5 +1,5 @@
 export const STATUS_LABELS: Record<string, string> = {
-  DRAFT: "Nháp",
+  DRAFT: "Đang soạn",
   RUNNING: "Đang chạy",
   PUBLISH_READY: "Chờ duyệt",
   APPROVED: "Đã duyệt",
@@ -7,11 +7,19 @@ export const STATUS_LABELS: Record<string, string> = {
   FAILED: "Lỗi",
 };
 
+/** Nhãn bước chu trình viết — tiếng Việt, tránh jargon "pipeline" */
 export const STEP_LABELS: Record<string, string> = {
-  RESEARCH: "Research",
-  INSIGHT: "Insight Gate",
+  RESEARCH: "Nghiên cứu",
+  INSIGHT: "Cổng Insight",
   WRITE: "Viết bài",
-  FINALIZE: "Fact-check",
+  FINALIZE: "Rà soát",
+};
+
+export const STEP_HINTS: Record<string, string> = {
+  RESEARCH: "Nghiên cứu: tìm nguồn → viết Research Brief + tổng hợp",
+  INSIGHT: "Cổng Insight: chỉ viết tiếp nếu ≥ L2",
+  WRITE: "Viết bài 12 phần (2 lần: nửa đầu → nửa sau)",
+  FINALIZE: "Rà soát: fact-check → bản sạch + self-check",
 };
 
 const STATUS_STYLES: Record<string, string> = {

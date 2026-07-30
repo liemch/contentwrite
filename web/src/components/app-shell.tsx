@@ -15,10 +15,10 @@ type AppShellProps = {
 };
 
 const NAV = [
-  { href: "/dashboard", label: "Pipeline" },
+  { href: "/dashboard", label: "Biên tập" },
   { href: "/library", label: "Thư viện" },
   { href: "/articles/new", label: "Viết bài" },
-  { href: "/settings", label: "Auto" },
+  { href: "/settings", label: "Tự động" },
 ];
 
 export function AppShell({

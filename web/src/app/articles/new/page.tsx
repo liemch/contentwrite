@@ -41,7 +41,7 @@ export default function NewArticlePage() {
       title="Tạo bài mới"
       subtitle="Khởi tạo chu trình AI-TFES. Agent research nguồn thật trước khi viết."
       backHref="/dashboard"
-      backLabel="Pipeline"
+      backLabel="Biên tập"
     >
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">
@@ -74,7 +74,7 @@ export default function NewArticlePage() {
           )}
 
           <Button type="submit" disabled={loading} className="rounded-full">
-            {loading ? "Đang tạo..." : "Tạo & mở pipeline"}
+            {loading ? "Đang tạo..." : "Tạo & mở chu trình viết"}
           </Button>
         </form>
 

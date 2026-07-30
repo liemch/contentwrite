@@ -56,7 +56,7 @@ export default function LoginForm() {
             </p>
             <div className="mt-8 grid max-w-md gap-3 text-sm text-[var(--ink-muted)]">
               {[
-                "Pipeline 4 bước: Research → Insight → Write → Finalize",
+                "Chu trình 4 bước: Nghiên cứu → Cổng Insight → Viết bài → Rà soát",
                 "Thư viện bài đã duyệt, đọc dạng tạp chí nội bộ",
                 "Hero brief sẵn sàng để gen ảnh minh họa",
               ].map((item) => (
@@ -93,7 +93,7 @@ export default function LoginForm() {
                 </div>
               )}
               <Button type="submit" disabled={loading} className="w-full rounded-full">
-                {loading ? "Đang vào..." : "Vào Pipeline"}
+                {loading ? "Đang vào..." : "Vào biên tập"}
               </Button>
             </form>
           </section>

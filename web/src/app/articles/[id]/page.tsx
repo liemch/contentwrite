@@ -7,7 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
+import { DomainBadge, StatusBadge, STEP_HINTS, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { prepareReaderContent } from "@/lib/publish-content";
@@ -37,24 +37,17 @@ type Article = {
 
 const TABS = [
   { key: "clean", label: "Bản sạch", desc: "Copy-paste để đăng" },
-  { key: "research", label: "Research", desc: "Nguồn & trade-off" },
-  { key: "insight", label: "Insight Gate", desc: "L2/L3 + quyết định" },
-  { key: "draft", label: "12 sections", desc: "Bản làm việc" },
+  { key: "research", label: "Nghiên cứu", desc: "Nguồn & trade-off" },
+  { key: "insight", label: "Cổng Insight", desc: "L2/L3 + quyết định" },
+  { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
   { key: "fact", label: "Fact-check", desc: "Claim → nguồn" },
-  { key: "knowledge", label: "Knowledge", desc: "Metadata editorial" },
+  { key: "knowledge", label: "Knowledge", desc: "Metadata biên tập" },
   { key: "hero", label: "Hero brief", desc: "Ảnh minh hoạ" },
 ] as const;
 
-const STEP_HINT: Record<string, string> = {
-  RESEARCH: "Research: Operating Prompt + Domain Profile + Research-Brief template",
-  INSIGHT: "Insight Gate: theo AI-TFES Operating Prompt (≥ L2)",
-  WRITE: "Viết 12 phần theo Article.md + BAR VIẾT (2 phase)",
-  FINALIZE: "FactCheck.md + Bản sạch / Publish checklist (2 phase)",
-};
-
 function timeoutMessage(status: number): string {
   if (status === 504 || status === 408) {
-    return "Timeout 504 (Hobby ~60s). Bấm chạy bước lại — pipeline đã tách nhỏ (Research/Write/Finalize nhiều phase).";
+    return "Timeout — bấm chạy bước lại (chu trình tách nhỏ từng bước).";
   }
   return `HTTP ${status}`;
 }
@@ -128,11 +121,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     const stepBefore = article?.currentStep ?? "RESEARCH";
     if (action === "run-step") {
-      setRunningLabel(STEP_HINT[stepBefore] || `Đang chạy ${STEP_LABELS[stepBefore] || stepBefore}`);
+      setRunningLabel(STEP_HINTS[stepBefore] || `Đang chạy ${STEP_LABELS[stepBefore] || stepBefore}`);
       pushLog("info", `→ Bắt đầu ${STEP_LABELS[stepBefore] || stepBefore}...`);
     } else {
       setRunningLabel(
-        action === "reset" ? "Đang reset pipeline..." : action === "approve" ? "Đang duyệt..." : "Đang publish...",
+        action === "reset"
+          ? "Đang làm lại từ đầu..."
+          : action === "approve"
+            ? "Đang duyệt..."
+            : "Đang đăng...",
       );
       pushLog("info", `→ ${action}...`);
     }
@@ -196,18 +193,25 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     setArticle(next);
 
     if (next.status === "FAILED") {
-      const msg = next.errorMessage || "Pipeline FAILED";
+      const msg = next.errorMessage || "Chu trình lỗi";
       setActionError(msg);
-      pushLog("error", `✗ FAILED · ${msg} (${elapsedSec}s)`);
-      if (next.currentStep === "INSIGHT" || /Insight Gate/i.test(msg)) {
+      pushLog("error", `✗ Lỗi · ${msg} (${elapsedSec}s)`);
+      if (next.currentStep === "INSIGHT" || /Insight|Cổng Insight/i.test(msg)) {
         setTab("insight");
         pushLog(
           "warn",
-          "→ Insight không đạt ≥ L2: xem tab Insight · Reset pipeline hoặc tạo bài mới với góc khác.",
+          "→ Cổng Insight chưa đạt ≥ L2: xem tab Insight · Làm lại từ đầu hoặc tạo bài mới.",
         );
       } else {
         setTab(tabForArticle(next));
       }
+      return next;
+    }
+
+    if (next.errorMessage && action === "run-step") {
+      setActionError(next.errorMessage);
+      pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
+      setTab(tabForArticle(next));
       return next;
     }
 
@@ -217,18 +221,20 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       const finalizePhase = data.timings?.finalizePhase;
       const finished =
         phase === "search"
-          ? "Research · Tavily"
+          ? "Nghiên cứu · tìm nguồn"
           : phase === "llm"
-            ? "Research · GLM brief"
+            ? "Nghiên cứu · viết brief"
             : writePhase === "a"
-              ? "Write · nửa đầu"
+              ? "Viết · nửa đầu"
               : writePhase === "b"
-                ? "Write · nửa sau"
+                ? "Viết · nửa sau"
                 : finalizePhase === "a"
-                  ? "Finalize · fact-check"
+                  ? "Rà soát · fact-check"
                   : finalizePhase === "b"
-                    ? "Finalize · bản sạch"
-                    : STEP_LABELS[stepBefore] || stepBefore;
+                    ? "Rà soát · bản sạch"
+                    : finalizePhase === "self-check-fail"
+                      ? "Rà soát · self-check"
+                      : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -253,7 +259,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       }
       setTab(tabForArticle(next));
     } else if (action === "reset") {
-      pushLog("warn", `✓ Đã reset pipeline (${elapsedSec}s)`);
+      pushLog("warn", `✓ Đã làm lại từ đầu (${elapsedSec}s)`);
       setActionError("");
     } else {
       pushLog("success", `✓ ${action} → ${next.status} (${elapsedSec}s)`);
@@ -265,7 +271,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
-    pushLog("info", "→ Full pipeline (Research 2 + Insight + Write 2 + Finalize 2)...");
+    pushLog("info", "→ Chạy cả chu trình (Nghiên cứu → Insight → Viết → Rà soát)...");
 
     let safety = 0;
     let current = article;
@@ -280,22 +286,25 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       safety += 1;
       const next = await callAction("run-step");
       if (!next) {
-        pushLog("error", "✗ Dừng full pipeline vì lỗi mạng/API (504? bấm lại để tiếp tục)");
+        pushLog("error", "✗ Dừng chu trình vì lỗi mạng/API — bấm lại để tiếp tục");
         break;
       }
       current = next;
-      if (current.status === "FAILED" || current.status === "PUBLISH_READY") break;
+      if (current.status === "FAILED" || current.status === "PUBLISH_READY" || current.errorMessage) break;
     }
 
     if (current.status === "PUBLISH_READY") {
-      pushLog("success", "✓ Full pipeline hoàn tất — vào tab Bản sạch / 12 sections");
+      pushLog("success", "✓ Chu trình xong — xem Bản sạch / Bản nháp 12 phần");
     } else if (current.status === "FAILED") {
       pushLog(
         "error",
-        current.currentStep === "INSIGHT" || /Insight Gate/i.test(current.errorMessage || "")
-          ? "✗ Dừng ở Insight Gate (không đạt L2). Đổi góc hoặc Reset — không viết bài yếu."
-          : "✗ Full pipeline dừng ở FAILED",
+        current.currentStep === "INSIGHT" || /Insight|Cổng Insight|Self-check/i.test(current.errorMessage || "")
+          ? "✗ Dừng ở cổng chất lượng (Insight/Self-check). Xem log lỗi · Làm lại từ đầu nếu cần."
+          : "✗ Chu trình dừng vì lỗi",
       );
+      if (current.errorMessage && current.status !== "FAILED") {
+        pushLog("warn", `⚠ ${current.errorMessage}`);
+      }
     }
   }
 
@@ -359,10 +368,10 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           ? runningLabel
           : article.currentStep
             ? `Bước tiếp theo: ${STEP_LABELS[article.currentStep]}`
-            : "Pipeline hoàn tất — sẵn sàng duyệt hoặc publish"
+            : "Chu trình xong — sẵn sàng duyệt hoặc đăng"
       }
       backHref="/dashboard"
-      backLabel="Pipeline"
+      backLabel="Biên tập"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={article.status} />
@@ -403,17 +412,17 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           disabled={running || article.status === "PUBLISHED"}
           onClick={() => callAction("run-step")}
         >
-          {running ? "Đang chạy..." : "Chạy 1 bước"}
+          {running ? "Đang chạy..." : "Chạy bước tiếp"}
         </Button>
         <Button
           size="sm"
           disabled={running || article.status === "PUBLISHED"}
           onClick={runFullPipeline}
         >
-          Chạy full pipeline
+          Chạy cả chu trình
         </Button>
         <Button variant="ghost" size="sm" disabled={running} onClick={() => callAction("reset")}>
-          Reset pipeline
+          Làm lại từ đầu
         </Button>
         {article.status !== "PUBLISHED" && (
           <Button
@@ -422,7 +431,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             disabled={running}
             onClick={async () => {
               const label = article.title || article.topic || "bài này";
-              if (!window.confirm(`Xoá pipeline “${label}”? Không hoàn tác được.`)) return;
+              if (!window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`)) return;
               setRunning(true);
               setRunningLabel("Đang xoá bài...");
               const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
@@ -589,7 +598,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có nội dung</p>
               <p className="mt-1 max-w-sm text-xs text-[var(--ink-faint)]">
-                Chạy pipeline để sinh {activeTab?.label.toLowerCase()}.
+                Chạy chu trình để sinh {activeTab?.label.toLowerCase()}.
               </p>
               {article.status !== "PUBLISHED" && (
                 <Button size="sm" className="mt-4" disabled={running} onClick={() => callAction("run-step")}>
