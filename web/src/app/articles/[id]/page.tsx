@@ -45,15 +45,15 @@ const TABS = [
 ] as const;
 
 const STEP_HINT: Record<string, string> = {
-  RESEARCH: "Research: lần 1 Tavily search · lần 2 GLM viết brief (tách để tránh 504)",
-  INSIGHT: "Insight Gate: chấm L2/L3 (thường 20–50s)",
-  WRITE: "Viết 12 sections (thường 30–55s trên Hobby)",
-  FINALIZE: "Fact-check + bản sạch + hero brief (thường 30–55s)",
+  RESEARCH: "Research: lần 1 Tavily · lần 2 GLM brief (prompt gọn)",
+  INSIGHT: "Insight Gate: prompt ngắn, ~≤45s",
+  WRITE: "Viết: 2 lần gọi (nửa đầu → nửa sau)",
+  FINALIZE: "Finalize: 2 lần gọi (fact-check → bản sạch)",
 };
 
 function timeoutMessage(status: number): string {
   if (status === 504 || status === 408) {
-    return "Timeout 504 — Vercel Hobby cắt ~60s. Bấm chạy bước lại (Research đã tách search/LLM).";
+    return "Timeout 504 (Hobby ~60s). Bấm chạy bước lại — pipeline đã tách nhỏ (Research/Write/Finalize nhiều phase).";
   }
   return `HTTP ${status}`;
 }
@@ -163,6 +163,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         searchHits?: number;
         searchQueries?: number;
         researchPhase?: string;
+        writePhase?: string;
+        finalizePhase?: string;
       };
     } = {};
     try {
@@ -200,12 +202,22 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     if (action === "run-step") {
       const phase = data.timings?.researchPhase;
+      const writePhase = data.timings?.writePhase;
+      const finalizePhase = data.timings?.finalizePhase;
       const finished =
         phase === "search"
           ? "Research · Tavily"
           : phase === "llm"
             ? "Research · GLM brief"
-            : STEP_LABELS[stepBefore] || stepBefore;
+            : writePhase === "a"
+              ? "Write · nửa đầu"
+              : writePhase === "b"
+                ? "Write · nửa sau"
+                : finalizePhase === "a"
+                  ? "Finalize · fact-check"
+                  : finalizePhase === "b"
+                    ? "Finalize · bản sạch"
+                    : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -215,18 +227,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       } else if (phase === "llm" && data.timings) {
         const l = Math.round((data.timings.llmMs || 0) / 1000);
         pushLog("info", `·· GLM viết Research Brief · ${l}s`);
-      } else if (data.timings?.searchMs != null || data.timings?.llmMs != null) {
-        const s = Math.round((data.timings.searchMs || 0) / 1000);
-        const l = Math.round((data.timings.llmMs || 0) / 1000);
-        pushLog(
-          "info",
-          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s | GLM · ${l}s`,
-        );
+      } else if (data.timings?.llmMs != null) {
+        pushLog("info", `·· GLM · ${Math.round((data.timings.llmMs || 0) / 1000)}s`);
       }
       if (next.status === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
-      } else if (phase === "search") {
-        pushLog("success", `✓ Xong ${finished} · còn Research · GLM · ${elapsedSec}s`);
+      } else if (phase === "search" || writePhase === "a" || finalizePhase === "a") {
+        pushLog("success", `✓ Xong ${finished} · còn phase tiếp · ${elapsedSec}s`);
       } else {
         pushLog(
           "success",
@@ -247,13 +254,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
-    pushLog("info", "→ Chạy full pipeline (Research = 2 lần gọi + Insight/Write/Finalize)...");
+    pushLog("info", "→ Full pipeline (Research 2 + Insight + Write 2 + Finalize 2)...");
 
     let safety = 0;
     let current = article;
 
     while (
-      safety < 8 &&
+      safety < 14 &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
       current.status !== "PUBLISHED" &&

@@ -7,7 +7,7 @@ import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
   buildResearchPrompt,
-  getSystemPrompt,
+  getCompactStepPrompt,
 } from "@/lib/tfes/prompts";
 
 export const STEP_ORDER: WorkflowStep[] = [
@@ -16,6 +16,8 @@ export const STEP_ORDER: WorkflowStep[] = [
   WorkflowStep.WRITE,
   WorkflowStep.FINALIZE,
 ];
+
+const WRITE_HALF_MARK = "<!--TFES_DRAFT_HALF-->";
 
 export function nextStep(current: WorkflowStep | null): WorkflowStep | null {
   if (!current) return WorkflowStep.RESEARCH;
@@ -29,7 +31,7 @@ async function getEditorialMemory(domain: string): Promise<string> {
     prisma.knowledgeRecord.findMany({
       where: { domain },
       orderBy: { publishedAt: "desc" },
-      take: 15,
+      take: 8,
     }),
     prisma.article.findMany({
       where: {
@@ -37,7 +39,7 @@ async function getEditorialMemory(domain: string): Promise<string> {
         status: { in: [ArticleStatus.PUBLISH_READY, ArticleStatus.APPROVED, ArticleStatus.PUBLISHED] },
       },
       orderBy: { updatedAt: "desc" },
-      take: 20,
+      take: 12,
       select: { title: true, topic: true },
     }),
   ]);
@@ -57,15 +59,28 @@ async function getEditorialMemory(domain: string): Promise<string> {
       : records
           .map(
             (r) =>
-              `- ${r.title} | ${r.category ?? "N/A"} | keywords: ${r.keywords ?? ""} | core: ${(r.coreMessage ?? "").slice(0, 120)}`,
+              `- ${r.title} | ${r.category ?? "N/A"} | keywords: ${r.keywords ?? ""} | core: ${(r.coreMessage ?? "").slice(0, 80)}`,
           )
           .join("\n");
 
   return `${memory}
 
-## Bài đã có (TRÁNH trùng góc / cùng chủ đề)
-${avoidList || "(trống)"}
-Khi chọn góc viết: phải khác rõ các bài trên — cùng technology thì đổi trade-off / audience / failure mode.`;
+## Bài đã có (TRÁNH trùng góc)
+${avoidList || "(trống)"}`;
+}
+
+type StepTimings = {
+  searchMs?: number;
+  llmMs?: number;
+  searchHits?: number;
+  searchQueries?: number;
+  researchPhase?: string;
+  writePhase?: string;
+  finalizePhase?: string;
+};
+
+function withTimings(article: Article, timings: StepTimings) {
+  return Object.assign(article, { _timings: timings });
 }
 
 export async function runWorkflowStep(articleId: string): Promise<Article> {
@@ -86,18 +101,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
   });
 
   try {
-    const systemPrompt = getSystemPrompt(article.domain);
     const topic =
       article.topic?.trim() ||
       "Chọn chủ đề phù hợp domain profile, ưu tiên seed_topics nếu đang Seeding Mode";
-
-    let patch: Partial<Article> = { currentStep: step };
 
     if (step === WorkflowStep.RESEARCH) {
       const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";
       const existingBrief = article.researchBrief ?? "";
 
-      // Phase 1: chỉ Tavily (nhanh) — tránh 504 khi gộp search+LLM trên Hobby 60s
+      // Phase 1: chỉ Tavily
       if (!existingBrief.includes(SEARCH_MARK)) {
         const queries = [
           `${topic} architecture trade-offs`,
@@ -106,7 +118,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const searchStarted = Date.now();
         const allResults = await Promise.all(
-          queries.map((q) => webSearch(q, { depth: "basic", maxResults: 5 })),
+          queries.map((q) => webSearch(q, { depth: "basic", maxResults: 4 })),
         );
         const searchMs = Date.now() - searchStarted;
         const hitCount = allResults.reduce((n, r) => n + r.length, 0);
@@ -129,37 +141,34 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return Object.assign(updated, {
-          _timings: {
-            searchMs,
-            llmMs: 0,
-            searchHits: hitCount,
-            searchQueries: queries.length,
-            researchPhase: "search",
-          },
+        return withTimings(updated, {
+          searchMs,
+          llmMs: 0,
+          searchHits: hitCount,
+          searchQueries: queries.length,
+          researchPhase: "search",
         });
       }
 
-      // Phase 2: GLM viết Research Brief từ blob đã cache
+      // Phase 2: GLM Research Brief (prompt gọn)
       const memory = await getEditorialMemory(article.domain);
-      const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
+      const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 6_000);
       const llmStarted = Date.now();
       const researchBrief = await chatCompletion(
         [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: getCompactStepPrompt(article.domain, "research") },
           {
             role: "user",
             content: buildDailyTaskPrompt({
               domain: article.domain,
               topic: article.topic ?? undefined,
-              editorialMemory: clipText(memory, 2500),
+              editorialMemory: clipText(memory, 1_500),
             }),
           },
           { role: "user", content: buildResearchPrompt(topic, searchBlob) },
         ],
-        { maxTokens: 3072 },
+        { maxTokens: 1800 },
       );
-      const llmMs = Date.now() - llmStarted;
 
       const updated = await prisma.article.update({
         where: { id: articleId },
@@ -169,35 +178,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           status: ArticleStatus.DRAFT,
         },
       });
-      return Object.assign(updated, {
-        _timings: {
-          searchMs: 0,
-          llmMs,
-          searchHits: 0,
-          searchQueries: 0,
-          researchPhase: "llm",
-        },
+      return withTimings(updated, {
+        searchMs: 0,
+        llmMs: Date.now() - llmStarted,
+        researchPhase: "llm",
       });
-    } else if (step === WorkflowStep.INSIGHT) {
-      // Brief dài + maxTokens cao → timeout ~55s trên Hobby; cắt gọn cho Insight Gate
+    }
+
+    if (step === WorkflowStep.INSIGHT) {
+      const llmStarted = Date.now();
       const insightGate = await chatCompletion(
         [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: getCompactStepPrompt(article.domain, "insight") },
           {
             role: "user",
             content: buildPipelinePrompt(
               "insight",
-              appendContext(
-                clipText(article.researchBrief, 8_000),
-                `Chủ đề: ${topic}`,
-              ),
+              appendContext(clipText(article.researchBrief, 4_500), `Chủ đề: ${topic}`),
             ),
           },
         ],
-        { maxTokens: 1536 },
+        { maxTokens: 900 },
       );
 
-      // Chỉ fail khi tự xếp hạng kết luận là L0/L1 (tránh match nhầm vì text có nhắc thang L0–L3)
       const failedGate =
         /(?:cấp|level|xếp hạng|đạt|insight)\s*[:=]?\s*L[01]\b/i.test(insightGate) ||
         /chỉ\s+L[01]\b/i.test(insightGate) ||
@@ -206,7 +209,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         /đổi chủ đề/i.test(insightGate);
 
       if (failedGate) {
-        await prisma.article.update({
+        const failed = await prisma.article.update({
           where: { id: articleId },
           data: {
             insightGate,
@@ -216,89 +219,191 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               "Insight Gate chưa đạt L2. Xem insightGate, đổi chủ đề rồi tạo bài mới hoặc reset.",
           },
         });
-        return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+        return withTimings(failed, { llmMs: Date.now() - llmStarted });
       }
 
-      patch = {
-        insightGate,
-        currentStep: WorkflowStep.WRITE,
-        status: ArticleStatus.DRAFT,
-        errorMessage: null,
-      };
-    } else if (step === WorkflowStep.WRITE) {
-      const draft12 = await chatCompletion(
+      const updated = await prisma.article.update({
+        where: { id: articleId },
+        data: {
+          insightGate,
+          currentStep: WorkflowStep.WRITE,
+          status: ArticleStatus.DRAFT,
+          errorMessage: null,
+        },
+      });
+      return withTimings(updated, { llmMs: Date.now() - llmStarted });
+    }
+
+    if (step === WorkflowStep.WRITE) {
+      const draft = article.draft12 ?? "";
+
+      // Phase A: nửa đầu (1 lần gọi)
+      if (!draft || !draft.includes(WRITE_HALF_MARK)) {
+        const llmStarted = Date.now();
+        const partA = await chatCompletion(
+          [
+            { role: "system", content: getCompactStepPrompt(article.domain, "write") },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "write-a",
+                appendContext(
+                  clipText(article.researchBrief, 3_500),
+                  clipText(article.insightGate, 2_000),
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 1600 },
+        );
+
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            draft12: `${partA.trim()}\n\n${WRITE_HALF_MARK}`,
+            currentStep: WorkflowStep.WRITE,
+            status: ArticleStatus.DRAFT,
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          writePhase: "a",
+        });
+      }
+
+      // Phase B: nửa sau
+      const llmStarted = Date.now();
+      const partA = draft.replace(WRITE_HALF_MARK, "").trim();
+      const partB = await chatCompletion(
         [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: getCompactStepPrompt(article.domain, "write") },
           {
             role: "user",
             content: buildPipelinePrompt(
-              "write",
+              "write-b",
               appendContext(
-                clipText(article.researchBrief, 6_000),
-                clipText(article.insightGate, 3_000),
+                clipText(article.insightGate, 1_500),
+                clipText(partA, 5_000),
                 `Chủ đề: ${topic}`,
               ),
             ),
           },
         ],
-        { maxTokens: 4096 },
+        { maxTokens: 1600 },
       );
 
-      patch = { draft12, currentStep: WorkflowStep.FINALIZE, status: ArticleStatus.DRAFT };
-    } else if (step === WorkflowStep.FINALIZE) {
-      const finalizeOutput = await chatCompletion(
+      const updated = await prisma.article.update({
+        where: { id: articleId },
+        data: {
+          draft12: `${partA}\n\n${partB.trim()}`,
+          currentStep: WorkflowStep.FINALIZE,
+          status: ArticleStatus.DRAFT,
+        },
+      });
+      return withTimings(updated, {
+        llmMs: Date.now() - llmStarted,
+        writePhase: "b",
+      });
+    }
+
+    if (step === WorkflowStep.FINALIZE) {
+      // Phase A: fact-check + knowledge
+      if (!article.factCheck) {
+        const llmStarted = Date.now();
+        const finalizeA = await chatCompletion(
+          [
+            { role: "system", content: getCompactStepPrompt(article.domain, "finalize") },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-a",
+                appendContext(
+                  clipText(article.insightGate, 1_200),
+                  clipText(article.draft12, 6_000),
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 1400 },
+        );
+
+        const parsed = parseFullOutput(finalizeA);
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            factCheck: parsed.factCheck ?? finalizeA,
+            knowledgeRecord: parsed.knowledgeRecord ?? null,
+            currentStep: WorkflowStep.FINALIZE,
+            status: ArticleStatus.DRAFT,
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "a",
+        });
+      }
+
+      // Phase B: bản sạch + hero
+      const llmStarted = Date.now();
+      const finalizeB = await chatCompletion(
         [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: getCompactStepPrompt(article.domain, "finalize") },
           {
             role: "user",
             content: buildPipelinePrompt(
-              "finalize",
+              "finalize-b",
               appendContext(
-                clipText(article.insightGate, 2_000),
-                clipText(article.draft12, 10_000),
+                clipText(article.insightGate, 1_000),
+                clipText(article.draft12, 7_000),
+                clipText(article.knowledgeRecord, 800),
                 `Chủ đề: ${topic}`,
               ),
             ),
           },
         ],
-        { maxTokens: 4096 },
+        { maxTokens: 1800 },
       );
 
       const parsed = parseFullOutput(
-        appendContext(article.researchBrief, article.insightGate, article.draft12, finalizeOutput),
+        appendContext(article.draft12, article.factCheck, finalizeB),
       );
-
       const titleMatch = parsed.cleanPublish?.match(/^#\s+(.+)$/m);
       const title = titleMatch?.[1]?.trim() ?? article.topic ?? "Untitled";
 
-      patch = {
-        factCheck: parsed.factCheck ?? finalizeOutput,
-        knowledgeRecord: parsed.knowledgeRecord,
-        cleanPublish: parsed.cleanPublish,
-        heroBrief: parsed.heroBrief,
-        title,
-        status: ArticleStatus.PUBLISH_READY,
-        currentStep: null,
-      };
+      const updated = await prisma.article.update({
+        where: { id: articleId },
+        data: {
+          factCheck: article.factCheck,
+          knowledgeRecord: parsed.knowledgeRecord ?? article.knowledgeRecord,
+          cleanPublish: parsed.cleanPublish ?? finalizeB,
+          heroBrief: parsed.heroBrief,
+          title,
+          status: ArticleStatus.PUBLISH_READY,
+          currentStep: null,
+        },
+      });
+      return withTimings(updated, {
+        llmMs: Date.now() - llmStarted,
+        finalizePhase: "b",
+      });
     }
 
-    return prisma.article.update({
-      where: { id: articleId },
-      data: patch,
-    });
+    throw new Error(`Bước không hợp lệ: ${step}`);
   } catch (error) {
     const { redactSecrets } = await import("@/lib/http-client");
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
-    const nicer = /timed? ?out|timeout|Request timed out/i.test(raw)
-      ? `Timeout GLM (~55s). Bấm chạy lại bước hiện tại — ${raw.slice(0, 120)}`
-      : raw;
-    return prisma.article.update({
+    const isTimeout = /timed? ?out|timeout|Request timed out|Hobby chỉ cho/i.test(raw);
+    // Timeout: giữ DRAFT để bấm lại tiếp tục (Write/Finalize đã tách phase)
+    await prisma.article.update({
       where: { id: articleId },
       data: {
-        status: ArticleStatus.FAILED,
-        errorMessage: redactSecrets(nicer).slice(0, 500),
+        status: isTimeout ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+        errorMessage: redactSecrets(raw).slice(0, 500),
       },
     });
+    throw error instanceof Error ? error : new Error(raw);
   }
 }
 

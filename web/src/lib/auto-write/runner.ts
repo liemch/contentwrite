@@ -160,8 +160,8 @@ async function pickTopic(
 }
 
 export async function runFullWorkflowToReview(articleId: string) {
-  // Research = 2 phase (search + llm) → tối đa ~6 lần run-step
-  for (let i = 0; i < 8; i++) {
+  // Research2 + Insight + Write2 + Finalize2 → tối đa ~8–10 bước
+  for (let i = 0; i < 14; i++) {
     const article = await runWorkflowStep(articleId);
     if (
       article.status === ArticleStatus.PUBLISH_READY ||
