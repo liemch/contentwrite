@@ -12,14 +12,14 @@ export type ChatMessage = {
 
 const BASE_URL =
   process.env.NVIDIA_BASE_URL ?? "https://integrate.api.nvidia.com/v1";
-const MODEL = process.env.NVIDIA_MODEL ?? "openai/gpt-oss-120b";
+const MODEL = process.env.NVIDIA_MODEL ?? "meta/llama-3.1-8b-instruct";
 const REASONING_EFFORT = (process.env.NVIDIA_REASONING_EFFORT ?? "low") as
   | "low"
   | "medium"
   | "high";
 
-/** Chừa ~12s cho DB/response trước khi Vercel Hobby cắt 60s */
-const VERCEL_CHAT_MS = 45_000;
+/** Chừa ~10s cho DB/response trước khi Vercel Hobby cắt 60s */
+const VERCEL_CHAT_MS = 50_000;
 
 function getClient() {
   const apiKey = process.env.NVIDIA_API_KEY;
@@ -176,7 +176,7 @@ async function chatViaFetchStream(
       (error.name === "AbortError" || error.name === "TimeoutError");
     if (aborted) {
       throw new Error(
-        `GLM timeout ${VERCEL_CHAT_MS / 1000}s — bấm chạy lại bước (đã tách nhỏ). Hobby chỉ cho ~60s/request.`,
+        `NVIDIA timeout ${VERCEL_CHAT_MS / 1000}s (${MODEL}). Bấm chạy lại bước. Hobby ~60s/request.`,
       );
     }
     throw error;

@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const apiKey = process.env.NVIDIA_API_KEY;
 const baseURL = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
-const model = process.env.NVIDIA_MODEL || "openai/gpt-oss-120b";
+const model = process.env.NVIDIA_MODEL || "meta/llama-3.1-8b-instruct";
 
 if (!apiKey) {
   console.error("❌ Thiếu NVIDIA_API_KEY trong .env");
