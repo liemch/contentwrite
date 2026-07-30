@@ -35,7 +35,7 @@ NVIDIA NIM — GLM-5.2 (Insight Gate → Viết → Fact-check)
 Cần có sẵn:
 
 - [ ] Tài khoản [Vercel](https://vercel.com)
-- [ ] **NVIDIA API Key** (`nvapi-...`) — endpoint `https://integrate.api.nvidia.com/v1`, model `meta/llama-3.1-8b-instruct` (Hobby)
+- [ ] **NVIDIA API Key** (`nvapi-...`) — endpoint `https://integrate.api.nvidia.com/v1`, model `openai/gpt-oss-120b`
 - [ ] **Tavily API Key** (`tvly-...`) — [tavily.com](https://tavily.com) → Dashboard → API Keys
 - [ ] Repo/code đã push lên GitHub (hoặc import trực tiếp)
 
