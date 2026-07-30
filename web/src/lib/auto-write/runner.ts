@@ -340,6 +340,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Lỗi auto-write";
+    const isTimeout = /timed? ?out|timeout|Hobby chỉ cho/i.test(message);
     const nextRunAt = computeNextRunAt({
       scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
       intervalHours: config.intervalHours,
@@ -358,8 +359,18 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     });
     await prisma.article.update({
       where: { id: article.id },
-      data: { status: ArticleStatus.FAILED, errorMessage: message.slice(0, 500) },
+      data: {
+        status: isTimeout ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+        errorMessage: message.slice(0, 500),
+      },
     });
-    return { ran: true, articleId: article.id, status: "FAILED", topic, domain, error: message };
+    return {
+      ran: true,
+      articleId: article.id,
+      status: isTimeout ? "DRAFT" : "FAILED",
+      topic,
+      domain,
+      error: message,
+    };
   }
 }
