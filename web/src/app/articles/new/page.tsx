@@ -27,7 +27,8 @@ export default function NewArticlePage() {
     setLoading(false);
 
     if (!res.ok) {
-      setError("Không tạo được bài viết");
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(data.error || "Không tạo được bài viết");
       return;
     }
 
@@ -61,7 +62,9 @@ export default function NewArticlePage() {
               onChange={(e) => setTopic(e.target.value)}
               placeholder="VD: MCP là gì và vì sao thành chuẩn kết nối agent"
             />
-            <FieldHint>Để trống → Agent tự chọn theo Seeding Mode / backlog.</FieldHint>
+            <FieldHint>
+              Để trống → hệ thống tự chọn 1 dòng từ seed_topics (engineering/soft-skills), tránh trùng bài đã có.
+            </FieldHint>
           </div>
 
           {error && (

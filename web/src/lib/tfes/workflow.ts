@@ -1,14 +1,29 @@
 import { ArticleStatus, WorkflowStep, type Article } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
+import { pickFreshTopic } from "@/lib/auto-write/runner";
 import { formatSearchResults, webSearch } from "@/lib/search";
-import { appendContext, clipText, parseFullOutput, stripPipelineMarks, WRITE_DONE_MARK, WRITE_HALF_MARK } from "@/lib/tfes/parser";
+import {
+  appendContext,
+  clipText,
+  parseFullOutput,
+  stripPipelineMarks,
+  WRITE_DONE_MARK,
+  WRITE_HALF_MARK,
+} from "@/lib/tfes/parser";
 import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
   buildResearchPrompt,
   getCompactStepPrompt,
 } from "@/lib/tfes/prompts";
+
+/** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
+function isPlaceholderTopic(topic: string | null | undefined): boolean {
+  const t = (topic ?? "").trim();
+  if (!t) return true;
+  return /seed_topics|domain profile|Seeding Mode|tự chọn theo|ưu tiên seed/i.test(t);
+}
 
 export const STEP_ORDER: WorkflowStep[] = [
   WorkflowStep.RESEARCH,
@@ -82,7 +97,7 @@ function withTimings(article: Article, timings: StepTimings) {
 }
 
 export async function runWorkflowStep(articleId: string): Promise<Article> {
-  const article = await prisma.article.findUnique({ where: { id: articleId } });
+  let article = await prisma.article.findUnique({ where: { id: articleId } });
   if (!article) {
     throw new Error("Không tìm thấy bài viết");
   }
@@ -99,9 +114,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
   });
 
   try {
-    const topic =
-      article.topic?.trim() ||
-      "Chọn chủ đề phù hợp domain profile, ưu tiên seed_topics nếu đang Seeding Mode";
+    let topic = article.topic?.trim() || "";
+
+    // Topic trống / placeholder cũ → chọn seed thật và lưu lại trước khi research
+    if (isPlaceholderTopic(topic)) {
+      const domain = article.domain === "soft-skills" ? "soft-skills" : "engineering";
+      topic = await pickFreshTopic(domain);
+      article = await prisma.article.update({
+        where: { id: articleId },
+        data: { topic },
+      });
+    }
 
     if (step === WorkflowStep.RESEARCH) {
       const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";

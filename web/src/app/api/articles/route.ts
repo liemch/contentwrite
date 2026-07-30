@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/auth";
+import { pickFreshTopic } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
@@ -31,10 +32,21 @@ export async function POST(request: NextRequest) {
 
   const body = (await request.json()) as { topic?: string; domain?: string };
   const domain = body.domain === "soft-skills" ? "soft-skills" : "engineering";
+  let topic = body.topic?.trim() || "";
+
+  // Để trống → chọn thật từ seed_topics (không dùng câu hướng dẫn làm topic)
+  if (!topic) {
+    try {
+      topic = await pickFreshTopic(domain);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không chọn được chủ đề";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+  }
 
   const article = await prisma.article.create({
     data: {
-      topic: body.topic?.trim() || null,
+      topic,
       domain,
     },
   });

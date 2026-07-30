@@ -137,6 +137,17 @@ async function collectUsedTopics(domain: "engineering" | "soft-skills"): Promise
  * Chọn topic chưa trùng bài đã có.
  * Hết chủ đề mới → throw (auto bỏ qua lần chạy, không quay vòng trùng).
  */
+export async function pickFreshTopic(
+  domain: "engineering" | "soft-skills",
+  options: { useSeedTopics?: boolean; customTopics?: string | null } = {},
+): Promise<string> {
+  return pickTopic(
+    domain,
+    options.useSeedTopics !== false,
+    options.customTopics ?? null,
+  );
+}
+
 async function pickTopic(
   domain: "engineering" | "soft-skills",
   useSeed: boolean,
@@ -265,7 +276,10 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
   if (!article) {
     domain = await pickDomain(config.domain, config.lastDomain);
     try {
-      topic = await pickTopic(domain, config.useSeedTopics, config.customTopics);
+      topic = await pickFreshTopic(domain, {
+        useSeedTopics: config.useSeedTopics,
+        customTopics: config.customTopics,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Hết chủ đề mới";
       const nextRunAt = computeNextRunAt({
