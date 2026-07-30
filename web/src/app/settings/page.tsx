@@ -312,10 +312,45 @@ export default function SettingsPage() {
               >
                 {running ? "Đang chạy pipeline..." : "Chạy ngay 1 bài"}
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={saving || running || checking}
+                onClick={checkIntegrations}
+                className="rounded-full"
+              >
+                {checking ? "Đang kiểm tra..." : "Test Tavily + NVIDIA"}
+              </Button>
             </div>
           </form>
 
           <aside className="space-y-4">
+            {health && (
+              <div className="surface-card p-5 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                  Kiểm tra API
+                </p>
+                <ul className="mt-3 space-y-2">
+                  <li
+                    className={
+                      health.tavily?.ok ? "text-[var(--success)]" : "text-[var(--danger)]"
+                    }
+                  >
+                    Tavily: {health.tavily?.ok ? "OK" : "LỖI"} — {health.tavily?.detail}
+                    {health.tavily?.ms != null ? ` · ${health.tavily.ms}ms` : ""}
+                  </li>
+                  <li
+                    className={
+                      health.nvidia?.ok ? "text-[var(--success)]" : "text-[var(--danger)]"
+                    }
+                  >
+                    NVIDIA: {health.nvidia?.ok ? "OK" : "LỖI"} — {health.nvidia?.detail}
+                    {health.nvidia?.ms != null ? ` · ${Math.round(health.nvidia.ms / 1000)}s` : ""}
+                  </li>
+                </ul>
+              </div>
+            )}
+
             <div className="hero-band p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
                 Trạng thái
