@@ -324,19 +324,33 @@ export default function SettingsPage() {
             </div>
           </form>
 
-          <aside className="space-y-4">
-            {health && (
-              <div className="surface-card p-5 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
-                  Kiểm tra API
-                </p>
-                <ul className="mt-3 space-y-2">
+          <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+            <div className="surface-card p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                Kiểm tra API
+              </p>
+              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                Ping Tavily + NVIDIA để biết key còn sống (không chạy pipeline).
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-4 rounded-full"
+                disabled={checking || saving || running}
+                onClick={checkIntegrations}
+              >
+                {checking ? "Đang kiểm tra..." : "Test Tavily + NVIDIA"}
+              </Button>
+              {health && (
+                <ul className="mt-4 space-y-2 text-sm">
                   <li
                     className={
                       health.tavily?.ok ? "text-[var(--success)]" : "text-[var(--danger)]"
                     }
                   >
-                    Tavily: {health.tavily?.ok ? "OK" : "LỖI"} — {health.tavily?.detail}
+                    <strong>Tavily:</strong> {health.tavily?.ok ? "OK" : "LỖI"} —{" "}
+                    {health.tavily?.detail}
                     {health.tavily?.ms != null ? ` · ${health.tavily.ms}ms` : ""}
                   </li>
                   <li
@@ -344,12 +358,15 @@ export default function SettingsPage() {
                       health.nvidia?.ok ? "text-[var(--success)]" : "text-[var(--danger)]"
                     }
                   >
-                    NVIDIA: {health.nvidia?.ok ? "OK" : "LỖI"} — {health.nvidia?.detail}
-                    {health.nvidia?.ms != null ? ` · ${Math.round(health.nvidia.ms / 1000)}s` : ""}
+                    <strong>NVIDIA:</strong> {health.nvidia?.ok ? "OK" : "LỖI"} —{" "}
+                    {health.nvidia?.detail}
+                    {health.nvidia?.ms != null
+                      ? ` · ${Math.round((health.nvidia.ms || 0) / 1000)}s`
+                      : ""}
                   </li>
                 </ul>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="hero-band p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
