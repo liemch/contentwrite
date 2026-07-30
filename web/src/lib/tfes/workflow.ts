@@ -2,7 +2,7 @@ import { ArticleStatus, WorkflowStep, type Article } from "@/generated/prisma/cl
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
 import { formatSearchResults, webSearch } from "@/lib/search";
-import { appendContext, parseFullOutput } from "@/lib/tfes/parser";
+import { appendContext, clipText, parseFullOutput } from "@/lib/tfes/parser";
 import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
@@ -87,7 +87,6 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
   try {
     const systemPrompt = getSystemPrompt(article.domain);
-    const memory = await getEditorialMemory(article.domain);
     const topic =
       article.topic?.trim() ||
       "Chọn chủ đề phù hợp domain profile, ưu tiên seed_topics nếu đang Seeding Mode";
@@ -142,7 +141,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       // Phase 2: GLM viết Research Brief từ blob đã cache
-      const searchBlob = existingBrief.replace(SEARCH_MARK, "").trim();
+      const memory = await getEditorialMemory(article.domain);
+      const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
       const llmStarted = Date.now();
       const researchBrief = await chatCompletion(
         [
@@ -152,12 +152,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             content: buildDailyTaskPrompt({
               domain: article.domain,
               topic: article.topic ?? undefined,
-              editorialMemory: memory,
+              editorialMemory: clipText(memory, 2500),
             }),
           },
           { role: "user", content: buildResearchPrompt(topic, searchBlob) },
         ],
-        { maxTokens: 4096 },
+        { maxTokens: 3072 },
       );
       const llmMs = Date.now() - llmStarted;
 
@@ -179,6 +179,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         },
       });
     } else if (step === WorkflowStep.INSIGHT) {
+      // Brief dài + maxTokens cao → timeout ~55s trên Hobby; cắt gọn cho Insight Gate
       const insightGate = await chatCompletion(
         [
           { role: "system", content: systemPrompt },
@@ -186,11 +187,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             role: "user",
             content: buildPipelinePrompt(
               "insight",
-              appendContext(article.researchBrief, `Chủ đề: ${topic}`),
+              appendContext(
+                clipText(article.researchBrief, 8_000),
+                `Chủ đề: ${topic}`,
+              ),
             ),
           },
         ],
-        { maxTokens: 3072 },
+        { maxTokens: 1536 },
       );
 
       // Chỉ fail khi tự xếp hạng kết luận là L0/L1 (tránh match nhầm vì text có nhắc thang L0–L3)
@@ -229,11 +233,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             role: "user",
             content: buildPipelinePrompt(
               "write",
-              appendContext(article.researchBrief, article.insightGate, `Chủ đề: ${topic}`),
+              appendContext(
+                clipText(article.researchBrief, 6_000),
+                clipText(article.insightGate, 3_000),
+                `Chủ đề: ${topic}`,
+              ),
             ),
           },
         ],
-        { maxTokens: 6144 },
+        { maxTokens: 4096 },
       );
 
       patch = { draft12, currentStep: WorkflowStep.FINALIZE, status: ArticleStatus.DRAFT };
@@ -246,15 +254,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             content: buildPipelinePrompt(
               "finalize",
               appendContext(
-                article.researchBrief,
-                article.insightGate,
-                article.draft12,
+                clipText(article.insightGate, 2_000),
+                clipText(article.draft12, 10_000),
                 `Chủ đề: ${topic}`,
               ),
             ),
           },
         ],
-        { maxTokens: 6144 },
+        { maxTokens: 4096 },
       );
 
       const parsed = parseFullOutput(
@@ -282,11 +289,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
   } catch (error) {
     const { redactSecrets } = await import("@/lib/http-client");
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
+    const nicer = /timed? ?out|timeout|Request timed out/i.test(raw)
+      ? `Timeout GLM (~55s). Bấm chạy lại bước hiện tại — ${raw.slice(0, 120)}`
+      : raw;
     return prisma.article.update({
       where: { id: articleId },
       data: {
         status: ArticleStatus.FAILED,
-        errorMessage: redactSecrets(raw).slice(0, 500),
+        errorMessage: redactSecrets(nicer).slice(0, 500),
       },
     });
   }

@@ -23,7 +23,7 @@ function getClient() {
   return new OpenAI({
     apiKey,
     baseURL: BASE_URL,
-    timeout: process.env.VERCEL ? 50_000 : 300_000,
+    timeout: process.env.VERCEL ? 55_000 : 300_000,
     maxRetries: 0,
   });
 }

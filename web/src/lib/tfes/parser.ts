@@ -55,3 +55,10 @@ export function parseFullOutput(text: string): ParsedOutputs {
 export function appendContext(...parts: Array<string | null | undefined>): string {
   return parts.filter(Boolean).join("\n\n---\n\n");
 }
+
+/** Cắt context để GLM kịp trả trước Vercel Hobby ~60s */
+export function clipText(text: string | null | undefined, maxChars: number): string {
+  const t = (text ?? "").trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}\n\n[…đã cắt ${t.length - maxChars} ký tự để tránh timeout]`;
+}
