@@ -8,7 +8,7 @@ export type SearchResult = {
 
 export async function webSearch(
   query: string,
-  options?: { depth?: "basic" | "advanced"; maxResults?: number },
+  options?: { depth?: "basic" | "advanced"; maxResults?: number; days?: number },
 ): Promise<SearchResult[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
@@ -17,16 +17,22 @@ export async function webSearch(
     );
   }
 
+  const body: Record<string, unknown> = {
+    api_key: apiKey,
+    query,
+    // basic đủ cho Research MVP; advanced chậm gấp 2–4 lần
+    search_depth: options?.depth ?? "basic",
+    max_results: options?.maxResults ?? 5,
+    include_answer: false,
+  };
+  // Lọc theo số ngày gần đây (Tavily) — dùng cho gợi ý trend seed
+  if (options?.days && options.days > 0) {
+    body.days = Math.min(365, Math.floor(options.days));
+  }
+
   const response = await postJson({
     url: "https://api.tavily.com/search",
-    body: {
-      api_key: apiKey,
-      query,
-      // basic đủ cho Research MVP; advanced chậm gấp 2–4 lần
-      search_depth: options?.depth ?? "basic",
-      max_results: options?.maxResults ?? 5,
-      include_answer: false,
-    },
+    body,
     timeoutMs: 45000,
   });
 

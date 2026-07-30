@@ -30,6 +30,13 @@ export default function SettingsPage() {
     nvidia?: { ok: boolean; detail: string; ms?: number; pending?: boolean };
   } | null>(null);
 
+  const [suggesting, setSuggesting] = useState<"engineering" | "soft-skills" | null>(null);
+  const [seedPreview, setSeedPreview] = useState<{
+    domain: "engineering" | "soft-skills";
+    topics: string[];
+    searchHits: number;
+  } | null>(null);
+
   async function load() {
     setLoading(true);
     const res = await fetch("/api/settings/auto-write");
@@ -162,6 +169,69 @@ export default function SettingsPage() {
     } finally {
       setChecking(false);
     }
+  }
+
+  async function suggestSeeds(domain: "engineering" | "soft-skills") {
+    if (!config) return;
+    setSuggesting(domain);
+    setError("");
+    setMessage("");
+    setSeedPreview(null);
+    const existing =
+      domain === "engineering" ? config.seedTopicsEngineering : config.seedTopicsSoftSkills;
+    try {
+      const res = await fetch("/api/settings/suggest-seeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, existingSeeds: existing }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        topics?: string[];
+        searchHits?: number;
+        count?: number;
+      };
+      if (!res.ok) {
+        setError(data.error ?? "Gợi ý seed thất bại");
+        return;
+      }
+      setSeedPreview({
+        domain,
+        topics: data.topics ?? [],
+        searchHits: data.searchHits ?? 0,
+      });
+      setMessage(
+        `Đã gợi ý ${data.count ?? data.topics?.length ?? 0} seed trend (${domain}) từ ${data.searchHits ?? "?"} nguồn · chưa lưu — chọn Thêm hoặc Thay thế.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi mạng khi gợi ý seed");
+    } finally {
+      setSuggesting(null);
+    }
+  }
+
+  function applySeedPreview(mode: "append" | "replace") {
+    if (!config || !seedPreview) return;
+    const blob = seedPreview.topics.join("\n");
+    if (seedPreview.domain === "engineering") {
+      const next =
+        mode === "replace"
+          ? blob
+          : [config.seedTopicsEngineering.trim(), blob].filter(Boolean).join("\n");
+      setConfig({ ...config, seedTopicsEngineering: next });
+    } else {
+      const next =
+        mode === "replace"
+          ? blob
+          : [config.seedTopicsSoftSkills.trim(), blob].filter(Boolean).join("\n");
+      setConfig({ ...config, seedTopicsSoftSkills: next });
+    }
+    setSeedPreview(null);
+    setMessage(
+      mode === "replace"
+        ? `Đã thay seed ${seedPreview.domain} — nhớ bấm Lưu cấu hình.`
+        : `Đã thêm seed vào ${seedPreview.domain} — nhớ bấm Lưu cấu hình.`,
+    );
   }
 
   async function onSave(e: FormEvent) {
@@ -421,12 +491,23 @@ export default function SettingsPage() {
               <div>
                 <p className="text-sm font-semibold text-[var(--ink)]">Seed topics theo miền</p>
                 <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                  Mỗi dòng một chủ đề. Sửa ở đây — không cần mở file Domain Profile. Ưu tiên chủ đề
-                  chưa viết; hết thì báo lỗi (không quay vòng trùng).
+                  Mỗi dòng một chủ đề. Nút ✨: Tavily (≈3 tháng) + AI format 20–30 seed trend — anh
+                  duyệt Thêm/Thay trước khi Lưu.
                 </p>
               </div>
               <div>
-                <Label htmlFor="seedTopicsEngineering">Engineering</Label>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <Label htmlFor="seedTopicsEngineering">Engineering</Label>
+                  <button
+                    type="button"
+                    title="Gợi ý seed trend 3 tháng (Tavily + NVIDIA)"
+                    disabled={!!suggesting || saving || running}
+                    onClick={() => suggestSeeds("engineering")}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--line-strong)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
+                  >
+                    {suggesting === "engineering" ? "Đang quét…" : "✨ Trend"}
+                  </button>
+                </div>
                 <Textarea
                   id="seedTopicsEngineering"
                   rows={5}
@@ -438,7 +519,18 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="seedTopicsSoftSkills">Soft skills</Label>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <Label htmlFor="seedTopicsSoftSkills">Soft skills</Label>
+                  <button
+                    type="button"
+                    title="Gợi ý seed trend 3 tháng (Tavily + NVIDIA)"
+                    disabled={!!suggesting || saving || running}
+                    onClick={() => suggestSeeds("soft-skills")}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--line-strong)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
+                  >
+                    {suggesting === "soft-skills" ? "Đang quét…" : "✨ Trend"}
+                  </button>
+                </div>
                 <Textarea
                   id="seedTopicsSoftSkills"
                   rows={5}
@@ -447,6 +539,50 @@ export default function SettingsPage() {
                   placeholder={"Feedback khó\nDecision-making dưới áp lực\n..."}
                 />
               </div>
+
+              {seedPreview && (
+                <div className="rounded-xl border border-[rgba(12,110,107,0.25)] bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent)]">
+                    Preview · {seedPreview.domain} · {seedPreview.topics.length} seed ·{" "}
+                    {seedPreview.searchHits} nguồn
+                  </p>
+                  <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm text-[var(--ink-muted)]">
+                    {seedPreview.topics.map((t) => (
+                      <li key={t} className="leading-snug">
+                        · {t}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => applySeedPreview("append")}
+                    >
+                      Thêm vào seed
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="rounded-full"
+                      onClick={() => applySeedPreview("replace")}
+                    >
+                      Thay thế toàn bộ
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="rounded-full"
+                      onClick={() => setSeedPreview(null)}
+                    >
+                      Bỏ preview
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
