@@ -45,11 +45,18 @@ const TABS = [
 ] as const;
 
 const STEP_HINT: Record<string, string> = {
-  RESEARCH: "Research: Tavily search (nhanh) + GLM tổng hợp — phần lâu thường là GLM",
-  INSIGHT: "Insight Gate: chấm L2/L3 (thường 20–60s)",
-  WRITE: "Viết 12 sections (thường 60–120s)",
-  FINALIZE: "Fact-check + bản sạch + hero brief (thường 60–120s)",
+  RESEARCH: "Research: lần 1 Tavily search · lần 2 GLM viết brief (tách để tránh 504)",
+  INSIGHT: "Insight Gate: chấm L2/L3 (thường 20–50s)",
+  WRITE: "Viết 12 sections (thường 30–55s trên Hobby)",
+  FINALIZE: "Fact-check + bản sạch + hero brief (thường 30–55s)",
 };
+
+function timeoutMessage(status: number): string {
+  if (status === 504 || status === 408) {
+    return "Timeout 504 — Vercel Hobby cắt ~60s. Bấm chạy bước lại (Research đã tách search/LLM).";
+  }
+  return `HTTP ${status}`;
+}
 
 function tabForArticle(a: Article): string {
   if (a.cleanPublish) return "clean";
@@ -147,17 +154,28 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       return null;
     }
 
-    const data = (await res.json()) as {
+    let data: {
       article?: Article;
       error?: string;
-      timings?: { searchMs?: number; llmMs?: number; searchHits?: number; searchQueries?: number };
-    };
+      timings?: {
+        searchMs?: number;
+        llmMs?: number;
+        searchHits?: number;
+        searchQueries?: number;
+        researchPhase?: string;
+      };
+    } = {};
+    try {
+      data = (await res.json()) as typeof data;
+    } catch {
+      /* Vercel 504 thường trả HTML */
+    }
     const elapsedSec = Math.round((Date.now() - started) / 1000);
     setRunning(false);
     setRunningLabel("");
 
     if (!res.ok) {
-      const msg = data.error ?? `HTTP ${res.status}`;
+      const msg = data.error ?? timeoutMessage(res.status);
       setActionError(msg);
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       await load();
@@ -181,17 +199,34 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
 
     if (action === "run-step") {
-      const finished = STEP_LABELS[stepBefore] || stepBefore;
-      if (data.timings?.searchMs != null || data.timings?.llmMs != null) {
+      const phase = data.timings?.researchPhase;
+      const finished =
+        phase === "search"
+          ? "Research · Tavily"
+          : phase === "llm"
+            ? "Research · GLM brief"
+            : STEP_LABELS[stepBefore] || stepBefore;
+      if (phase === "search" && data.timings) {
+        const s = Math.round((data.timings.searchMs || 0) / 1000);
+        pushLog(
+          "info",
+          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s (bấm bước tiếp để GLM viết brief)`,
+        );
+      } else if (phase === "llm" && data.timings) {
+        const l = Math.round((data.timings.llmMs || 0) / 1000);
+        pushLog("info", `·· GLM viết Research Brief · ${l}s`);
+      } else if (data.timings?.searchMs != null || data.timings?.llmMs != null) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         const l = Math.round((data.timings.llmMs || 0) / 1000);
         pushLog(
           "info",
-          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s | GLM viết brief · ${l}s`,
+          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s | GLM · ${l}s`,
         );
       }
       if (next.status === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
+      } else if (phase === "search") {
+        pushLog("success", `✓ Xong ${finished} · còn Research · GLM · ${elapsedSec}s`);
       } else {
         pushLog(
           "success",
@@ -212,13 +247,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
-    pushLog("info", "→ Chạy full pipeline (4 bước)...");
+    pushLog("info", "→ Chạy full pipeline (Research = 2 lần gọi + Insight/Write/Finalize)...");
 
     let safety = 0;
     let current = article;
 
     while (
-      safety < 6 &&
+      safety < 8 &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
       current.status !== "PUBLISHED" &&
@@ -227,7 +262,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       safety += 1;
       const next = await callAction("run-step");
       if (!next) {
-        pushLog("error", "✗ Dừng full pipeline vì lỗi mạng/API");
+        pushLog("error", "✗ Dừng full pipeline vì lỗi mạng/API (504? bấm lại để tiếp tục)");
         break;
       }
       current = next;

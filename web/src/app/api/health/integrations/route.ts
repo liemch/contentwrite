@@ -38,4 +38,4 @@ export async function GET() {
   return NextResponse.json({ ok: allOk, checks }, { status: allOk ? 200 : 503 });
 }
 
-export const maxDuration = 120;
+export const maxDuration = 60;

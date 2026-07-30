@@ -49,29 +49,70 @@ export default function SettingsPage() {
   async function checkIntegrations() {
     setChecking(true);
     setError("");
+    setMessage("");
+    setHealth(null);
+
+    const controller = new AbortController();
+    const kill = setTimeout(() => controller.abort(), 35000);
+
     try {
-      const res = await fetch("/api/health/tavily");
-      const data = (await res.json()) as {
+      // 1) Tavily nhanh
+      const tavilyRes = await fetch("/api/health/tavily", { signal: controller.signal });
+      const tavilyData = (await tavilyRes.json()) as {
+        ok?: boolean;
+        tavily?: { ok: boolean; detail: string; ms?: number };
+        error?: string;
+      };
+
+      if (tavilyRes.status === 401 || tavilyData.error === "Unauthorized") {
+        setError("Phiên đăng nhập hết hạn — reload / login lại rồi Test.");
+        setChecking(false);
+        clearTimeout(kill);
+        return;
+      }
+
+      setHealth({
+        ok: Boolean(tavilyData.tavily?.ok),
+        tavily: tavilyData.tavily,
+        nvidia: { ok: false, detail: "Đang kiểm tra NVIDIA...", ms: 0 },
+      });
+
+      // 2) NVIDIA riêng (chậm hơn)
+      const nvidiaRes = await fetch("/api/health/tavily?nvidia=1", {
+        signal: controller.signal,
+      });
+      const nvidiaData = (await nvidiaRes.json()) as {
         ok?: boolean;
         tavily?: { ok: boolean; detail: string; ms?: number };
         nvidia?: { ok: boolean; detail: string; ms?: number };
-        error?: string;
       };
-      if (!res.ok && data.error) {
-        setError(data.error);
-        setHealth(null);
+
+      setHealth({
+        ok: Boolean(nvidiaData.tavily?.ok && nvidiaData.nvidia?.ok),
+        tavily: nvidiaData.tavily ?? tavilyData.tavily,
+        nvidia: nvidiaData.nvidia,
+      });
+
+      if (nvidiaData.tavily?.ok && nvidiaData.nvidia?.ok) {
+        setMessage("Tavily + NVIDIA đều OK.");
+      } else if (nvidiaData.tavily?.ok) {
+        setMessage("Tavily OK — NVIDIA lỗi/timeout (xem panel).");
       } else {
-        setHealth(data);
-        setMessage(
-          data.ok
-            ? "Tavily + NVIDIA đều OK."
-            : "Một hoặc cả hai integration lỗi — xem panel bên phải.",
-        );
+        setMessage("Tavily lỗi — kiểm tra TAVILY_API_KEY trên Vercel.");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Không kiểm tra được");
+      const aborted = e instanceof Error && e.name === "AbortError";
+      setError(
+        aborted
+          ? "Timeout 35s — Tavily thường <3s; nếu kẹt có thể NVIDIA chậm hoặc mất mạng."
+          : e instanceof Error
+            ? e.message
+            : "Không kiểm tra được",
+      );
+    } finally {
+      clearTimeout(kill);
+      setChecking(false);
     }
-    setChecking(false);
   }
 
   async function onSave(e: FormEvent) {
@@ -108,37 +149,82 @@ export default function SettingsPage() {
   async function runNow() {
     if (!config) return;
     const ok = window.confirm(
-      "Chạy auto-write ngay bây giờ? Pipeline sẽ dừng ở trạng thái Chờ duyệt (không tự publish).",
+      "Chạy auto-write ngay? Mỗi lần gọi chỉ 1 bước (tránh 504 trên Vercel Hobby). Em sẽ lặp đến Chờ duyệt.",
     );
     if (!ok) return;
     setRunning(true);
     setError("");
-    setMessage("");
-    const res = await fetch("/api/auto-write/run", { method: "POST" });
-    const data = (await res.json()) as {
-      ran?: boolean;
-      skipped?: string;
-      articleId?: string;
-      status?: string;
-      topic?: string;
-      error?: string;
-    };
-    setRunning(false);
-    await load();
+    setMessage("Đang chạy từng bước…");
 
-    if (!res.ok) {
-      setError(data.error || "Chạy thất bại");
-      return;
+    let articleId: string | undefined;
+    let topic: string | undefined;
+    let lastStatus = "";
+    let lastError: string | undefined;
+
+    try {
+      for (let i = 0; i < 10; i++) {
+        setMessage(`Đang chạy bước ${i + 1}/10…`);
+        let res: Response;
+        try {
+          res = await fetch("/api/auto-write/run", { method: "POST" });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Mất kết nối";
+          setError(`Không gọi được API: ${msg}`);
+          break;
+        }
+
+        let data: {
+          ran?: boolean;
+          skipped?: string;
+          articleId?: string;
+          status?: string;
+          topic?: string;
+          error?: string;
+        } = {};
+        try {
+          data = (await res.json()) as typeof data;
+        } catch {
+          /* 504 HTML */
+        }
+
+        if (res.status === 504 || res.status === 408) {
+          setError(
+            "Timeout 504 (Vercel Hobby ~60s). Bấm Chạy ngay lại — sẽ tiếp tục bài dở.",
+          );
+          break;
+        }
+        if (!res.ok) {
+          setError(data.error || `HTTP ${res.status}`);
+          break;
+        }
+        if (!data.ran) {
+          setMessage(`Bỏ qua: ${data.skipped}`);
+          break;
+        }
+
+        articleId = data.articleId ?? articleId;
+        topic = data.topic ?? topic;
+        lastStatus = data.status ?? lastStatus;
+        lastError = data.error;
+
+        if (lastStatus === "PUBLISH_READY" || lastStatus === "FAILED") {
+          setMessage(
+            `Xong → ${lastStatus}. Chủ đề: ${topic ?? "—"}${
+              articleId ? ` · /articles/${articleId}` : ""
+            }${lastError ? ` · Lỗi: ${lastError}` : ""}`,
+          );
+          break;
+        }
+        if (i === 9) {
+          setMessage(
+            `Chưa xong (${lastStatus}). Bấm Chạy ngay lại hoặc mở /articles/${articleId ?? ""}`,
+          );
+        }
+      }
+    } finally {
+      setRunning(false);
+      await load();
     }
-    if (!data.ran) {
-      setMessage(`Bỏ qua: ${data.skipped}`);
-      return;
-    }
-    setMessage(
-      `Đã chạy xong → ${data.status}. Chủ đề: ${data.topic ?? "—"}${
-        data.articleId ? ` · /articles/${data.articleId}` : ""
-      }${data.error ? ` · Lỗi: ${data.error}` : ""}`,
-    );
   }
 
   return (
@@ -157,7 +243,7 @@ export default function SettingsPage() {
               <div>
                 <p className="text-sm font-semibold text-[var(--ink)]">Bật auto-write</p>
                 <p className="text-xs text-[var(--ink-muted)]">
-                  Cron kiểm tra mỗi giờ; đến lịch thì tạo bài và chạy full pipeline.
+                  Cron Hobby chạy 1 lần/ngày; mỗi tick chỉ 1 bước pipeline (tránh 504).
                 </p>
               </div>
               <button

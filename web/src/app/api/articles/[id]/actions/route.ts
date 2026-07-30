@@ -54,4 +54,4 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
-export const maxDuration = 300;
+export const maxDuration = 60;

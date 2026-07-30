@@ -23,7 +23,7 @@ function getClient() {
   return new OpenAI({
     apiKey,
     baseURL: BASE_URL,
-    timeout: 300_000,
+    timeout: process.env.VERCEL ? 50_000 : 300_000,
     maxRetries: 0,
   });
 }
@@ -63,7 +63,7 @@ async function chatViaCurlStream(
         "--connect-timeout",
         "30",
         "--max-time",
-        "300",
+        process.env.VERCEL ? "50" : "300",
         "-X",
         "POST",
         `${BASE_URL}/chat/completions`,
@@ -170,7 +170,8 @@ export async function chatCompletion(
     return await chatViaOpenAISdk(messages, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/timed? ?out|fetch failed|ECONNRESET/i.test(message)) {
+    // Trên Vercel không fallback curl (dễ vượt 60s → 504 + bài kẹt RUNNING)
+    if (!process.env.VERCEL && /timed? ?out|fetch failed|ECONNRESET/i.test(message)) {
       return chatViaCurlStream(messages, options);
     }
     throw error;

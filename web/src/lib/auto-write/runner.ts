@@ -160,7 +160,8 @@ async function pickTopic(
 }
 
 export async function runFullWorkflowToReview(articleId: string) {
-  for (let i = 0; i < STEP_ORDER_LEN; i++) {
+  // Research = 2 phase (search + llm) → tối đa ~6 lần run-step
+  for (let i = 0; i < 8; i++) {
     const article = await runWorkflowStep(articleId);
     if (
       article.status === ArticleStatus.PUBLISH_READY ||
@@ -171,8 +172,6 @@ export async function runFullWorkflowToReview(articleId: string) {
   }
   return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 }
-
-const STEP_ORDER_LEN = 4;
 
 export type AutoWriteRunResult = {
   ran: boolean;
@@ -185,10 +184,9 @@ export type AutoWriteRunResult = {
 };
 
 /**
- * Tick lịch auto-write.
- * - force=true: chạy ngay (nút "Chạy ngay"), bỏ qua nextRunAt nhưng vẫn tôn trọng maxPending / đang RUNNING
- * - force=false: chỉ chạy nếu enabled && due
- * Dừng ở PUBLISH_READY — không approve/publish.
+ * Tick lịch auto-write — CHỈ 1 run-step / lần gọi (Hobby ≤60s).
+ * - Resume bài auto đang DRAFT trước khi tạo bài mới
+ * - force=true: bỏ qua nextRunAt (nút Chạy ngay nên loop phía client)
  */
 export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<AutoWriteRunResult> {
   const config = await getAutoWriteConfig();
@@ -205,8 +203,25 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     };
   }
 
+  // Bài kẹt RUNNING sau 504/timeout → về DRAFT để resume
+  const staleCutoff = new Date(Date.now() - 90_000);
+  await prisma.article.updateMany({
+    where: {
+      status: ArticleStatus.RUNNING,
+      updatedAt: { lt: staleCutoff },
+    },
+    data: {
+      status: ArticleStatus.DRAFT,
+      errorMessage: "Recovered after timeout — chạy lại bước hiện tại",
+    },
+  });
+
   const running = await prisma.article.count({
-    where: { source: "auto", status: ArticleStatus.RUNNING },
+    where: {
+      source: "auto",
+      status: ArticleStatus.RUNNING,
+      updatedAt: { gte: staleCutoff },
+    },
   });
   if (running > 0) {
     return { ran: false, skipped: "Đang có bài auto RUNNING" };
@@ -235,44 +250,66 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     };
   }
 
-  const domain = await pickDomain(config.domain, config.lastDomain);
-
-  let topic: string;
-  try {
-    topic = await pickTopic(domain, config.useSeedTopics, config.customTopics);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Hết chủ đề mới";
-    const nextRunAt = computeNextRunAt({
-      scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
-      intervalHours: config.intervalHours,
-      preferredHour: config.preferredHour,
-      timezone: config.timezone,
-    });
-    await prisma.autoWriteConfig.update({
-      where: { id: CONFIG_ID },
-      data: { nextRunAt, lastError: message, lastDomain: domain },
-    });
-    return { ran: false, skipped: message, domain };
-  }
-
-  const article = await prisma.article.create({
-    data: {
-      topic,
-      domain,
+  // Resume bài auto chưa xong trước
+  let article = await prisma.article.findFirst({
+    where: {
       source: "auto",
-      status: ArticleStatus.DRAFT,
-      currentStep: WorkflowStep.RESEARCH,
+      status: { in: [ArticleStatus.DRAFT, ArticleStatus.RUNNING] },
     },
+    orderBy: { updatedAt: "desc" },
   });
 
-  try {
-    const finished = await runFullWorkflowToReview(article.id);
-    const nextRunAt = computeNextRunAt({
-      scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
-      intervalHours: config.intervalHours,
-      preferredHour: config.preferredHour,
-      timezone: config.timezone,
+  let topic = article?.topic ?? "";
+  let domain = (article?.domain as "engineering" | "soft-skills") || "engineering";
+
+  if (!article) {
+    domain = await pickDomain(config.domain, config.lastDomain);
+    try {
+      topic = await pickTopic(domain, config.useSeedTopics, config.customTopics);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Hết chủ đề mới";
+      const nextRunAt = computeNextRunAt({
+        scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
+        intervalHours: config.intervalHours,
+        preferredHour: config.preferredHour,
+        timezone: config.timezone,
+      });
+      await prisma.autoWriteConfig.update({
+        where: { id: CONFIG_ID },
+        data: { nextRunAt, lastError: message, lastDomain: domain },
+      });
+      return { ran: false, skipped: message, domain };
+    }
+
+    article = await prisma.article.create({
+      data: {
+        topic,
+        domain,
+        source: "auto",
+        status: ArticleStatus.DRAFT,
+        currentStep: WorkflowStep.RESEARCH,
+      },
     });
+  } else {
+    topic = article.topic || topic;
+    domain = (article.domain as "engineering" | "soft-skills") || domain;
+  }
+
+  try {
+    const finished = await runWorkflowStep(article.id);
+    const done =
+      finished.status === ArticleStatus.PUBLISH_READY ||
+      finished.status === ArticleStatus.FAILED;
+
+    // Chưa xong: hẹn lại sớm hơn để cron/client tiếp tục (Hobby cron 1 lần/ngày thì dùng nút Chạy ngay)
+    const nextRunAt = done
+      ? computeNextRunAt({
+          scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
+          intervalHours: config.intervalHours,
+          preferredHour: config.preferredHour,
+          timezone: config.timezone,
+        })
+      : new Date(Date.now() + 60_000);
 
     await prisma.autoWriteConfig.update({
       where: { id: CONFIG_ID },
@@ -284,7 +321,9 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         lastError:
           finished.status === ArticleStatus.FAILED
             ? finished.errorMessage ?? "Pipeline FAILED"
-            : null,
+            : done
+              ? null
+              : `Đang chạy dở (${finished.currentStep ?? finished.status}) — bấm Chạy ngay hoặc đợi tick tiếp`,
       },
     });
 
@@ -294,7 +333,10 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
       status: finished.status,
       topic,
       domain,
-      error: finished.status === ArticleStatus.FAILED ? finished.errorMessage ?? undefined : undefined,
+      error:
+        finished.status === ArticleStatus.FAILED
+          ? finished.errorMessage ?? undefined
+          : undefined,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Lỗi auto-write";

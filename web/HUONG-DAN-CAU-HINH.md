@@ -233,7 +233,7 @@ npx prisma db push
 | Hobby | ~60 giây | Dùng **Chạy 1 bước** từng bước |
 | Pro | ~300 giây | Có thể **Chạy full pipeline** |
 
-Route `POST /api/articles/[id]/actions` đã set `maxDuration = 300` (cần Pro để có hiệu lực đầy đủ).
+Route `POST /api/articles/[id]/actions` set `maxDuration = 60` (Hobby). Research tách 2 phase (Tavily rồi GLM).
 
 Mỗi bài ≈ 3 Tavily query + 4 lần gọi GLM-5.2 → có thể mất **5–15 phút** end-to-end.
 
