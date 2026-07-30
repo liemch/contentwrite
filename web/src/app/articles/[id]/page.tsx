@@ -46,10 +46,10 @@ const TABS = [
 ] as const;
 
 const STEP_HINT: Record<string, string> = {
-  RESEARCH: "Research: lần 1 Tavily · lần 2 GLM brief (prompt gọn)",
-  INSIGHT: "Insight Gate: prompt ngắn, ~≤45s",
-  WRITE: "Viết: 2 lần gọi (nửa đầu → nửa sau)",
-  FINALIZE: "Finalize: 2 lần gọi (fact-check → bản sạch)",
+  RESEARCH: "Research: Operating Prompt + Domain Profile + Research-Brief template",
+  INSIGHT: "Insight Gate: theo AI-TFES Operating Prompt (≥ L2)",
+  WRITE: "Viết 12 phần theo Article.md + BAR VIẾT (2 phase)",
+  FINALIZE: "FactCheck.md + Bản sạch / Publish checklist (2 phase)",
 };
 
 function timeoutMessage(status: number): string {

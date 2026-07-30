@@ -15,7 +15,7 @@ import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
   buildResearchPrompt,
-  getCompactStepPrompt,
+  getSystemPrompt,
 } from "@/lib/tfes/prompts";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
@@ -177,7 +177,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       const llmStarted = Date.now();
       const researchBrief = await chatCompletion(
         [
-          { role: "system", content: getCompactStepPrompt(article.domain, "research") },
+          { role: "system", content: getSystemPrompt(article.domain) },
           {
             role: "user",
             content: buildDailyTaskPrompt({
@@ -188,7 +188,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
           { role: "user", content: buildResearchPrompt(topic, searchBlob) },
         ],
-        { maxTokens: 1800 },
+        { maxTokens: 2800 },
       );
 
       const updated = await prisma.article.update({
@@ -210,16 +210,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       const llmStarted = Date.now();
       const insightGate = await chatCompletion(
         [
-          { role: "system", content: getCompactStepPrompt(article.domain, "insight") },
+          { role: "system", content: getSystemPrompt(article.domain) },
           {
             role: "user",
             content: buildPipelinePrompt(
               "insight",
-              appendContext(clipText(article.researchBrief, 4_500), `Chủ đề: ${topic}`),
+              appendContext(clipText(article.researchBrief, 8_000), `Chủ đề: ${topic}`),
             ),
           },
         ],
-        { maxTokens: 900 },
+        { maxTokens: 1600 },
       );
 
       const failedGate =
@@ -263,7 +263,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const partA = await chatCompletion(
           [
-            { role: "system", content: getCompactStepPrompt(article.domain, "write") },
+            { role: "system", content: getSystemPrompt(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
@@ -276,7 +276,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2000 },
+          { maxTokens: 2200 },
         );
 
         if (!partA.trim()) {
@@ -304,7 +304,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const partA = stripPipelineMarks(draft);
         const partB = await chatCompletion(
           [
-            { role: "system", content: getCompactStepPrompt(article.domain, "write") },
+            { role: "system", content: getSystemPrompt(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
@@ -317,7 +317,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2000 },
+          { maxTokens: 2200 },
         );
 
         if (!partB.trim()) {
@@ -358,7 +358,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const finalizeA = await chatCompletion(
           [
-            { role: "system", content: getCompactStepPrompt(article.domain, "finalize") },
+            { role: "system", content: getSystemPrompt(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
@@ -396,7 +396,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       const draftClean = stripPipelineMarks(article.draft12);
       const finalizeB = await chatCompletion(
         [
-          { role: "system", content: getCompactStepPrompt(article.domain, "finalize") },
+          { role: "system", content: getSystemPrompt(article.domain) },
           {
             role: "user",
             content: buildPipelinePrompt(
