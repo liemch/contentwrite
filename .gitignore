@@ -27,3 +27,11 @@ web/public/generated/heroes/*
 # Tooling caches
 **/.turbo/
 **/coverage/
+
+# Local agent skill caches (không cần trên Vercel)
+web/.agents/
+web/.claude/
+web/.windsurf/
+web/skills-lock.json
+web/AGENTS.md
+web/CLAUDE.md
