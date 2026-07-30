@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySession } from "@/lib/auth";
-import { pickFreshTopic } from "@/lib/auto-write/runner";
+import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
@@ -34,10 +34,16 @@ export async function POST(request: NextRequest) {
   const domain = body.domain === "soft-skills" ? "soft-skills" : "engineering";
   let topic = body.topic?.trim() || "";
 
-  // Để trống → chọn thật từ seed_topics (không dùng câu hướng dẫn làm topic)
+  // Để trống → chọn từ Domain Profile seed + seed Cài đặt
   if (!topic) {
     try {
-      topic = await pickFreshTopic(domain);
+      const config = await getAutoWriteConfig();
+      topic = await pickFreshTopic(domain, {
+        useSeedTopics: config.useSeedTopics,
+        customTopics: config.customTopics,
+        seedTopicsEngineering: config.seedTopicsEngineering,
+        seedTopicsSoftSkills: config.seedTopicsSoftSkills,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Không chọn được chủ đề";
       return NextResponse.json({ error: message }, { status: 400 });

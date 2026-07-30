@@ -80,6 +80,9 @@ model AutoWriteConfig {
   domain           String    @default("engineering")
   useSeedTopics    Boolean   @default(true)
   customTopics     String?   @db.Text
+  /// Seed bổ sung / ghi đè vận hành — không cần sửa file Domain Profile
+  seedTopicsEngineering String? @db.Text
+  seedTopicsSoftSkills  String? @db.Text
   maxPendingReview Int       @default(3)
   lastRunAt        DateTime?
   nextRunAt        DateTime?

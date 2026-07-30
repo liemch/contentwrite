@@ -18,7 +18,7 @@ const NAV = [
   { href: "/dashboard", label: "Biên tập" },
   { href: "/library", label: "Thư viện" },
   { href: "/articles/new", label: "Viết bài" },
-  { href: "/settings", label: "Tự động" },
+  { href: "/settings", label: "Cài đặt" },
 ];
 
 export function AppShell({

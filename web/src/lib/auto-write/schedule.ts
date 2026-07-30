@@ -9,6 +9,9 @@ export type AutoWriteSettings = {
   domain: "engineering" | "soft-skills" | "rotate";
   useSeedTopics: boolean;
   customTopics: string;
+  /** Seed vận hành theo miền — ưu tiên/ghép với Domain Profile */
+  seedTopicsEngineering: string;
+  seedTopicsSoftSkills: string;
   maxPendingReview: number;
   lastRunAt: string | null;
   nextRunAt: string | null;

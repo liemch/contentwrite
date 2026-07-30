@@ -182,6 +182,8 @@ export default function SettingsPage() {
         domain: config.domain,
         useSeedTopics: config.useSeedTopics,
         customTopics: config.customTopics,
+        seedTopicsEngineering: config.seedTopicsEngineering,
+        seedTopicsSoftSkills: config.seedTopicsSoftSkills,
         maxPendingReview: config.maxPendingReview,
       }),
     });
@@ -278,8 +280,8 @@ export default function SettingsPage() {
 
   return (
     <AppShell
-      title="Cấu hình Auto-write"
-      subtitle="Lên lịch Agent tự viết bài theo AI-TFES. Bài auto chỉ dừng ở Chờ duyệt — anh duyệt tay."
+      title="Cài đặt"
+      subtitle="Auto-write, seed topics theo miền, và kiểm tra API — không cần sửa file Domain Profile."
       backHref="/dashboard"
       backLabel="Biên tập"
     >
@@ -406,21 +408,57 @@ export default function SettingsPage() {
               />
               <div>
                 <label htmlFor="useSeedTopics" className="text-sm font-medium text-[var(--ink)]">
-                  Dùng seed_topics từ Domain Profile
+                  Ghép seed từ Domain Profile (file AI-TFES)
                 </label>
-                <FieldHint>Ưu tiên chủ đề chưa viết; hết thì quay vòng.</FieldHint>
+                <FieldHint>
+                  Bật = lấy seed trong engineering.md / soft-skills.md + seed bên dưới. Tắt = chỉ dùng
+                  seed Cài đặt.
+                </FieldHint>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)]/60 p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-[var(--ink)]">Seed topics theo miền</p>
+                <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                  Mỗi dòng một chủ đề. Sửa ở đây — không cần mở file Domain Profile. Ưu tiên chủ đề
+                  chưa viết; hết thì báo lỗi (không quay vòng trùng).
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="seedTopicsEngineering">Engineering</Label>
+                <Textarea
+                  id="seedTopicsEngineering"
+                  rows={5}
+                  value={config.seedTopicsEngineering}
+                  onChange={(e) =>
+                    setConfig({ ...config, seedTopicsEngineering: e.target.value })
+                  }
+                  placeholder={"API versioning pitfalls\nObservability cơ bản\n..."}
+                />
+              </div>
+              <div>
+                <Label htmlFor="seedTopicsSoftSkills">Soft skills</Label>
+                <Textarea
+                  id="seedTopicsSoftSkills"
+                  rows={5}
+                  value={config.seedTopicsSoftSkills}
+                  onChange={(e) => setConfig({ ...config, seedTopicsSoftSkills: e.target.value })}
+                  placeholder={"Feedback khó\nDecision-making dưới áp lực\n..."}
+                />
               </div>
             </div>
 
             <div>
-              <Label htmlFor="customTopics">Chủ đề thêm (mỗi dòng một chủ đề)</Label>
+              <Label htmlFor="customTopics">Chủ đề chung thêm (mọi miền)</Label>
               <Textarea
                 id="customTopics"
-                rows={6}
+                rows={4}
                 value={config.customTopics}
                 onChange={(e) => setConfig({ ...config, customTopics: e.target.value })}
-                placeholder={"MCP production pitfalls\nFeature flags tại scale\n..."}
+                placeholder={"Chủ đề dùng được cho cả engineering lẫn soft-skills\n..."}
               />
+              <FieldHint>Ghép thêm vào pool bất kể domain đang chạy (rotate cũng dùng).</FieldHint>
             </div>
 
             {error && (

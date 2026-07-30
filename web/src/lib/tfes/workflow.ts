@@ -1,7 +1,7 @@
 import { ArticleStatus, WorkflowStep, type Article } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
-import { pickFreshTopic } from "@/lib/auto-write/runner";
+import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { formatSearchResults, webSearch } from "@/lib/search";
 import {
   appendContext,
@@ -194,7 +194,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     // Topic trống / placeholder cũ → chọn seed thật và lưu lại trước khi research
     if (isPlaceholderTopic(topic)) {
       const domain = article.domain === "soft-skills" ? "soft-skills" : "engineering";
-      topic = await pickFreshTopic(domain);
+      const config = await getAutoWriteConfig();
+      topic = await pickFreshTopic(domain, {
+        useSeedTopics: config.useSeedTopics,
+        customTopics: config.customTopics,
+        seedTopicsEngineering: config.seedTopicsEngineering,
+        seedTopicsSoftSkills: config.seedTopicsSoftSkills,
+      });
       article = await prisma.article.update({
         where: { id: articleId },
         data: { topic },

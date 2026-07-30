@@ -40,6 +40,8 @@ export function serializeConfig(row: Awaited<ReturnType<typeof getAutoWriteConfi
       row.domain === "soft-skills" || row.domain === "rotate" ? row.domain : "engineering",
     useSeedTopics: row.useSeedTopics,
     customTopics: row.customTopics ?? "",
+    seedTopicsEngineering: row.seedTopicsEngineering ?? "",
+    seedTopicsSoftSkills: row.seedTopicsSoftSkills ?? "",
     maxPendingReview: row.maxPendingReview,
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     nextRunAt: row.nextRunAt?.toISOString() ?? null,
@@ -58,6 +60,8 @@ export type UpdateAutoWriteInput = Partial<{
   domain: "engineering" | "soft-skills" | "rotate";
   useSeedTopics: boolean;
   customTopics: string;
+  seedTopicsEngineering: string;
+  seedTopicsSoftSkills: string;
   maxPendingReview: number;
 }>;
 
@@ -88,6 +92,14 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
       domain: input.domain ?? current.domain,
       useSeedTopics: input.useSeedTopics ?? current.useSeedTopics,
       customTopics: input.customTopics !== undefined ? input.customTopics : current.customTopics,
+      seedTopicsEngineering:
+        input.seedTopicsEngineering !== undefined
+          ? input.seedTopicsEngineering
+          : current.seedTopicsEngineering,
+      seedTopicsSoftSkills:
+        input.seedTopicsSoftSkills !== undefined
+          ? input.seedTopicsSoftSkills
+          : current.seedTopicsSoftSkills,
       maxPendingReview: Math.max(1, Math.min(20, input.maxPendingReview ?? current.maxPendingReview)),
       nextRunAt,
       ...(enabled === false ? {} : { lastError: null }),
@@ -139,31 +151,56 @@ async function collectUsedTopics(domain: "engineering" | "soft-skills"): Promise
  */
 export async function pickFreshTopic(
   domain: "engineering" | "soft-skills",
-  options: { useSeedTopics?: boolean; customTopics?: string | null } = {},
+  options: {
+    useSeedTopics?: boolean;
+    customTopics?: string | null;
+    seedTopicsEngineering?: string | null;
+    seedTopicsSoftSkills?: string | null;
+  } = {},
 ): Promise<string> {
-  return pickTopic(
-    domain,
-    options.useSeedTopics !== false,
-    options.customTopics ?? null,
-  );
+  return pickTopic(domain, {
+    useSeed: options.useSeedTopics !== false,
+    customTopics: options.customTopics ?? null,
+    seedTopicsEngineering: options.seedTopicsEngineering ?? null,
+    seedTopicsSoftSkills: options.seedTopicsSoftSkills ?? null,
+  });
 }
 
 async function pickTopic(
   domain: "engineering" | "soft-skills",
-  useSeed: boolean,
-  customTopics: string | null,
+  options: {
+    useSeed: boolean;
+    customTopics: string | null;
+    seedTopicsEngineering: string | null;
+    seedTopicsSoftSkills: string | null;
+  },
 ): Promise<string> {
+  const settingsSeeds =
+    domain === "soft-skills"
+      ? parseCustomTopics(options.seedTopicsSoftSkills)
+      : parseCustomTopics(options.seedTopicsEngineering);
+
   const pool = [
-    ...(useSeed ? parseSeedTopics(domain) : []),
-    ...parseCustomTopics(customTopics),
+    ...(options.useSeed ? parseSeedTopics(domain) : []),
+    ...settingsSeeds,
+    ...parseCustomTopics(options.customTopics),
   ];
 
+  // Dedup pool (giữ thứ tự)
+  const seen = new Set<string>();
+  const unique = pool.filter((t) => {
+    const key = t.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const used = await collectUsedTopics(domain);
-  const fresh = pool.filter((t) => !isTopicUsed(t, used));
+  const fresh = unique.filter((t) => !isTopicUsed(t, used));
 
   if (fresh.length === 0) {
     throw new Error(
-      `Hết chủ đề mới cho domain “${domain}” (đã tránh trùng ${used.length} topic/title). Thêm dòng vào Custom topics trong /settings.`,
+      `Hết chủ đề mới cho domain “${domain}” (đã tránh trùng ${used.length} topic/title). Thêm seed trong Cài đặt.`,
     );
   }
 
@@ -279,6 +316,8 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
       topic = await pickFreshTopic(domain, {
         useSeedTopics: config.useSeedTopics,
         customTopics: config.customTopics,
+        seedTopicsEngineering: config.seedTopicsEngineering,
+        seedTopicsSoftSkills: config.seedTopicsSoftSkills,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Hết chủ đề mới";
