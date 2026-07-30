@@ -78,14 +78,33 @@ export function buildDailyTaskPrompt(input: {
 }
 
 /** Bước 3+4: Verification + Synthesis → Research Brief (sau khi đã có web search) */
-export function buildResearchPrompt(topic: string, searchBlob: string): string {
+export function buildResearchPrompt(
+  topic: string,
+  searchBlob: string,
+  options?: { previousGateFail?: string | null },
+): string {
   const researchTemplate = readTfesFile("05-Templates/Research-Brief.md");
+  const gateFail = options?.previousGateFail?.trim();
+
+  const retryBlock = gateFail
+    ? `
+### Góc trước BỊ CỔNG INSIGHT LOẠI (< L2) — bắt buộc đào lại
+Lần Research trước chưa đủ sâu. Đọc phản hồi Gate dưới đây rồi:
+- Đổi / làm sắc góc (điều kiện ẩn, trade-off bị giấu, reframe) — KHÔNG viết lại cùng một tóm tắt
+- Ưu tiên nguồn phản biện / mâu thuẫn giữa nguồn
+- Candidate insight phải hướng tới L2/L3
+
+=== PHẢN HỒI GATE LẦN TRƯỚC ===
+${gateFail.slice(0, 2500)}
+=== HẾT PHẢN HỒI ===
+`
+    : "";
 
   return `## Nhiệm vụ bước 3–4: VERIFICATION + SYNTHESIS (AI-TFES Operating Prompt)
 Chủ đề bài (đã chốt — KHÔNG đổi sang câu hướng dẫn seed_topics): **${topic}**
 
 Editorial Memory + Research (web-search) đã xong ở tick trước. Bây giờ CHỈ làm:
-
+${retryBlock}
 ### 3) Verification
 - Đối chiếu các nguồn trong WEB SEARCH RESULTS; ghi Tier theo Domain Profile
 - Loại / đánh dấu thấp nguồn thiên marketing, không có tác giả, hoặc không kiểm chứng được

@@ -6,12 +6,14 @@ import { formatSearchResults, webSearch } from "@/lib/search";
 import {
   appendContext,
   clipText,
+  gateRetryCount,
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
   parseFullOutput,
   REVIEW_DONE_MARK,
   stripPipelineMarks,
+  withGateRetryMark,
   WRITE_DONE_MARK,
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
@@ -118,6 +120,8 @@ function insightPhaseOf(
   if (g.includes(INSIGHT_DONE_MARK)) return "done";
   if (g.includes(INSIGHT_DECISION_MARK)) return "planning";
   if (g.includes(INSIGHT_GATE_MARK)) return "decision";
+  // Đã fail Gate → research lại: chỉ có GATE_RETRY, chưa có GATE_MARK → chạy Gate mới
+  if (gateRetryCount(g) > 0) return "gate";
   // Legacy: đủ Decision+Planning không marker
   if (
     g.length > 350 &&
@@ -128,6 +132,9 @@ function insightPhaseOf(
   if (g.length > 80) return "decision";
   return "gate";
 }
+
+/** Tối đa research lại sau Gate < L2 (2 lần = tổng 3 lần Gate) */
+const MAX_GATE_RESEARCH_RETRIES = 2;
 
 function finalizePhaseOf(article: {
   knowledgeRecord?: string | null;
@@ -250,6 +257,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Phase 2: Verification + Synthesis → Research Brief (bước 3–4 OP)
       const memory = await getEditorialMemory(article.domain);
       const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
+      const previousGateFail =
+        gateRetryCount(article.insightGate) > 0
+          ? stripPipelineMarks(article.insightGate)
+          : null;
       const llmStarted = Date.now();
       const researchBrief = await chatCompletion(
         [
@@ -262,7 +273,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               editorialMemory: clipText(memory, 2_500),
             }),
           },
-          { role: "user", content: buildResearchPrompt(topic, searchBlob) },
+          {
+            role: "user",
+            content: buildResearchPrompt(topic, searchBlob, { previousGateFail }),
+          },
         ],
         { maxTokens: 3500 },
       );
@@ -273,6 +287,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           researchBrief,
           currentStep: WorkflowStep.INSIGHT,
           status: ArticleStatus.DRAFT,
+          errorMessage: null,
         },
       });
       return withTimings(updated, {
@@ -303,26 +318,60 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         if (failedInsightGate(insightGate)) {
-          const failed = await prisma.article.update({
+          const retries = gateRetryCount(article.insightGate);
+          const nextRetry = retries + 1;
+
+          // Hết lượt research lại → FAILED
+          if (nextRetry > MAX_GATE_RESEARCH_RETRIES) {
+            const failed = await prisma.article.update({
+              where: { id: articleId },
+              data: {
+                insightGate: withGateRetryMark(retries, insightGate.trim()),
+                status: ArticleStatus.FAILED,
+                currentStep: WorkflowStep.INSIGHT,
+                errorMessage:
+                  `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
+              },
+            });
+            return withTimings(failed, {
+              llmMs: Date.now() - llmStarted,
+              insightPhase: "gate-fail",
+            });
+          }
+
+          // Quay Research: clear brief, giữ phản hồi Gate để đào góc sắc hơn
+          const retried = await prisma.article.update({
             where: { id: articleId },
             data: {
-              insightGate: `${insightGate.trim()}\n\n${INSIGHT_GATE_MARK}`,
-              status: ArticleStatus.FAILED,
-              currentStep: WorkflowStep.INSIGHT,
-              errorMessage:
-                "Cổng Insight chưa đạt ≥ L2 (góc yếu). Xem tab Insight → Làm lại từ đầu hoặc tạo bài mới với góc khác. Không tiếp tục viết.",
+              insightGate: withGateRetryMark(
+                nextRetry,
+                `## Gate lần trước — CHƯA ĐẠT ≥ L2\n\n${insightGate.trim()}`,
+              ),
+              researchBrief: null,
+              draft12: null,
+              factCheck: null,
+              knowledgeRecord: null,
+              cleanPublish: null,
+              heroBrief: null,
+              currentStep: WorkflowStep.RESEARCH,
+              status: ArticleStatus.DRAFT,
+              errorMessage: `Gate < L2 — nghiên cứu lại góc sắc hơn (lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
             },
           });
-          return withTimings(failed, {
+          return withTimings(retried, {
             llmMs: Date.now() - llmStarted,
-            insightPhase: "gate-fail",
+            insightPhase: "gate-retry",
           });
         }
 
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
-            insightGate: `${insightGate.trim()}\n\n${INSIGHT_GATE_MARK}`,
+            // Giữ số retry (nếu có) + kết quả Gate đạt
+            insightGate: withGateRetryMark(
+              gateRetryCount(article.insightGate),
+              `${insightGate.trim()}\n\n${INSIGHT_GATE_MARK}`,
+            ).replace(/<!--TFES_GATE_RETRY:0-->\s*/g, ""),
             currentStep: WorkflowStep.INSIGHT,
             status: ArticleStatus.DRAFT,
             errorMessage: null,

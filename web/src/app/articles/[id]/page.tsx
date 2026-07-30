@@ -197,15 +197,26 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       const msg = next.errorMessage || "Chu trình lỗi";
       setActionError(msg);
       pushLog("error", `✗ Lỗi · ${msg} (${elapsedSec}s)`);
-      if (next.currentStep === "INSIGHT" || /Insight|Cổng Insight/i.test(msg)) {
+      if (next.currentStep === "INSIGHT" || /Insight|Cổng Insight|Gate/i.test(msg)) {
         setTab("insight");
         pushLog(
           "warn",
-          "→ Cổng Insight chưa đạt ≥ L2: xem tab Insight · Làm lại từ đầu hoặc tạo bài mới.",
+          "→ Gate vẫn < L2 sau khi nghiên cứu lại. Đổi chủ đề hoặc Làm lại từ đầu.",
         );
       } else {
         setTab(tabForArticle(next));
       }
+      return next;
+    }
+
+    const isGateRetry =
+      Boolean(next.errorMessage) && /Gate < L2|nghiên cứu lại/i.test(next.errorMessage || "");
+
+    if (isGateRetry && action === "run-step") {
+      setActionError(next.errorMessage || "");
+      pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
+      pushLog("info", "→ Quay bước Research (Tavily + Verify/Synth) với góc sắc hơn");
+      setTab("research");
       return next;
     }
 
@@ -226,25 +237,27 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           ? "1–2 · Memory + Research (Tavily)"
           : phase === "llm"
             ? "3–4 · Verification + Synthesis"
-            : insightPhase === "gate" || insightPhase === "gate-fail"
-              ? "Gate · Insight L2"
-              : insightPhase === "decision"
-                ? "5 · Editorial Decision"
-                : insightPhase === "planning"
-                  ? "6 · Planning"
-                  : writePhase === "a"
-                    ? "7 · Writing nửa đầu"
-                    : writePhase === "b"
-                      ? "7 · Writing nửa sau"
-                      : finalizePhase === "review"
-                        ? "8 · Review"
-                        : finalizePhase === "fact" || finalizePhase === "a"
-                          ? "9 · Fact Check"
-                          : finalizePhase === "publish" || finalizePhase === "b"
-                            ? "10 · Publish Ready"
-                            : finalizePhase === "self-check-fail"
-                              ? "10 · Self-check"
-                              : STEP_LABELS[stepBefore] || stepBefore;
+            : insightPhase === "gate-retry"
+              ? "Gate < L2 → Research lại"
+              : insightPhase === "gate" || insightPhase === "gate-fail"
+                ? "Gate · Insight L2"
+                : insightPhase === "decision"
+                  ? "5 · Editorial Decision"
+                  : insightPhase === "planning"
+                    ? "6 · Planning"
+                    : writePhase === "a"
+                      ? "7 · Writing nửa đầu"
+                      : writePhase === "b"
+                        ? "7 · Writing nửa sau"
+                        : finalizePhase === "review"
+                          ? "8 · Review"
+                          : finalizePhase === "fact" || finalizePhase === "a"
+                            ? "9 · Fact Check"
+                            : finalizePhase === "publish" || finalizePhase === "b"
+                              ? "10 · Publish Ready"
+                              : finalizePhase === "self-check-fail"
+                                ? "10 · Self-check"
+                                : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -295,7 +308,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     let current = article;
 
     while (
-      safety < 18 &&
+      safety < 24 &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
       current.status !== "PUBLISHED" &&
@@ -308,7 +321,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         break;
       }
       current = next;
-      if (current.status === "FAILED" || current.status === "PUBLISH_READY" || current.errorMessage) break;
+      const softRetry =
+        Boolean(current.errorMessage) &&
+        /Gate < L2|nghiên cứu lại/i.test(current.errorMessage || "");
+      if (current.status === "FAILED" || current.status === "PUBLISH_READY") break;
+      // Self-check fail cứng (DRAFT + error) dừng; gate-retry thì tiếp tục
+      if (current.errorMessage && !softRetry) break;
     }
 
     if (current.status === "PUBLISH_READY") {
@@ -316,13 +334,18 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     } else if (current.status === "FAILED") {
       pushLog(
         "error",
-        current.currentStep === "INSIGHT" || /Insight|Cổng Insight|Self-check/i.test(current.errorMessage || "")
-          ? "✗ Dừng ở cổng chất lượng (Insight/Self-check). Xem log lỗi · Làm lại từ đầu nếu cần."
+        current.currentStep === "INSIGHT" || /Insight|Cổng Insight|Gate|Self-check/i.test(current.errorMessage || "")
+          ? "✗ Dừng ở cổng chất lượng (Gate/Self-check). Xem log · đổi góc hoặc Làm lại từ đầu."
           : "✗ Chu trình dừng vì lỗi",
       );
       if (current.errorMessage && current.status !== "FAILED") {
         pushLog("warn", `⚠ ${current.errorMessage}`);
       }
+    } else if (
+      current.errorMessage &&
+      /Gate < L2|nghiên cứu lại/i.test(current.errorMessage)
+    ) {
+      pushLog("warn", `⚠ ${current.errorMessage} — bấm tiếp để Research lại`);
     }
   }
 

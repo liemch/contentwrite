@@ -11,6 +11,19 @@ export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
 /** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
+/** Số lần đã research lại sau Gate &lt; L2 — <!--TFES_GATE_RETRY:N--> */
+export const GATE_RETRY_RE = /<!--TFES_GATE_RETRY:(\d+)-->/;
+
+export function gateRetryCount(text: string | null | undefined): number {
+  const m = (text ?? "").match(GATE_RETRY_RE);
+  return m ? Number(m[1]) || 0 : 0;
+}
+
+export function withGateRetryMark(n: number, body: string): string {
+  const cleaned = body.replace(GATE_RETRY_RE, "").trim();
+  if (n <= 0) return cleaned;
+  return `<!--TFES_GATE_RETRY:${n}-->\n\n${cleaned}`.trim();
+}
 
 export type ParsedOutputs = {
   researchBrief?: string;
@@ -26,6 +39,7 @@ export function stripPipelineMarks(text: string | null | undefined): string {
   return (text ?? "")
     .replaceAll(WRITE_HALF_MARK, "")
     .replaceAll(WRITE_DONE_MARK, "")
+    .replace(GATE_RETRY_RE, "")
     .replace(/<!--TFES_[A-Z0-9_]+-->/g, "")
     .trim();
 }
