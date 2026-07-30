@@ -11,6 +11,7 @@ import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { prepareReaderContent } from "@/lib/publish-content";
+import { stripPipelineMarks } from "@/lib/tfes/parser";
 
 type Article = {
   id: string;
@@ -59,9 +60,11 @@ function timeoutMessage(status: number): string {
 }
 
 function tabForArticle(a: Article): string {
-  if (a.cleanPublish) return "clean";
+  const clean = (a.cleanPublish ?? "").trim();
+  const draft = stripPipelineMarks(a.draft12);
+  if (clean.length >= 80) return "clean";
+  if (draft.length >= 40) return "draft";
   if (a.factCheck) return "fact";
-  if (a.draft12) return "draft";
   if (a.insightGate) return "insight";
   if (a.researchBrief) return "research";
   return "research";
@@ -196,7 +199,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       const msg = next.errorMessage || "Pipeline FAILED";
       setActionError(msg);
       pushLog("error", `✗ FAILED · ${msg} (${elapsedSec}s)`);
-      setTab(tabForArticle(next));
+      if (next.currentStep === "INSIGHT" || /Insight Gate/i.test(msg)) {
+        setTab("insight");
+        pushLog(
+          "warn",
+          "→ Insight không đạt ≥ L2: xem tab Insight · Reset pipeline hoặc tạo bài mới với góc khác.",
+        );
+      } else {
+        setTab(tabForArticle(next));
+      }
       return next;
     }
 
@@ -277,9 +288,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
 
     if (current.status === "PUBLISH_READY") {
-      pushLog("success", "✓ Full pipeline hoàn tất — vào Cổng duyệt bên dưới");
+      pushLog("success", "✓ Full pipeline hoàn tất — vào tab Bản sạch / 12 sections");
     } else if (current.status === "FAILED") {
-      pushLog("error", "✗ Full pipeline dừng ở FAILED");
+      pushLog(
+        "error",
+        current.currentStep === "INSIGHT" || /Insight Gate/i.test(current.errorMessage || "")
+          ? "✗ Dừng ở Insight Gate (không đạt L2). Đổi góc hoặc Reset — không viết bài yếu."
+          : "✗ Full pipeline dừng ở FAILED",
+      );
     }
   }
 
@@ -321,9 +337,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           stripHeroBriefSection: true,
         })
       : null,
-    research: article.researchBrief,
+    research: article.researchBrief?.includes("<!--TFES_SEARCH_BLOB-->")
+      ? "Đã có kết quả Tavily (blob). Chạy bước Research lần 2 để GLM/Llama viết Research Brief."
+      : article.researchBrief,
     insight: article.insightGate,
-    draft: article.draft12,
+    draft: stripPipelineMarks(article.draft12) || null,
     fact: article.factCheck,
     knowledge: article.knowledgeRecord,
     hero: article.heroBrief,

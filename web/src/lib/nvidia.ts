@@ -18,8 +18,8 @@ const REASONING_EFFORT = (process.env.NVIDIA_REASONING_EFFORT ?? "low") as
   | "medium"
   | "high";
 
-/** Chừa ~10s cho DB/response trước khi Vercel Hobby cắt 60s */
-const VERCEL_CHAT_MS = 50_000;
+/** Chừa buffer trước khi Hobby cắt (maxDuration 300s) */
+const VERCEL_CHAT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 120_000);
 
 function getClient() {
   const apiKey = process.env.NVIDIA_API_KEY;
@@ -101,7 +101,7 @@ async function chatViaCurlStream(
         "--connect-timeout",
         "30",
         "--max-time",
-        process.env.VERCEL ? "50" : "300",
+        process.env.VERCEL ? String(Math.ceil(VERCEL_CHAT_MS / 1000)) : "300",
         "-X",
         "POST",
         `${BASE_URL}/chat/completions`,

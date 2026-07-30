@@ -1,6 +1,9 @@
 const CLEAN_MARKER = "=== BẢN SẠCH ĐỂ ĐĂNG ===";
 const STATUS_MARKER = "STATUS: Publish Ready";
 
+export const WRITE_HALF_MARK = "<!--TFES_DRAFT_HALF-->";
+export const WRITE_DONE_MARK = "<!--TFES_DRAFT_DONE-->";
+
 export type ParsedOutputs = {
   researchBrief?: string;
   insightGate?: string;
@@ -10,6 +13,14 @@ export type ParsedOutputs = {
   cleanPublish?: string;
   heroBrief?: string;
 };
+
+export function stripPipelineMarks(text: string | null | undefined): string {
+  return (text ?? "")
+    .replaceAll(WRITE_HALF_MARK, "")
+    .replaceAll(WRITE_DONE_MARK, "")
+    .replace(/<!--TFES_[A-Z0-9_]+-->/g, "")
+    .trim();
+}
 
 export function extractSection(text: string, startLabel: RegExp, endLabel?: RegExp): string | undefined {
   const startMatch = text.match(startLabel);
@@ -29,16 +40,41 @@ export function extractSection(text: string, startLabel: RegExp, endLabel?: RegE
 }
 
 export function parseFullOutput(text: string): ParsedOutputs {
-  const cleanIdx = text.indexOf(CLEAN_MARKER);
-  const cleanPublish =
-    cleanIdx >= 0
-      ? text.slice(cleanIdx + CLEAN_MARKER.length).split(STATUS_MARKER)[0]?.trim()
-      : undefined;
+  // Llama/gpt-oss hay viết lệch marker — chấp nhận vài biến thể
+  const cleanMatchers = [
+    /===\s*BẢN SẠCH ĐỂ ĐĂNG\s*===/i,
+    /#{1,3}\s*BẢN SẠCH ĐỂ ĐĂNG/i,
+    /\*\*BẢN SẠCH ĐỂ ĐĂNG\*\*/i,
+    /6\)\s*===?\s*BẢN SẠCH/i,
+  ];
+
+  let cleanPublish: string | undefined;
+  for (const re of cleanMatchers) {
+    const m = text.match(re);
+    if (m?.index !== undefined) {
+      cleanPublish = text
+        .slice(m.index + m[0].length)
+        .split(STATUS_MARKER)[0]
+        ?.replace(/^[\s:：\-–]+/, "")
+        .trim();
+      if (cleanPublish) break;
+    }
+  }
+
+  if (!cleanPublish) {
+    const cleanIdx = text.indexOf(CLEAN_MARKER);
+    if (cleanIdx >= 0) {
+      cleanPublish = text
+        .slice(cleanIdx + CLEAN_MARKER.length)
+        .split(STATUS_MARKER)[0]
+        ?.trim();
+    }
+  }
 
   const heroBrief = extractSection(
     text,
     /HERO IMAGE BRIEF/i,
-    /STATUS:|=== BẢN SẠCH/i,
+    /STATUS:|=== BẢN SẠCH|BẢN SẠCH ĐỂ ĐĂNG/i,
   );
 
   return {
@@ -46,7 +82,7 @@ export function parseFullOutput(text: string): ParsedOutputs {
     insightGate: extractSection(text, /2\)\s*Insight/i, /3\)\s*Bài/i),
     draft12: extractSection(text, /3\)\s*Bài viết/i, /4\)\s*Fact/i),
     factCheck: extractSection(text, /4\)\s*Fact-?Check/i, /5\)\s*Knowledge/i),
-    knowledgeRecord: extractSection(text, /5\)\s*Knowledge Record/i, /6\)|=== BẢN SẠCH/i),
+    knowledgeRecord: extractSection(text, /5\)\s*Knowledge Record/i, /6\)|=== BẢN SẠCH|BẢN SẠCH ĐỂ ĐĂNG/i),
     cleanPublish,
     heroBrief,
   };
@@ -56,7 +92,7 @@ export function appendContext(...parts: Array<string | null | undefined>): strin
   return parts.filter(Boolean).join("\n\n---\n\n");
 }
 
-/** Cắt context để GLM kịp trả trước Vercel Hobby ~60s */
+/** Cắt context cho từng phase pipeline */
 export function clipText(text: string | null | undefined, maxChars: number): string {
   const t = (text ?? "").trim();
   if (t.length <= maxChars) return t;

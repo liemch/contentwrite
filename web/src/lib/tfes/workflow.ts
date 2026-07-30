@@ -2,7 +2,7 @@ import { ArticleStatus, WorkflowStep, type Article } from "@/generated/prisma/cl
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
 import { formatSearchResults, webSearch } from "@/lib/search";
-import { appendContext, clipText, parseFullOutput } from "@/lib/tfes/parser";
+import { appendContext, clipText, parseFullOutput, stripPipelineMarks, WRITE_DONE_MARK, WRITE_HALF_MARK } from "@/lib/tfes/parser";
 import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
@@ -16,8 +16,6 @@ export const STEP_ORDER: WorkflowStep[] = [
   WorkflowStep.WRITE,
   WorkflowStep.FINALIZE,
 ];
-
-const WRITE_HALF_MARK = "<!--TFES_DRAFT_HALF-->";
 
 export function nextStep(current: WorkflowStep | null): WorkflowStep | null {
   if (!current) return WorkflowStep.RESEARCH;
@@ -216,7 +214,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             status: ArticleStatus.FAILED,
             currentStep: WorkflowStep.INSIGHT,
             errorMessage:
-              "Insight Gate chưa đạt L2. Xem insightGate, đổi chủ đề rồi tạo bài mới hoặc reset.",
+              "Insight Gate chưa đạt ≥ L2 (phản hồi không hợp lệ / góc yếu). Xem tab Insight → Reset pipeline hoặc tạo bài mới với góc/chủ đề khác. Không tiếp tục Write.",
           },
         });
         return withTimings(failed, { llmMs: Date.now() - llmStarted });
@@ -237,8 +235,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     if (step === WorkflowStep.WRITE) {
       const draft = article.draft12 ?? "";
 
-      // Phase A: nửa đầu (1 lần gọi)
-      if (!draft || !draft.includes(WRITE_HALF_MARK)) {
+      // Phase A: chưa có nháp
+      if (!draft.trim()) {
         const llmStarted = Date.now();
         const partA = await chatCompletion(
           [
@@ -255,8 +253,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 1600 },
+          { maxTokens: 2000 },
         );
+
+        if (!partA.trim()) {
+          throw new Error("Write phase A trả về rỗng — chạy lại bước Write");
+        }
 
         const updated = await prisma.article.update({
           where: { id: articleId },
@@ -264,6 +266,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             draft12: `${partA.trim()}\n\n${WRITE_HALF_MARK}`,
             currentStep: WorkflowStep.WRITE,
             status: ArticleStatus.DRAFT,
+            errorMessage: null,
           },
         });
         return withTimings(updated, {
@@ -272,39 +275,58 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
       }
 
-      // Phase B: nửa sau
-      const llmStarted = Date.now();
-      const partA = draft.replace(WRITE_HALF_MARK, "").trim();
-      const partB = await chatCompletion(
-        [
-          { role: "system", content: getCompactStepPrompt(article.domain, "write") },
-          {
-            role: "user",
-            content: buildPipelinePrompt(
-              "write-b",
-              appendContext(
-                clipText(article.insightGate, 1_500),
-                clipText(partA, 5_000),
-                `Chủ đề: ${topic}`,
+      // Phase B: đã có nửa đầu
+      if (draft.includes(WRITE_HALF_MARK) && !draft.includes(WRITE_DONE_MARK)) {
+        const llmStarted = Date.now();
+        const partA = stripPipelineMarks(draft);
+        const partB = await chatCompletion(
+          [
+            { role: "system", content: getCompactStepPrompt(article.domain, "write") },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "write-b",
+                appendContext(
+                  clipText(article.insightGate, 1_500),
+                  clipText(partA, 5_000),
+                  `Chủ đề: ${topic}`,
+                ),
               ),
-            ),
-          },
-        ],
-        { maxTokens: 1600 },
-      );
+            },
+          ],
+          { maxTokens: 2000 },
+        );
 
+        if (!partB.trim()) {
+          throw new Error("Write phase B trả về rỗng — chạy lại bước Write");
+        }
+
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            draft12: `${partA}\n\n${partB.trim()}\n\n${WRITE_DONE_MARK}`,
+            currentStep: WorkflowStep.FINALIZE,
+            status: ArticleStatus.DRAFT,
+            errorMessage: null,
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          writePhase: "b",
+        });
+      }
+
+      // Đã có nháp đủ → sang Finalize (không ghi đè)
       const updated = await prisma.article.update({
         where: { id: articleId },
         data: {
-          draft12: `${partA}\n\n${partB.trim()}`,
+          draft12: draft.includes(WRITE_DONE_MARK) ? draft : `${stripPipelineMarks(draft)}\n\n${WRITE_DONE_MARK}`,
           currentStep: WorkflowStep.FINALIZE,
           status: ArticleStatus.DRAFT,
+          errorMessage: null,
         },
       });
-      return withTimings(updated, {
-        llmMs: Date.now() - llmStarted,
-        writePhase: "b",
-      });
+      return withTimings(updated, { writePhase: "skip" });
     }
 
     if (step === WorkflowStep.FINALIZE) {
@@ -320,13 +342,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "finalize-a",
                 appendContext(
                   clipText(article.insightGate, 1_200),
-                  clipText(article.draft12, 6_000),
+                  clipText(stripPipelineMarks(article.draft12), 6_000),
                   `Chủ đề: ${topic}`,
                 ),
               ),
             },
           ],
-          { maxTokens: 1400 },
+          { maxTokens: 1600 },
         );
 
         const parsed = parseFullOutput(finalizeA);
@@ -337,6 +359,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             knowledgeRecord: parsed.knowledgeRecord ?? null,
             currentStep: WorkflowStep.FINALIZE,
             status: ArticleStatus.DRAFT,
+            errorMessage: null,
           },
         });
         return withTimings(updated, {
@@ -347,6 +370,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Phase B: bản sạch + hero
       const llmStarted = Date.now();
+      const draftClean = stripPipelineMarks(article.draft12);
       const finalizeB = await chatCompletion(
         [
           { role: "system", content: getCompactStepPrompt(article.domain, "finalize") },
@@ -356,20 +380,36 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               "finalize-b",
               appendContext(
                 clipText(article.insightGate, 1_000),
-                clipText(article.draft12, 7_000),
+                clipText(draftClean, 7_000),
                 clipText(article.knowledgeRecord, 800),
                 `Chủ đề: ${topic}`,
+                'Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.',
               ),
             ),
           },
         ],
-        { maxTokens: 1800 },
+        { maxTokens: 2200 },
       );
 
-      const parsed = parseFullOutput(
-        appendContext(article.draft12, article.factCheck, finalizeB),
-      );
-      const titleMatch = parsed.cleanPublish?.match(/^#\s+(.+)$/m);
+      const parsed = parseFullOutput(appendContext(finalizeB));
+      let cleanPublish = stripPipelineMarks(parsed.cleanPublish ?? "");
+      // Fallback: model không viết đúng marker → dùng output hoặc chính bản nháp 12 phần
+      if (cleanPublish.length < 80) {
+        const strippedOut = stripPipelineMarks(finalizeB);
+        cleanPublish =
+          strippedOut.length >= 80
+            ? strippedOut
+            : draftClean.length >= 80
+              ? draftClean
+              : "";
+      }
+      if (cleanPublish.length < 80) {
+        throw new Error(
+          "Finalize không tạo được Bản sạch (quá ngắn). Chạy lại bước Finalize hoặc xem tab 12 sections.",
+        );
+      }
+
+      const titleMatch = cleanPublish.match(/^#\s+(.+)$/m);
       const title = titleMatch?.[1]?.trim() ?? article.topic ?? "Untitled";
 
       const updated = await prisma.article.update({
@@ -377,11 +417,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         data: {
           factCheck: article.factCheck,
           knowledgeRecord: parsed.knowledgeRecord ?? article.knowledgeRecord,
-          cleanPublish: parsed.cleanPublish ?? finalizeB,
+          cleanPublish,
           heroBrief: parsed.heroBrief,
           title,
+          // Giữ nháp 12 phần (đã xong) — không xoá
+          draft12: article.draft12?.includes(WRITE_DONE_MARK)
+            ? article.draft12
+            : `${draftClean}\n\n${WRITE_DONE_MARK}`,
           status: ArticleStatus.PUBLISH_READY,
           currentStep: null,
+          errorMessage: null,
         },
       });
       return withTimings(updated, {
