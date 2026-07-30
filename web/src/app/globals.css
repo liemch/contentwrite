@@ -1,0 +1,296 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #e8eef2;
+  --bg-elevated: #f3f7f9;
+  --surface: #ffffff;
+  --surface-muted: #eef3f6;
+  --ink: #0f1c24;
+  --ink-muted: #4a5d6a;
+  --ink-faint: #7a8d9a;
+  --line: #d2dde4;
+  --line-strong: #b7c6d0;
+  --accent: #0c6e6b;
+  --accent-hover: #095955;
+  --accent-soft: #daf2f0;
+  --accent-glow: rgba(12, 110, 107, 0.16);
+  --warm: #c45c26;
+  --warm-soft: #fff1e8;
+  --warn: #b45309;
+  --warn-soft: #fff7ed;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --success: #047857;
+  --success-soft: #ecfdf5;
+  --radius: 18px;
+  --shadow: 0 1px 2px rgba(15, 28, 36, 0.04), 0 18px 48px rgba(15, 28, 36, 0.07);
+  --shadow-lg: 0 28px 70px rgba(15, 28, 36, 0.12);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-dm-sans);
+  --font-serif: var(--font-source-serif);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 70% 45% at 12% -10%, rgba(12, 110, 107, 0.12), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 0%, rgba(196, 92, 38, 0.08), transparent 50%),
+    linear-gradient(165deg, #f6fafb 0%, var(--bg) 45%, #e4ecef 100%);
+  color: var(--ink);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+}
+
+::selection {
+  background: rgba(12, 110, 107, 0.2);
+}
+
+.app-shell-bg {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-shell-bg::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(15, 28, 36, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 28, 36, 0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 20%, #000 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: var(--shadow);
+}
+
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.surface-soft {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.75));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, var(--ink) 20%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-band {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(var(--radius) + 4px);
+  background:
+    linear-gradient(135deg, rgba(12, 110, 107, 0.12), transparent 55%),
+    linear-gradient(225deg, rgba(15, 28, 36, 0.06), transparent 40%),
+    var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.nav-link[data-active="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.prose {
+  color: var(--ink);
+  font-size: 1.02rem;
+  line-height: 1.8;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-family: var(--font-source-serif), Georgia, serif;
+  color: var(--ink);
+  letter-spacing: -0.025em;
+}
+
+.prose h1 {
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  font-weight: 600;
+  margin-bottom: 0.9rem;
+  line-height: 1.2;
+}
+
+.prose h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.65rem;
+}
+
+.prose h3 {
+  font-size: 1.08rem;
+  font-weight: 600;
+  margin-top: 1.4rem;
+}
+
+.prose p,
+.prose li {
+  margin: 0.65rem 0;
+}
+
+.prose ul,
+.prose ol,
+.prose .prose-list {
+  margin: 0.85rem 0 1.1rem;
+  padding-left: 1.5rem;
+}
+
+/* Tailwind Preflight reset list-style — phải bật lại cho markdown */
+.prose ul,
+.prose ul.prose-list {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.prose ol,
+.prose ol.prose-list {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.prose ul ul {
+  list-style-type: circle;
+  margin: 0.35rem 0;
+}
+
+.prose li {
+  display: list-item;
+  padding-left: 0.15rem;
+}
+
+.prose li > p {
+  margin: 0.25rem 0;
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.prose pre {
+  overflow-x: auto;
+  border-radius: 14px;
+  padding: 1rem 1.15rem;
+  font-size: 0.84rem;
+  background: #101820;
+  color: #e7eef4;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.prose code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.88em;
+  background: var(--surface-muted);
+  padding: 0.12rem 0.35rem;
+  border-radius: 6px;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--line);
+  padding: 0.55rem 0.75rem;
+}
+
+.prose th {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: 14px;
+  margin: 1.25rem 0;
+}

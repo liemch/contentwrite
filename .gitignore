@@ -1,0 +1,29 @@
+# Root
+.DS_Store
+*.pem
+*.log
+
+# Secrets / local
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# Dependencies & build
+**/node_modules/
+**/.next/
+**/out/
+**/build/
+**/.vercel/
+**/*.tsbuildinfo
+
+# Prisma generated (build regenerates)
+web/src/generated/prisma/
+
+# Local hero outputs
+web/public/generated/heroes/*
+!web/public/generated/heroes/.gitkeep
+
+# Tooling caches
+**/.turbo/
+**/coverage/

@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ArticleStatus {
+  DRAFT
+  RUNNING
+  PUBLISH_READY
+  APPROVED
+  PUBLISHED
+  FAILED
+}
+
+enum WorkflowStep {
+  RESEARCH
+  INSIGHT
+  WRITE
+  FINALIZE
+}
+
+model Article {
+  id              String         @id @default(cuid())
+  title           String?
+  domain          String         @default("engineering")
+  topic           String?
+  /// manual | auto
+  source          String         @default("manual")
+  status          ArticleStatus  @default(DRAFT)
+  currentStep     WorkflowStep?
+  errorMessage    String?
+
+  researchBrief   String?        @db.Text
+  insightGate     String?        @db.Text
+  draft12         String?        @db.Text
+  factCheck       String?        @db.Text
+  knowledgeRecord String?        @db.Text
+  cleanPublish    String?        @db.Text
+  heroBrief       String?        @db.Text
+  heroImageUrl    String?
+  heroImageModel  String?
+  heroImageAlt    String?
+  heroPromptUsed  String?        @db.Text
+
+  reviewerNotes   String?        @db.Text
+  approvedAt      DateTime?
+  publishedAt     DateTime?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model KnowledgeRecord {
+  id           String   @id @default(cuid())
+  articleId    String   @unique
+  title        String
+  domain       String
+  category     String?
+  keywords     String?
+  coreMessage  String?  @db.Text
+  editorialScore Int?
+  evergreen    Int?
+  publishedAt  DateTime @default(now())
+}
+
+/// Singleton cấu hình auto-write (id = "default")
+model AutoWriteConfig {
+  id               String    @id @default("default")
+  enabled          Boolean   @default(false)
+  /// interval = mỗi N giờ | daily = mỗi ngày lúc preferredHour
+  scheduleMode     String    @default("daily")
+  intervalHours    Int       @default(24)
+  preferredHour    Int       @default(9)
+  timezone         String    @default("Asia/Ho_Chi_Minh")
+  /// engineering | soft-skills | rotate
+  domain           String    @default("engineering")
+  useSeedTopics    Boolean   @default(true)
+  customTopics     String?   @db.Text
+  maxPendingReview Int       @default(3)
+  lastRunAt        DateTime?
+  nextRunAt        DateTime?
+  lastError        String?   @db.Text
+  lastArticleId    String?
+  lastDomain       String?
+  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+}
