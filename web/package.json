@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--dns-result-order=ipv4first' next dev",
     "prebuild": "node scripts/sync-tfes.mjs",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma db push && next build",
+    "vercel-build": "prisma generate && prisma db push && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
