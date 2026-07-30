@@ -96,16 +96,25 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
     if (step === WorkflowStep.RESEARCH) {
       const queries = [
-        `${topic} engineering best practices`,
         `${topic} architecture trade-offs`,
-        `${topic} critique limitations`,
+        `${topic} limitations critique`,
       ];
 
-      const allResults = await Promise.all(queries.map((q) => webSearch(q)));
+      const searchStarted = Date.now();
+      const allResults = await Promise.all(
+        queries.map((q) => webSearch(q, { depth: "basic", maxResults: 5 })),
+      );
+      const searchMs = Date.now() - searchStarted;
+      const hitCount = allResults.reduce((n, r) => n + r.length, 0);
       const searchBlob = allResults
         .map((results, i) => `Query ${i + 1}: ${queries[i]}\n${formatSearchResults(results)}`)
         .join("\n\n=====\n\n");
 
+      if (hitCount === 0) {
+        throw new Error("Tavily không trả kết quả nào — kiểm tra TAVILY_API_KEY hoặc thử topic khác.");
+      }
+
+      const llmStarted = Date.now();
       const researchBrief = await chatCompletion([
         { role: "system", content: systemPrompt },
         {
@@ -118,12 +127,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         },
         { role: "user", content: buildResearchPrompt(topic, searchBlob) },
       ]);
+      const llmMs = Date.now() - llmStarted;
 
       patch = {
         researchBrief,
         currentStep: WorkflowStep.INSIGHT,
         status: ArticleStatus.DRAFT,
       };
+
+      const updated = await prisma.article.update({
+        where: { id: articleId },
+        data: patch,
+      });
+      return Object.assign(updated, {
+        _timings: {
+          searchMs,
+          llmMs,
+          searchHits: hitCount,
+          searchQueries: queries.length,
+        },
+      });
     } else if (step === WorkflowStep.INSIGHT) {
       const insightGate = await chatCompletion([
         { role: "system", content: systemPrompt },

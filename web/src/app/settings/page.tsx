@@ -23,6 +23,13 @@ export default function SettingsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const [checking, setChecking] = useState(false);
+  const [health, setHealth] = useState<{
+    ok?: boolean;
+    tavily?: { ok: boolean; detail: string; ms?: number };
+    nvidia?: { ok: boolean; detail: string; ms?: number };
+  } | null>(null);
+
   async function load() {
     setLoading(true);
     const res = await fetch("/api/settings/auto-write");
@@ -38,6 +45,34 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  async function checkIntegrations() {
+    setChecking(true);
+    setError("");
+    try {
+      const res = await fetch("/api/health/tavily");
+      const data = (await res.json()) as {
+        ok?: boolean;
+        tavily?: { ok: boolean; detail: string; ms?: number };
+        nvidia?: { ok: boolean; detail: string; ms?: number };
+        error?: string;
+      };
+      if (!res.ok && data.error) {
+        setError(data.error);
+        setHealth(null);
+      } else {
+        setHealth(data);
+        setMessage(
+          data.ok
+            ? "Tavily + NVIDIA đều OK."
+            : "Một hoặc cả hai integration lỗi — xem panel bên phải.",
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không kiểm tra được");
+    }
+    setChecking(false);
+  }
 
   async function onSave(e: FormEvent) {
     e.preventDefault();

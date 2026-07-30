@@ -45,7 +45,7 @@ const TABS = [
 ] as const;
 
 const STEP_HINT: Record<string, string> = {
-  RESEARCH: "Research: Tavily search + GLM tổng hợp nguồn (thường 30–90s)",
+  RESEARCH: "Research: Tavily search (nhanh) + GLM tổng hợp — phần lâu thường là GLM",
   INSIGHT: "Insight Gate: chấm L2/L3 (thường 20–60s)",
   WRITE: "Viết 12 sections (thường 60–120s)",
   FINALIZE: "Fact-check + bản sạch + hero brief (thường 60–120s)",
@@ -147,7 +147,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       return null;
     }
 
-    const data = (await res.json()) as { article?: Article; error?: string };
+    const data = (await res.json()) as {
+      article?: Article;
+      error?: string;
+      timings?: { searchMs?: number; llmMs?: number; searchHits?: number; searchQueries?: number };
+    };
     const elapsedSec = Math.round((Date.now() - started) / 1000);
     setRunning(false);
     setRunningLabel("");
@@ -178,6 +182,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     if (action === "run-step") {
       const finished = STEP_LABELS[stepBefore] || stepBefore;
+      if (data.timings?.searchMs != null || data.timings?.llmMs != null) {
+        const s = Math.round((data.timings.searchMs || 0) / 1000);
+        const l = Math.round((data.timings.llmMs || 0) / 1000);
+        pushLog(
+          "info",
+          `·· Tavily ${data.timings.searchQueries ?? "?"} query · ${data.timings.searchHits ?? "?"} hits · ${s}s | GLM viết brief · ${l}s`,
+        );
+      }
       if (next.status === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
       } else {

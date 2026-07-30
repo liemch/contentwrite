@@ -1,37 +1,35 @@
 import { NextResponse } from "next/server";
 import { chatCompletion } from "@/lib/nvidia";
-import { webSearch } from "@/lib/search";
+import { pingTavily } from "@/lib/search";
 
+/** Health public — tách timing để biết Tavily vs NVIDIA chậm chỗ nào */
 export async function GET() {
-  const checks: Record<string, { ok: boolean; detail: string }> = {};
+  const checks: Record<string, { ok: boolean; detail: string; ms?: number }> = {};
 
-  if (!process.env.TAVILY_API_KEY) {
-    checks.tavily = { ok: false, detail: "TAVILY_API_KEY chưa set" };
-  } else {
-    try {
-      const results = await webSearch("MCP model context protocol test");
-      checks.tavily = { ok: true, detail: `${results.length} kết quả` };
-    } catch (error) {
-      checks.tavily = {
-        ok: false,
-        detail: error instanceof Error ? error.message : "Lỗi không xác định",
-      };
-    }
-  }
+  const tavily = await pingTavily();
+  checks.tavily = tavily.ok
+    ? { ok: true, detail: `${tavily.count} kết quả`, ms: tavily.ms }
+    : { ok: false, detail: tavily.error, ms: tavily.ms };
 
   if (!process.env.NVIDIA_API_KEY) {
-    checks.nvidia = { ok: false, detail: "NVIDIA_API_KEY chưa set" };
+    checks.nvidia = { ok: false, detail: "NVIDIA_API_KEY chưa set", ms: 0 };
   } else {
+    const started = Date.now();
     try {
       const text = await chatCompletion(
-        [{ role: "user", content: "Trả lời đúng 1 từ: OK" }],
-        { maxTokens: 10 },
+        [{ role: "user", content: "Reply with exactly: OK" }],
+        { maxTokens: 8 },
       );
-      checks.nvidia = { ok: true, detail: text.slice(0, 40) };
+      checks.nvidia = {
+        ok: /ok/i.test(text),
+        detail: text.slice(0, 40) || "(empty)",
+        ms: Date.now() - started,
+      };
     } catch (error) {
       checks.nvidia = {
         ok: false,
         detail: error instanceof Error ? error.message : "Lỗi không xác định",
+        ms: Date.now() - started,
       };
     }
   }

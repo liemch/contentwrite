@@ -6,7 +6,10 @@ export type SearchResult = {
   content: string;
 };
 
-export async function webSearch(query: string): Promise<SearchResult[]> {
+export async function webSearch(
+  query: string,
+  options?: { depth?: "basic" | "advanced"; maxResults?: number },
+): Promise<SearchResult[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -19,10 +22,12 @@ export async function webSearch(query: string): Promise<SearchResult[]> {
     body: {
       api_key: apiKey,
       query,
-      search_depth: "advanced",
-      max_results: 6,
+      // basic đủ cho Research MVP; advanced chậm gấp 2–4 lần
+      search_depth: options?.depth ?? "basic",
+      max_results: options?.maxResults ?? 5,
       include_answer: false,
     },
+    timeoutMs: 45000,
   });
 
   if (!response.ok) {
@@ -51,4 +56,22 @@ export function formatSearchResults(results: SearchResult[]): string {
         `[${i + 1}] ${r.title}\nURL: ${r.url}\nSnippet: ${r.content.slice(0, 800)}`,
     )
     .join("\n\n");
+}
+
+/** Ping nhanh — 1 query basic, để UI/health kiểm tra key có sống không */
+export async function pingTavily(): Promise<{ ok: true; count: number; ms: number } | { ok: false; error: string; ms: number }> {
+  const started = Date.now();
+  try {
+    const results = await webSearch("OpenAI API documentation", {
+      depth: "basic",
+      maxResults: 3,
+    });
+    return { ok: true, count: results.length, ms: Date.now() - started };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Lỗi Tavily",
+      ms: Date.now() - started,
+    };
+  }
 }

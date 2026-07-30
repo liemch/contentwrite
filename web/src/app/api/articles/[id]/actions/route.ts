@@ -24,7 +24,14 @@ export async function POST(request: NextRequest, { params }: Params) {
     switch (body.action) {
       case "run-step": {
         const article = await runWorkflowStep(id);
-        return NextResponse.json({ article });
+        const timings =
+          article && typeof article === "object" && "_timings" in article
+            ? (article as { _timings?: unknown })._timings
+            : undefined;
+        if (timings && article && typeof article === "object") {
+          delete (article as { _timings?: unknown })._timings;
+        }
+        return NextResponse.json({ article, timings });
       }
       case "reset": {
         const article = await resetWorkflow(id);
