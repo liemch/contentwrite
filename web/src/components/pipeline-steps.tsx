@@ -27,10 +27,18 @@ export function PipelineSteps({
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-        Workflow AI-TFES · 10 bước (+ Insight Gate)
-      </p>
-      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-11">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+            Quy trình AI-TFES
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+            Thanh này = các bước chạy. Tab bên dưới = nhật ký / đầu ra (không phải bước).
+          </p>
+        </div>
+        <p className="text-[11px] text-[var(--ink-faint)]">10 bước + Cổng L2</p>
+      </div>
+      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {TFES_TRACKER_STEPS.map((step, index) => {
           const done = isTrackerStepDone(index, activeIndex, article.status);
           const active =
@@ -44,7 +52,7 @@ export function PipelineSteps({
             <li
               key={step.id}
               title={step.label}
-              className={`rounded-xl border px-2 py-2 transition ${
+              className={`rounded-xl border px-2.5 py-2 transition ${
                 failed
                   ? "border-red-200 bg-[var(--danger-soft)]"
                   : done && !showActive

@@ -7,11 +7,12 @@ import { AppShell } from "@/components/app-shell";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { DomainBadge, StatusBadge, STEP_HINTS, STEP_LABELS } from "@/components/status-badge";
+import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
+import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
 
 type Article = {
   id: string;
@@ -88,6 +89,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [genning, setGenning] = useState<"flux" | "qwen" | null>(null);
   const [heroError, setHeroError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [heroOpen, setHeroOpen] = useState(false);
 
   useEffect(() => {
     params.then((p) => setId(p.id));
@@ -121,8 +123,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     const stepBefore = article?.currentStep ?? "RESEARCH";
     if (action === "run-step") {
-      setRunningLabel(STEP_HINTS[stepBefore] || `Đang chạy ${STEP_LABELS[stepBefore] || stepBefore}`);
-      pushLog("info", `→ Bắt đầu ${STEP_LABELS[stepBefore] || stepBefore}...`);
+      const micro = article ? resolveMicroStepLabel(article) : STEP_LABELS[stepBefore];
+      setRunningLabel(`Đang chạy: ${micro}`);
+      pushLog("info", `→ Bắt đầu ${micro}...`);
     } else {
       setRunningLabel(
         action === "reset"
@@ -407,6 +410,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const activeTab = TABS.find((t) => t.key === tab);
   const activeContent = contentMap[tab];
   const displayError = actionError || article.errorMessage;
+  const microLabel = resolveMicroStepLabel(article);
+  const isReviewMode =
+    article.status === "PUBLISH_READY" || article.status === "APPROVED";
 
   return (
     <AppShell
@@ -414,9 +420,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       subtitle={
         running
           ? runningLabel
-          : article.currentStep
-            ? `Bước tiếp theo: ${STEP_LABELS[article.currentStep]}`
-            : "Chu trình xong — sẵn sàng duyệt hoặc đăng"
+          : isReviewMode
+            ? "Chế độ duyệt — kiểm Bản sạch + Fact rồi Approve"
+            : `Bước tiếp: ${microLabel}`
       }
       backHref="/dashboard"
       backLabel="Biên tập"
@@ -435,7 +441,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </div>
       }
     >
-      <section className="mb-6">
+      <section className="mb-5">
         <PipelineSteps article={article} running={running} />
       </section>
 
@@ -443,25 +449,27 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         running={running}
         runningLabel={runningLabel}
         status={article.status}
-        currentStepLabel={article.currentStep ? STEP_LABELS[article.currentStep] : null}
+        currentStepLabel={microLabel}
         errorMessage={displayError}
         logs={logs}
         onClear={() => setLogs([])}
+        defaultExpanded={false}
       />
 
-      <section className="mb-6 flex flex-wrap gap-2">
+      <section className="mb-6 flex flex-wrap items-center gap-2">
         <Button
-          variant="secondary"
           size="sm"
-          disabled={running || article.status === "PUBLISHED"}
+          disabled={running || article.status === "PUBLISHED" || isReviewMode}
           onClick={() => callAction("run-step")}
         >
           {running ? "Đang chạy..." : "Chạy bước tiếp"}
         </Button>
         <Button
+          variant="secondary"
           size="sm"
-          disabled={running || article.status === "PUBLISHED"}
+          disabled={running || article.status === "PUBLISHED" || isReviewMode}
           onClick={runFullPipeline}
+          title="Có thể 10–20 phút · dễ timeout nếu đóng tab"
         >
           Chạy cả chu trình
         </Button>
@@ -493,70 +501,82 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             Xoá bài
           </Button>
         )}
+        <p className="w-full text-[11px] text-[var(--ink-faint)] sm:w-auto sm:ml-auto">
+          Nên dùng <span className="font-medium text-[var(--ink-muted)]">Chạy bước tiếp</span> (an
+          toàn timeout). “Cả chu trình” chỉ khi anh theo dõi tab.
+        </p>
       </section>
 
-      <section className="mb-8 surface-card p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <section className="mb-6 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+        <button
+          type="button"
+          onClick={() => setHeroOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left sm:px-5"
+        >
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
-              Hero image
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+              Hero image · tuỳ chọn
             </p>
-            <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-lg font-semibold">
-              Gen ảnh minh họa (song song 2 model)
-            </h2>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">
-              Dùng Hero Brief từ Finalize. Flux qua NVIDIA · Qwen qua fal.ai.
+            <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
+              {article.heroImageUrl
+                ? `Đã có ảnh (${article.heroImageModel || "model"})`
+                : "Gen sau khi có Hero Brief (bước Publish Ready)"}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={!!genning || running} onClick={() => generateHero("flux")}>
-              {genning === "flux" ? "Đang gen Flux..." : "Gen FLUX.1-dev"}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={!!genning || running}
-              onClick={() => generateHero("qwen")}
-            >
-              {genning === "qwen" ? "Đang gen Qwen..." : "Gen Qwen-Image"}
-            </Button>
-          </div>
-        </div>
-
-        {heroError && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-[var(--danger-soft)] px-3.5 py-2.5 text-sm text-[var(--danger)]">
-            {heroError}
-          </div>
-        )}
-
-        {article.heroImageUrl ? (
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={article.heroImageUrl}
-              alt={article.heroImageAlt || "Hero"}
-              className="w-full rounded-2xl border border-[var(--line)] object-cover"
-            />
-            <div className="text-sm text-[var(--ink-muted)]">
-              <p>
-                <span className="font-medium text-[var(--ink)]">Model:</span>{" "}
-                {article.heroImageModel || "—"}
-              </p>
-              <p className="mt-2">
-                <span className="font-medium text-[var(--ink)]">Alt:</span>{" "}
-                {article.heroImageAlt || "—"}
-              </p>
-              {article.heroPromptUsed && (
-                <p className="mt-3 rounded-xl bg-[var(--surface-muted)] p-3 text-xs leading-relaxed">
-                  {article.heroPromptUsed}
-                </p>
-              )}
+          <span className="shrink-0 text-xs font-medium text-[var(--accent)]">
+            {heroOpen ? "Thu gọn" : "Mở"}
+          </span>
+        </button>
+        {heroOpen && (
+          <div className="border-t border-[var(--line)] px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={!!genning || running} onClick={() => generateHero("flux")}>
+                {genning === "flux" ? "Đang gen Flux..." : "Gen FLUX.1-dev"}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!!genning || running}
+                onClick={() => generateHero("qwen")}
+              >
+                {genning === "qwen" ? "Đang gen Qwen..." : "Gen Qwen-Image"}
+              </Button>
             </div>
+            {heroError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-[var(--danger-soft)] px-3.5 py-2.5 text-sm text-[var(--danger)]">
+                {heroError}
+              </div>
+            )}
+            {article.heroImageUrl ? (
+              <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={article.heroImageUrl}
+                  alt={article.heroImageAlt || "Hero"}
+                  className="w-full rounded-2xl border border-[var(--line)] object-cover"
+                />
+                <div className="text-sm text-[var(--ink-muted)]">
+                  <p>
+                    <span className="font-medium text-[var(--ink)]">Model:</span>{" "}
+                    {article.heroImageModel || "—"}
+                  </p>
+                  <p className="mt-2">
+                    <span className="font-medium text-[var(--ink)]">Alt:</span>{" "}
+                    {article.heroImageAlt || "—"}
+                  </p>
+                  {article.heroPromptUsed && (
+                    <p className="mt-3 rounded-xl bg-[var(--surface-muted)] p-3 text-xs leading-relaxed">
+                      {article.heroPromptUsed}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-[var(--ink-faint)]">
+                Chưa có ảnh. Nên xong Publish Ready trước để có Hero Brief.
+              </p>
+            )}
           </div>
-        ) : (
-          <p className="mt-4 text-sm text-[var(--ink-faint)]">
-            Chưa có ảnh. Nên chạy Finalize trước để có Hero Brief chất lượng hơn.
-          </p>
         )}
       </section>
 
@@ -568,7 +588,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                 Cổng duyệt
               </h2>
               <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                AI-TFES dừng ở Publish Ready — người duyệt kiểm fact-check trước khi đăng.
+                Kiểm tab Bản sạch + Fact-check rồi Approve / Publish.
               </p>
             </div>
           </div>
@@ -598,6 +618,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </section>
       )}
+
+      <section className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+          Nhật ký / đầu ra
+        </p>
+        <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+          Đây không phải các bước quy trình — chỉ xem nội dung từng giai đoạn đã sinh.
+        </p>
+      </section>
 
       <section className="grid gap-5 lg:grid-cols-[240px_1fr]">
         <nav className="flex flex-row gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">

@@ -5,21 +5,22 @@ import {
   REVIEW_DONE_MARK,
   WRITE_DONE_MARK,
   WRITE_HALF_MARK,
+  gateRetryCount,
 } from "@/lib/tfes/parser";
 
-/** 10 bước Operating Prompt + Insight Gate (UI tracker) */
+/** 10 bước Operating Prompt + Insight Gate (UI tracker) — nhãn tiếng Việt */
 export const TFES_TRACKER_STEPS = [
-  { id: "1", label: "1. Memory", short: "Memory" },
-  { id: "2", label: "2. Research", short: "Research" },
-  { id: "3", label: "3. Verify", short: "Verify" },
-  { id: "4", label: "4. Synth", short: "Synth" },
-  { id: "gate", label: "Gate L2", short: "Gate" },
-  { id: "5", label: "5. Decision", short: "Decision" },
-  { id: "6", label: "6. Planning", short: "Plan" },
-  { id: "7", label: "7. Writing", short: "Write" },
-  { id: "8", label: "8. Review", short: "Review" },
-  { id: "9", label: "9. Fact", short: "Fact" },
-  { id: "10", label: "10. Publish", short: "Publish" },
+  { id: "1", label: "1. Editorial Memory", short: "Memory" },
+  { id: "2", label: "2. Research", short: "Nghiên cứu" },
+  { id: "3", label: "3. Verification", short: "Đối chiếu" },
+  { id: "4", label: "4. Synthesis", short: "Tổng hợp" },
+  { id: "gate", label: "Insight Gate ≥ L2", short: "Cổng L2" },
+  { id: "5", label: "5. Decision", short: "Quyết định" },
+  { id: "6", label: "6. Planning", short: "Lập kế hoạch" },
+  { id: "7", label: "7. Writing", short: "Viết bài" },
+  { id: "8", label: "8. Review", short: "Tự review" },
+  { id: "9", label: "9. Fact Check", short: "Fact-check" },
+  { id: "10", label: "10. Publish Ready", short: "Xuất bản" },
 ] as const;
 
 export type TfesTrackerId = (typeof TFES_TRACKER_STEPS)[number]["id"];
@@ -54,11 +55,13 @@ export function resolveTrackerIndex(article: ArticleLike): number {
   const knowledge = article.knowledgeRecord ?? "";
   const clean = (article.cleanPublish ?? "").trim();
 
-  // Chưa search / đang RESEARCH không có blob
-  if (!brief.trim()) return 0; // Memory (bắt đầu)
-  if (brief.includes(SEARCH_MARK)) return 2; // Verify+Synth sắp chạy (Research search xong → bước 3)
+  if (!brief.trim()) {
+    // Gate fail → research lại: brief đã clear
+    if (gateRetryCount(insight) > 0) return 1; // Research lại
+    return 0; // Memory
+  }
+  if (brief.includes(SEARCH_MARK)) return 2; // Verify+Synth
 
-  // Research Brief LLM xong → Insight Gate
   if (!insight.trim()) return 4; // Gate
 
   if (insight.includes(INSIGHT_DONE_MARK)) {
@@ -66,24 +69,42 @@ export function resolveTrackerIndex(article: ArticleLike): number {
   } else if (insight.includes(INSIGHT_DECISION_MARK)) {
     return 6; // Planning
   } else if (insight.includes(INSIGHT_GATE_MARK)) {
-    // Gate fail vẫn gắn GATE_MARK — highlight Gate
     if (status === "FAILED") return 4;
     return 5; // Decision
+  } else if (gateRetryCount(insight) > 0) {
+    return 4; // chờ Gate mới sau research lại
   } else if (insight.trim()) {
     return status === "FAILED" ? 4 : 5;
   }
 
-  // Writing
   if (!draft.trim()) return 7;
   if (draft.includes(WRITE_HALF_MARK) && !draft.includes(WRITE_DONE_MARK)) return 7;
   if (!draft.includes(WRITE_DONE_MARK) && draft.trim()) return 7;
 
-  // Finalize
   const reviewDone = knowledge.includes(REVIEW_DONE_MARK) || Boolean(fact.trim());
   if (!reviewDone) return 8;
   if (!fact.trim()) return 9;
   if (clean.length < 80) return 10;
   return TFES_TRACKER_STEPS.length;
+}
+
+/** Nhãn micro-step cho subtitle / CTA (tiếng Việt) */
+export function resolveMicroStepLabel(article: ArticleLike): string {
+  const status = article.status ?? "";
+  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") {
+    return "Chờ duyệt / đã xong";
+  }
+  if (status === "FAILED") {
+    const idx = resolveTrackerIndex(article);
+    const step = TFES_TRACKER_STEPS[Math.min(idx, TFES_TRACKER_STEPS.length - 1)];
+    return `Lỗi tại: ${step.label}`;
+  }
+  const idx = resolveTrackerIndex(article);
+  if (idx >= TFES_TRACKER_STEPS.length) return "Chờ duyệt / đã xong";
+  const step = TFES_TRACKER_STEPS[idx];
+  const retries = gateRetryCount(article.insightGate);
+  const retryNote = retries > 0 && idx <= 4 ? ` · sau Gate fail lần ${retries}` : "";
+  return `${step.label}${retryNote}`;
 }
 
 export function isTrackerStepDone(index: number, activeIndex: number, status: string): boolean {

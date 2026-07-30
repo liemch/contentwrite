@@ -27,6 +27,7 @@ import {
   buildPipelinePrompt,
   buildResearchPrompt,
   getSystemPrompt,
+  getSystemPromptLite,
 } from "@/lib/tfes/prompts";
 import {
   sanitizeEditorialBody,
@@ -305,16 +306,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const insightGate = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
                 "insight-a",
-                appendContext(clipText(article.researchBrief, 7_000), `Chủ đề: ${topic}`),
+                appendContext(clipText(article.researchBrief, 5_000), `Chủ đề: ${topic}`),
               ),
             },
           ],
-          { maxTokens: 1600, temperature: 0.35, reasoningEffort: "low" },
+          { maxTokens: 1200, temperature: 0.35, reasoningEffort: "low" },
         );
 
         if (failedInsightGate(insightGate)) {
@@ -388,21 +389,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const gateOnly = stripPipelineMarks(article.insightGate);
         const decision = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
                 "insight-decision",
                 appendContext(
-                  clipText(gateOnly, 1_400),
-                  clipText(article.researchBrief, 1_800),
+                  clipText(gateOnly, 1_200),
+                  clipText(article.researchBrief, 1_200),
                   `Chủ đề: ${topic}`,
-                  "Trả lời bullet ngắn ≤250 từ. Không nhắc lại toàn bộ Research.",
+                  "Trả lời bullet ngắn ≤200 từ. Không nhắc lại Research / Gate tests.",
                 ),
               ),
             },
           ],
-          { maxTokens: 900, temperature: 0.35, reasoningEffort: "low" },
+          { maxTokens: 700, temperature: 0.3, reasoningEffort: "low" },
         );
 
         const merged = `${gateOnly}\n\n---\n\n${decision.trim()}\n\n${INSIGHT_DECISION_MARK}`;
@@ -427,20 +428,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const soFar = stripPipelineMarks(article.insightGate);
         const planning = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
                 "insight-planning",
                 appendContext(
-                  clipText(soFar, 2_200),
-                  clipText(article.researchBrief, 2_500),
+                  clipText(soFar, 1_800),
+                  clipText(article.researchBrief, 2_000),
                   `Chủ đề: ${topic}`,
                 ),
               ),
             },
           ],
-          { maxTokens: 1600, temperature: 0.4, reasoningEffort: "low" },
+          { maxTokens: 1400, temperature: 0.35, reasoningEffort: "low" },
         );
 
         const merged = `${soFar}\n\n---\n\n${planning.trim()}\n\n${INSIGHT_DONE_MARK}`;
@@ -584,7 +585,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const reviewOut = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
@@ -597,7 +598,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2200 },
+          { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
         );
 
         const updated = await prisma.article.update({
@@ -620,7 +621,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const finalizeA = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
               content: buildPipelinePrompt(
@@ -634,7 +635,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2500 },
+          { maxTokens: 2500, temperature: 0.3, reasoningEffort: "low" },
         );
 
         const parsed = parseFullOutput(finalizeA);

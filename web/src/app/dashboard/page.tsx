@@ -43,7 +43,7 @@ export default async function DashboardPage() {
   return (
     <AppShell
       title="Biên tập"
-      subtitle="Chu trình AI-TFES 10 bước (+ Insight Gate): research → verify/synth → gate → decision → planning → write → review → fact → publish."
+      subtitle="Research → Insight ≥ L2 → Viết → Duyệt. Chi tiết 10 bước xem trên từng bài."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Link

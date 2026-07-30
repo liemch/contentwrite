@@ -24,6 +24,8 @@ export function PipelineRunPanel({
   errorMessage,
   logs,
   onClear,
+  /** Mặc định thu gọn log; tự mở khi đang chạy / có lỗi */
+  defaultExpanded = false,
 }: {
   running: boolean;
   runningLabel?: string;
@@ -32,8 +34,10 @@ export function PipelineRunPanel({
   errorMessage?: string | null;
   logs: PipelineLogLine[];
   onClear?: () => void;
+  defaultExpanded?: boolean;
 }) {
   const [elapsed, setElapsed] = useState(0);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const startedAt = useRef<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -43,6 +47,7 @@ export function PipelineRunPanel({
       setElapsed(0);
       return;
     }
+    setExpanded(true);
     startedAt.current = Date.now();
     const t = setInterval(() => {
       if (startedAt.current) setElapsed(Date.now() - startedAt.current);
@@ -51,8 +56,14 @@ export function PipelineRunPanel({
   }, [running]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [logs.length, running]);
+    if (errorMessage) setExpanded(true);
+  }, [errorMessage]);
+
+  useEffect(() => {
+    if (expanded) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [logs.length, running, expanded]);
 
   const tone =
     status === "FAILED" || errorMessage
@@ -74,18 +85,18 @@ export function PipelineRunPanel({
             {running
               ? runningLabel || "Đang gọi AI / search..."
               : errorMessage
-                ? "Chu trình lỗi — xem chi tiết bên dưới"
+                ? "Cần chú ý — xem chi tiết"
                 : status === "PUBLISH_READY"
                   ? "Xong chu trình — chờ duyệt"
                   : status === "FAILED"
                     ? "Dừng vì lỗi"
                     : currentStepLabel
-                      ? `Sẵn sàng: ${currentStepLabel}`
+                      ? `Tiếp theo: ${currentStepLabel}`
                       : "Chưa chạy"}
           </p>
           {running && (
             <p className="mt-1 text-xs text-[var(--ink-muted)]">
-              Đã chạy {formatElapsed(elapsed)} · Research/Write có thể mất 30–120 giây mỗi bước — đừng đóng tab.
+              Đã chạy {formatElapsed(elapsed)} · mỗi bước có thể 30–120s — đừng đóng tab.
             </p>
           )}
           {!running && errorMessage && (
@@ -99,52 +110,61 @@ export function PipelineRunPanel({
               LIVE · {formatElapsed(elapsed)}
             </span>
           )}
-          {logs.length > 0 && onClear && !running && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="rounded-full border border-[var(--line)] bg-white/80 px-3 py-1 text-xs font-medium text-[var(--ink-muted)] hover:text-[var(--ink)]"
+          >
+            {expanded ? "Thu log" : `Log${logs.length ? ` (${logs.length})` : ""}`}
+          </button>
+          {logs.length > 0 && onClear && !running && expanded && (
             <button
               type="button"
               onClick={onClear}
               className="rounded-full px-3 py-1 text-xs text-[var(--ink-faint)] hover:bg-white/70 hover:text-[var(--ink)]"
             >
-              Xoá log
+              Xoá
             </button>
           )}
         </div>
       </div>
 
-      <div className="max-h-52 overflow-y-auto border-t border-[var(--line)]/70 bg-[rgba(255,255,255,0.55)] px-4 py-3 font-mono text-[11px] leading-relaxed sm:px-5">
-        {logs.length === 0 ? (
-          <p className="text-[var(--ink-faint)]">
-            Log sẽ hiện ở đây khi anh bấm “Chạy bước tiếp” hoặc “Chạy cả chu trình”.
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {logs.map((line) => (
-              <li
-                key={line.id}
-                className={
-                  line.level === "error"
-                    ? "text-[var(--danger)]"
-                    : line.level === "success"
-                      ? "text-[var(--success)]"
-                      : line.level === "warn"
-                        ? "text-[var(--warn)]"
-                        : "text-[var(--ink-muted)]"
-                }
-              >
-                <span className="text-[var(--ink-faint)]">
-                  {new Date(line.at).toLocaleTimeString("vi-VN", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  })}{" "}
-                </span>
-                {line.text}
-              </li>
-            ))}
-            <div ref={bottomRef} />
-          </ul>
-        )}
-      </div>
+      {expanded && (
+        <div className="max-h-52 overflow-y-auto border-t border-[var(--line)]/70 bg-[rgba(255,255,255,0.55)] px-4 py-3 font-mono text-[11px] leading-relaxed sm:px-5">
+          {logs.length === 0 ? (
+            <p className="text-[var(--ink-faint)]">
+              Log hiện khi chạy bước. Mặc định thu gọn để trang gọn hơn.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {logs.map((line) => (
+                <li
+                  key={line.id}
+                  className={
+                    line.level === "error"
+                      ? "text-[var(--danger)]"
+                      : line.level === "success"
+                        ? "text-[var(--success)]"
+                        : line.level === "warn"
+                          ? "text-[var(--warn)]"
+                          : "text-[var(--ink-muted)]"
+                  }
+                >
+                  <span className="text-[var(--ink-faint)]">
+                    {new Date(line.at).toLocaleTimeString("vi-VN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}{" "}
+                  </span>
+                  {line.text}
+                </li>
+              ))}
+              <div ref={bottomRef} />
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

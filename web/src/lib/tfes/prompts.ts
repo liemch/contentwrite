@@ -57,6 +57,24 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 - Lạm dụng markdown table — ưu tiên bullet/numbered list; table chỉ khi so sánh ≤3 cột số liệu thật`;
 }
 
+/**
+ * System prompt MỎNG cho bước ngắn (Gate / Decision / Planning / Review / Fact).
+ * Tránh nhồi Operating-Prompt-SHORT + Domain đầy đủ → gpt-oss reasoning quá lâu / timeout 240s.
+ */
+export function getSystemPromptLite(domain: string): string {
+  const domainProfile = readTfesFile(domainProfilePath(domain));
+  // Chỉ lấy phần đầu hồ sơ (audience, tông, tier) — đủ cho Decision
+  const clipped = domainProfile.slice(0, 1_200).trim();
+
+  return `Bạn là biên tập viên AI-TFES. Chỉ làm ĐÚNG nhiệm vụ trong user message — không làm thêm bước khác.
+Tiếng Việt. Evidence-first; không bịa nguồn/số liệu. Trả lời ngắn, đúng format yêu cầu.
+
+Domain: **${domain === "soft-skills" ? "soft-skills" : "engineering"}**
+${clipped}
+
+CẤM: viết dài lan man; lặp lại toàn bộ Research; gắn (L2) vào Title; HERO IMAGE BRIEF; Planning khi đang Decision (và ngược lại).`;
+}
+
 export function buildDailyTaskPrompt(input: {
   domain: string;
   topic?: string;
