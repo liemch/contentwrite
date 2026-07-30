@@ -176,32 +176,30 @@ Dựa Research Brief (đã Verification + Synthesis) trong CONTEXT:
 
 Xuất ngắn (~400–700 từ). Không Title/Subtitle đăng bài. Không 12 phần.`,
 
-    "insight-decision": `## Nhiệm vụ bước 5: EDITORIAL DECISION (AI-TFES)
-Insight Gate đã ≥ L2 (xem CONTEXT). CHỈ làm Decision — KHÔNG Planning / Writing / Hero.
+    "insight-decision": `## Nhiệm vụ bước 5: EDITORIAL DECISION (ngắn — tránh timeout)
+Gate đã ≥ L2. CHỈ chốt Decision — CẤM Planning / Writing / Hero / tóm tắt lại Research.
 
-Chấm điểm / chốt:
-- Chủ đề góc đã chọn (không đổi vì "đang hot")
-- Category theo Domain Profile
-- Lý do chọn: giá trị thực tiễn + học hỏi + lâu dài (Evergreen)
-- Audience ngắn
-- Nếu chủ đề yếu dù Gate L2 → nêu rủi ro editorial rõ ràng
+Xuất bullet ngắn (≤250 từ), đúng các mục:
+- **Góc chốt:** …
+- **Category:** …
+- **Audience:** …
+- **Lý do chọn** (thực tiễn + học hỏi + evergreen — KHÔNG "vì đang hot"): …
+- **Rủi ro editorial** (nếu có): …
 
-Xuất mục **"2) Editorial Decision"** (~300–500 từ).`,
+Không viết dài. Không lặp lại Gate tests.`,
 
-    "insight-planning": `## Nhiệm vụ bước 6: PLANNING (AI-TFES)
-Decision đã chốt (CONTEXT). CHỈ Planning — KHÔNG viết bài 12 phần / Hero.
+    "insight-planning": `## Nhiệm vụ bước 6: PLANNING (gọn)
+Decision đã chốt. CHỈ Planning — CẤM viết bài 12 phần / Hero.
 
-Chốt đủ:
-- Objective
-- Audience
-- 1 Core Message (= insight L2/L3 chính)
-- 3–5 Key Insights (mỗi ý có nguồn từ Research Brief)
-- Ví dụ dự kiến (≥2 hướng)
-- Story Flow (dàn ý các phần Deep Analysis → Recommendations)
+Xuất checklist (≤600 từ):
+- Objective · Audience · 1 Core Message (insight L2/L3)
+- 3–5 Key Insights (mỗi ý + nguồn ngắn từ Research)
+- Ví dụ dự kiến (≥2)
+- Story Flow (3–6 gạch đầu dòng)
 - Khuyến nghị 3 cấp: Cá nhân / Team / Tổ chức (làm gì / khi nào / khi nào KHÔNG)
-- Discussion Questions (3–5 câu mở)
+- Discussion Questions (3)
 
-Xuất mục **"2) Planning"** (~500–800 từ).`,
+Không viết lại Decision / Gate.`,
 
     "insight-b": `## Nhiệm vụ Insight Decision+Planning (legacy gộp)
 Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.`,

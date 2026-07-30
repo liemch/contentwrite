@@ -35,7 +35,14 @@ function getClient() {
   });
 }
 
-function buildBody(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number }) {
+type ChatOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  /** Override NVIDIA_REASONING_EFFORT cho từng bước (gpt-oss) */
+  reasoningEffort?: "low" | "medium" | "high";
+};
+
+function buildBody(messages: ChatMessage[], options?: ChatOptions) {
   const body: Record<string, unknown> = {
     model: MODEL,
     messages,
@@ -45,9 +52,9 @@ function buildBody(messages: ChatMessage[], options?: { temperature?: number; ma
     seed: 42,
     stream: true,
   };
-  // gpt-oss mặc định reasoning=medium → dễ vượt Hobby 60s
+  // gpt-oss mặc định reasoning=medium → dễ vượt timeout
   if (MODEL.includes("gpt-oss")) {
-    body.reasoning_effort = REASONING_EFFORT;
+    body.reasoning_effort = options?.reasoningEffort ?? REASONING_EFFORT;
   }
   return body;
 }
@@ -81,7 +88,7 @@ function parseSseContent(raw: string): string {
 /** Local fallback: Node fetch hay timeout → curl -N stream SSE */
 async function chatViaCurlStream(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number },
+  options?: ChatOptions,
 ): Promise<string> {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) {
@@ -151,7 +158,7 @@ async function chatViaCurlStream(
 /** Production: fetch + AbortSignal cứng — không để treo đến 504 Vercel */
 async function chatViaFetchStream(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number },
+  options?: ChatOptions,
 ): Promise<string> {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) {
@@ -197,7 +204,7 @@ async function chatViaFetchStream(
 
 async function chatViaOpenAISdk(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number },
+  options?: ChatOptions,
 ): Promise<string> {
   const openai = getClient();
   const params: Record<string, unknown> = {
@@ -210,7 +217,7 @@ async function chatViaOpenAISdk(
     stream: true as const,
   };
   if (MODEL.includes("gpt-oss")) {
-    params.reasoning_effort = REASONING_EFFORT;
+    params.reasoning_effort = options?.reasoningEffort ?? REASONING_EFFORT;
   }
 
   const stream = (await openai.chat.completions.create(
@@ -236,7 +243,7 @@ async function chatViaOpenAISdk(
  */
 export async function chatCompletion(
   messages: ChatMessage[],
-  options?: { temperature?: number; maxTokens?: number },
+  options?: ChatOptions,
 ): Promise<string> {
   if (process.env.VERCEL) {
     return chatViaFetchStream(messages, options);

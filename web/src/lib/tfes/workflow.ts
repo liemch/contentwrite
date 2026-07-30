@@ -314,7 +314,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 1600 },
+          { maxTokens: 1600, temperature: 0.35, reasoningEffort: "low" },
         );
 
         if (failedInsightGate(insightGate)) {
@@ -382,7 +382,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
       }
 
-      // Decision (bước 5)
+      // Decision (bước 5) — context mỏng: timeout thường do Research Brief + reasoning, không do output
       if (phase === "decision") {
         const llmStarted = Date.now();
         const gateOnly = stripPipelineMarks(article.insightGate);
@@ -394,14 +394,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               content: buildPipelinePrompt(
                 "insight-decision",
                 appendContext(
-                  clipText(article.researchBrief, 4_500),
-                  clipText(gateOnly, 2_000),
+                  clipText(gateOnly, 1_400),
+                  clipText(article.researchBrief, 1_800),
                   `Chủ đề: ${topic}`,
+                  "Trả lời bullet ngắn ≤250 từ. Không nhắc lại toàn bộ Research.",
                 ),
               ),
             },
           ],
-          { maxTokens: 1400 },
+          { maxTokens: 900, temperature: 0.35, reasoningEffort: "low" },
         );
 
         const merged = `${gateOnly}\n\n---\n\n${decision.trim()}\n\n${INSIGHT_DECISION_MARK}`;
@@ -432,14 +433,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               content: buildPipelinePrompt(
                 "insight-planning",
                 appendContext(
-                  clipText(article.researchBrief, 4_000),
-                  clipText(soFar, 3_500),
+                  clipText(soFar, 2_200),
+                  clipText(article.researchBrief, 2_500),
                   `Chủ đề: ${topic}`,
                 ),
               ),
             },
           ],
-          { maxTokens: 2000 },
+          { maxTokens: 1600, temperature: 0.4, reasoningEffort: "low" },
         );
 
         const merged = `${soFar}\n\n---\n\n${planning.trim()}\n\n${INSIGHT_DONE_MARK}`;
