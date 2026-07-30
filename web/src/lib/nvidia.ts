@@ -12,14 +12,14 @@ export type ChatMessage = {
 
 const BASE_URL =
   process.env.NVIDIA_BASE_URL ?? "https://integrate.api.nvidia.com/v1";
-const MODEL = process.env.NVIDIA_MODEL ?? "meta/llama-3.1-8b-instruct";
+const MODEL = process.env.NVIDIA_MODEL ?? "openai/gpt-oss-120b";
 const REASONING_EFFORT = (process.env.NVIDIA_REASONING_EFFORT ?? "low") as
   | "low"
   | "medium"
   | "high";
 
-/** Chừa buffer trước khi Hobby cắt (maxDuration 300s) */
-const VERCEL_CHAT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 120_000);
+/** Hobby Fluid maxDuration=300s — chừa ~40s cho DB/parse */
+const VERCEL_CHAT_MS = Number(process.env.NVIDIA_TIMEOUT_MS || 240_000);
 
 function getClient() {
   const apiKey = process.env.NVIDIA_API_KEY;

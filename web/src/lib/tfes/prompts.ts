@@ -43,7 +43,15 @@ ${domainProfile}
 ---
 
 Bạn đang chạy pipeline web AI-TFES. Mỗi lần gọi chỉ làm ĐÚNG bước được yêu cầu trong user message.
-Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; không bịa nguồn/số liệu.`;
+Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; không bịa nguồn/số liệu.
+
+## CẤM (bài sẽ bị coi là FAIL chất lượng)
+- Lặp lại tiêu đề / cùng một câu nhiều đoạn
+- Mở bài kiểu "Trong thế giới… ngày nay", "là một yếu tố quan trọng"
+- Ví dụ bịa "Công ty ABC/DEF/XYZ" không có chi tiết kỹ thuật cụ thể
+- References bịa (tên tác giả giả, paper không tồn tại) — chỉ dùng link/nguồn từ Research Brief
+- Viết meta về "seed_topics / domain profile / Seeding Mode" như thể đó là chủ đề bài
+- Đoạn Deep Analysis chỉ liệt kê chung chung không có trade-off có điều kiện`;
 }
 
 export function buildDailyTaskPrompt(input: {
@@ -122,17 +130,28 @@ Tiếng Việt, khoảng 1.200–1.800 từ. Insight L2/L3 đặt sớm; có "kh
 ${articleTpl}`,
 
     "write-a": `## Nhiệm vụ WRITE — Phase A (nửa đầu)
-Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT:
+Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY, không mức đạt):
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
+
+Yêu cầu độ sâu:
+- Hook cụ thể (quan sát/nghịch lý/tình huống) — CẤM mở chung chung
+- Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện, liên kết insight L2/L3
+- Không lặp câu; mỗi đoạn phải thêm thông tin mới
+- Dùng thuật ngữ / cơ chế thật từ Research Brief (không bịa)
+
 Dừng sau Deep Analysis. KHÔNG viết Examples / Recommendations / Takeaways / Discussion / References.
 
 ${articleTpl}`,
 
     "write-b": `## Nhiệm vụ WRITE — Phase B (nửa sau)
 Tiếp tục NỬA SAU theo Article.md (khớp insight + nửa đầu trong CONTEXT):
-Real-world Examples (≥2), Practical Recommendations (Cá nhân/Team/Tổ chức — có khi nào KHÔNG),
-Key Takeaways, Discussion Questions, References (link thật từ research nếu có).
-KHÔNG viết lại nửa đầu.
+- Real-world Examples (≥2): tình huống có ràng buộc kỹ thuật cụ thể (stack, scale, failure mode) — CẤM "Công ty ABC cải thiện hiệu suất"
+- Practical Recommendations Cá nhân/Team/Tổ chức: mỗi mục có làm gì / khi nào / khi nào KHÔNG / rủi ro
+- Key Takeaways (3): mỗi ý một câu sắc, không tóm lại tiêu đề
+- Discussion Questions (3): mở, không yes/no nông
+- References: CHỈ nguồn có trong Research Brief (giữ link). Không bịa paper.
+
+KHÔNG viết lại nửa đầu. Tổng Phase B khoảng 600–900 từ chất lượng.
 
 ${articleTpl}`,
 

@@ -57,4 +57,4 @@ URL đúng nằm trong tab **Deployments** (không đoán `*.vercel.app`).
 
 Mỗi bước gọi `POST /api/articles/:id/actions` body `{ "action": "run-step" }` để tránh timeout Vercel (max 300s/route trên Pro).
 
-Model mặc định: `meta/llama-3.1-8b-instruct` @ `https://integrate.api.nvidia.com/v1` (Hobby; đổi `NVIDIA_MODEL` nếu cần)
+Model mặc định: `openai/gpt-oss-120b` @ `https://integrate.api.nvidia.com/v1` (`NVIDIA_REASONING_EFFORT=low`)

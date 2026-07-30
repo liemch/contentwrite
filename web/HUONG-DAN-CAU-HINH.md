@@ -61,7 +61,7 @@ cp .env.example .env
 | `TAVILY_API_KEY` | ✅ | API key Tavily search |
 | `FAL_KEY` | Tuỳ chọn | Hero **Qwen-Image** qua fal.ai (không có thì chỉ dùng Flux) |
 | `NVIDIA_BASE_URL` | Khuyến nghị | `https://integrate.api.nvidia.com/v1` |
-| `NVIDIA_MODEL` | Khuyến nghị | `meta/llama-3.1-8b-instruct` (Hobby). Chất lượng hơn: `openai/gpt-oss-20b` / `openai/gpt-oss-120b` (dễ timeout) |
+| `NVIDIA_MODEL` | Khuyến nghị | `openai/gpt-oss-120b` (chất lượng). Fallback nhanh: `openai/gpt-oss-20b`. Tránh Llama 8B cho editorial. |
 | `NVIDIA_REASONING_EFFORT` | Khuyến nghị | `low` (gpt-oss; mặc định medium dễ timeout) |
 
 **Ví dụ `.env` local:**
@@ -74,7 +74,7 @@ DATABASE_URL=postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=r
 
 NVIDIA_API_KEY=nvapi-xxxx
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=meta/llama-3.1-8b-instruct
+NVIDIA_MODEL=openai/gpt-oss-120b
 NVIDIA_REASONING_EFFORT=low
 
 TAVILY_API_KEY=tvly-xxxx

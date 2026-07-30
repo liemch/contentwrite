@@ -188,7 +188,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
           { role: "user", content: buildResearchPrompt(topic, searchBlob) },
         ],
-        { maxTokens: 2800 },
+        { maxTokens: 3500 },
       );
 
       const updated = await prisma.article.update({
@@ -219,7 +219,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             ),
           },
         ],
-        { maxTokens: 1600 },
+        { maxTokens: 2200 },
       );
 
       const failedGate =
@@ -276,7 +276,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2200 },
+          { maxTokens: 3500 },
         );
 
         if (!partA.trim()) {
@@ -317,7 +317,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2200 },
+          { maxTokens: 3500 },
         );
 
         if (!partB.trim()) {
@@ -371,7 +371,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 1600 },
+          { maxTokens: 2500 },
         );
 
         const parsed = parseFullOutput(finalizeA);
@@ -411,7 +411,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             ),
           },
         ],
-        { maxTokens: 2200 },
+        { maxTokens: 4000 },
       );
 
       const parsed = parseFullOutput(appendContext(finalizeB));
