@@ -367,11 +367,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
-            // Giữ số retry (nếu có) + kết quả Gate đạt
             insightGate: withGateRetryMark(
               gateRetryCount(article.insightGate),
               `${insightGate.trim()}\n\n${INSIGHT_GATE_MARK}`,
-            ).replace(/<!--TFES_GATE_RETRY:0-->\s*/g, ""),
+            ),
             currentStep: WorkflowStep.INSIGHT,
             status: ArticleStatus.DRAFT,
             errorMessage: null,
