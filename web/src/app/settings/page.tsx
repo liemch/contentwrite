@@ -27,7 +27,7 @@ export default function SettingsPage() {
   const [health, setHealth] = useState<{
     ok?: boolean;
     tavily?: { ok: boolean; detail: string; ms?: number };
-    nvidia?: { ok: boolean; detail: string; ms?: number };
+    nvidia?: { ok: boolean; detail: string; ms?: number; pending?: boolean };
   } | null>(null);
 
   async function load() {
@@ -52,65 +52,114 @@ export default function SettingsPage() {
     setMessage("");
     setHealth(null);
 
-    const controller = new AbortController();
-    const kill = setTimeout(() => controller.abort(), 35000);
-
     try {
       // 1) Tavily nhanh
-      const tavilyRes = await fetch("/api/health/tavily", { signal: controller.signal });
-      const tavilyData = (await tavilyRes.json()) as {
+      const tavilyRes = await fetch("/api/health/tavily", {
+        signal: AbortSignal.timeout(15000),
+      });
+      let tavilyData: {
         ok?: boolean;
         tavily?: { ok: boolean; detail: string; ms?: number };
         error?: string;
-      };
+      } = {};
+      try {
+        tavilyData = (await tavilyRes.json()) as typeof tavilyData;
+      } catch {
+        /* ignore */
+      }
 
       if (tavilyRes.status === 401 || tavilyData.error === "Unauthorized") {
         setError("Phiên đăng nhập hết hạn — reload / login lại rồi Test.");
-        setChecking(false);
-        clearTimeout(kill);
+        return;
+      }
+
+      if (!tavilyRes.ok && !tavilyData.tavily) {
+        setHealth({
+          ok: false,
+          tavily: {
+            ok: false,
+            detail: tavilyData.error || `HTTP ${tavilyRes.status}`,
+            ms: 0,
+          },
+        });
+        setMessage("Tavily lỗi — kiểm tra TAVILY_API_KEY trên Vercel.");
         return;
       }
 
       setHealth({
         ok: Boolean(tavilyData.tavily?.ok),
         tavily: tavilyData.tavily,
-        nvidia: { ok: false, detail: "Đang kiểm tra NVIDIA...", ms: 0 },
+        nvidia: { ok: false, detail: "Đang kiểm tra NVIDIA…", ms: 0, pending: true },
       });
 
-      // 2) NVIDIA riêng (chậm hơn)
-      const nvidiaRes = await fetch("/api/health/tavily?nvidia=1", {
-        signal: controller.signal,
-      });
-      const nvidiaData = (await nvidiaRes.json()) as {
+      // 2) NVIDIA riêng (≤20s server-side)
+      let nvidiaRes: Response;
+      try {
+        nvidiaRes = await fetch("/api/health/tavily?nvidia=1", {
+          signal: AbortSignal.timeout(45000),
+        });
+      } catch (e) {
+        const aborted = e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
+        const detail = aborted
+          ? "Timeout phía trình duyệt (45s) — NIM chậm hoặc mạng/Vercel"
+          : e instanceof Error
+            ? e.message
+            : "Không gọi được NVIDIA health";
+        setHealth({
+          ok: false,
+          tavily: tavilyData.tavily,
+          nvidia: { ok: false, detail, ms: 0 },
+        });
+        setMessage("Tavily OK — NVIDIA lỗi/timeout (xem panel).");
+        return;
+      }
+
+      let nvidiaData: {
         ok?: boolean;
         tavily?: { ok: boolean; detail: string; ms?: number };
         nvidia?: { ok: boolean; detail: string; ms?: number };
-      };
+        error?: string;
+      } = {};
+      try {
+        nvidiaData = (await nvidiaRes.json()) as typeof nvidiaData;
+      } catch {
+        setHealth({
+          ok: false,
+          tavily: tavilyData.tavily,
+          nvidia: {
+            ok: false,
+            detail: `Phản hồi không phải JSON (HTTP ${nvidiaRes.status}) — thường là 504`,
+            ms: 0,
+          },
+        });
+        setMessage("Tavily OK — NVIDIA lỗi/timeout (xem panel).");
+        return;
+      }
+
+      const nvidia =
+        nvidiaData.nvidia ??
+        ({
+          ok: false,
+          detail: nvidiaData.error || `Không có kết quả NVIDIA (HTTP ${nvidiaRes.status})`,
+          ms: 0,
+        } as const);
 
       setHealth({
-        ok: Boolean(nvidiaData.tavily?.ok && nvidiaData.nvidia?.ok),
+        ok: Boolean((nvidiaData.tavily ?? tavilyData.tavily)?.ok && nvidia.ok),
         tavily: nvidiaData.tavily ?? tavilyData.tavily,
-        nvidia: nvidiaData.nvidia,
+        nvidia,
       });
 
-      if (nvidiaData.tavily?.ok && nvidiaData.nvidia?.ok) {
+      if ((nvidiaData.tavily ?? tavilyData.tavily)?.ok && nvidia.ok) {
         setMessage("Tavily + NVIDIA đều OK.");
-      } else if (nvidiaData.tavily?.ok) {
+      } else if ((nvidiaData.tavily ?? tavilyData.tavily)?.ok) {
         setMessage("Tavily OK — NVIDIA lỗi/timeout (xem panel).");
       } else {
         setMessage("Tavily lỗi — kiểm tra TAVILY_API_KEY trên Vercel.");
       }
     } catch (e) {
-      const aborted = e instanceof Error && e.name === "AbortError";
-      setError(
-        aborted
-          ? "Timeout 35s — Tavily thường <3s; nếu kẹt có thể NVIDIA chậm hoặc mất mạng."
-          : e instanceof Error
-            ? e.message
-            : "Không kiểm tra được",
-      );
+      setError(e instanceof Error ? e.message : "Không kiểm tra được");
     } finally {
-      clearTimeout(kill);
       setChecking(false);
     }
   }
@@ -441,12 +490,21 @@ export default function SettingsPage() {
                   </li>
                   <li
                     className={
-                      health.nvidia?.ok ? "text-[var(--success)]" : "text-[var(--danger)]"
+                      health.nvidia?.pending
+                        ? "text-[var(--ink-muted)]"
+                        : health.nvidia?.ok
+                          ? "text-[var(--success)]"
+                          : "text-[var(--danger)]"
                     }
                   >
-                    <strong>NVIDIA:</strong> {health.nvidia?.ok ? "OK" : "LỖI"} —{" "}
-                    {health.nvidia?.detail}
-                    {health.nvidia?.ms != null
+                    <strong>NVIDIA:</strong>{" "}
+                    {health.nvidia?.pending
+                      ? "Đang kiểm tra…"
+                      : health.nvidia?.ok
+                        ? "OK"
+                        : "LỖI"}{" "}
+                    — {health.nvidia?.detail}
+                    {health.nvidia?.ms != null && !health.nvidia.pending
                       ? ` · ${Math.round((health.nvidia.ms || 0) / 1000)}s`
                       : ""}
                   </li>

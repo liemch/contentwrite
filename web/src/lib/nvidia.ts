@@ -177,3 +177,57 @@ export async function chatCompletion(
     throw error;
   }
 }
+
+/** Ping Settings health — xác nhận key + model còn trong catalog (nhanh, ổn định) */
+export async function pingNvidia(): Promise<{ ok: boolean; detail: string; ms: number }> {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) {
+    return { ok: false, detail: "NVIDIA_API_KEY chưa set", ms: 0 };
+  }
+
+  const started = Date.now();
+  try {
+    const modelsRes = await fetch(`${BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(12_000),
+    });
+    const ms = Date.now() - started;
+    if (!modelsRes.ok) {
+      const raw = await modelsRes.text();
+      return {
+        ok: false,
+        detail: `HTTP ${modelsRes.status}: ${raw.slice(0, 100) || modelsRes.statusText}`,
+        ms,
+      };
+    }
+
+    const modelsJson = (await modelsRes.json()) as { data?: Array<{ id?: string }> };
+    const ids = (modelsJson.data ?? []).map((m) => m.id).filter(Boolean) as string[];
+    if (!ids.includes(MODEL)) {
+      return {
+        ok: false,
+        detail: `Key OK nhưng model “${MODEL}” không có trong catalog (${ids.length} models)`,
+        ms,
+      };
+    }
+
+    return {
+      ok: true,
+      detail: `Key OK · ${MODEL}`,
+      ms,
+    };
+  } catch (error) {
+    const ms = Date.now() - started;
+    const aborted =
+      error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+    return {
+      ok: false,
+      detail: aborted
+        ? "Timeout /models 12s — không tới được NVIDIA API"
+        : error instanceof Error
+          ? error.message.slice(0, 120)
+          : "Lỗi NVIDIA",
+      ms,
+    };
+  }
+}
