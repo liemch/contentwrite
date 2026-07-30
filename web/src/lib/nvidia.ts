@@ -101,7 +101,7 @@ async function chatViaCurlStream(
         "--connect-timeout",
         "30",
         "--max-time",
-        process.env.VERCEL ? "45" : "300",
+        process.env.VERCEL ? "50" : "300",
         "-X",
         "POST",
         `${BASE_URL}/chat/completions`,
