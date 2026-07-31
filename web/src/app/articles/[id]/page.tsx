@@ -44,7 +44,7 @@ const TABS = [
   { key: "insight", label: "Cổng Insight", desc: "Gate → Decision → Planning" },
   { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
   { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
-  { key: "knowledge", label: "Review / Knowledge", desc: "Bước 8 → 10 metadata" },
+  { key: "knowledge", label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
   { key: "hero", label: "Hero brief", desc: "Ảnh minh hoạ" },
 ] as const;
 
@@ -223,7 +223,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
       const softQuality =
-        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
+        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|Reader Sim|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
           msg,
         );
       if (
@@ -291,7 +291,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       // Self-check / quality: giữ DRAFT — full pipeline thử lại cùng bước
       if (
         next.status === "DRAFT" &&
-        /Self-check|Polish self-check|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
+        /Self-check|Polish self-check|Reader Sim|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
           next.errorMessage,
         )
       ) {
@@ -333,9 +333,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                                 : "10 · Bản sạch (chờ polish)"
                               : finalizePhase === "polish"
                                 ? "10b · Polish bản sạch"
-                                : finalizePhase === "self-check-fail"
-                                  ? "10 · Self-check"
-                                  : STEP_LABELS[stepBefore] || stepBefore;
+                                : finalizePhase === "reader-sim" ||
+                                    finalizePhase === "await-reader-sim"
+                                  ? "10c · Reader Simulation"
+                                  : finalizePhase === "reader-sim-fail"
+                                    ? "10c · Reader Sim (chưa đạt)"
+                                    : finalizePhase === "reader-sim-soft"
+                                      ? "10c · Reader Sim (xem Knowledge)"
+                                      : finalizePhase === "self-check-fail"
+                                        ? "10 · Self-check"
+                                        : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -358,7 +365,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         finalizePhase === "review" ||
         finalizePhase === "fact" ||
         finalizePhase === "a" ||
-        (finalizePhase === "publish" && next.status === "DRAFT")
+        (finalizePhase === "publish" && next.status === "DRAFT") ||
+        (finalizePhase === "polish" && next.status === "DRAFT") ||
+        finalizePhase === "await-reader-sim"
       ) {
         pushLog("success", `✓ Xong ${finished} · còn phase tiếp · ${elapsedSec}s`);
       } else {

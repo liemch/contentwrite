@@ -67,6 +67,8 @@
 
 ### A. Khung bài đọc liền (bắt buộc)
 
+- CẤM dòng gạch ngang markdown `---` / `***` giữa các đoạn trong body (dùng `##` hoặc câu cầu nối).
+
 ```markdown
 # <Title — <80 ký tự, không giật tít, không (L2)/(L3)>
 
@@ -166,11 +168,13 @@ Dùng `##` tự nhiên. **CẤM** copy tên section Article.md.
 
 ```text
 HERO IMAGE BRIEF
-Concept: <1 câu — bầu không khí / metafora kỹ thuật, không chữ trên ảnh>
-Prompt (English): "<clean English, no markdown, no Vietnamese, no fake charts/numbers/logos/real people>"
+Concept: <1 câu — metaphor đúng luận điểm bài, không generic>
+Prompt (English): "<editorial illustration of THIS article's thesis/metaphor; soft lighting; no text/numbers/charts/logos/real people>"
 Caption: <tiếng Việt, 1 câu>
 Alt: <tiếng Việt, mô tả ngắn cho a11y>
 ```
+
+CẤM prompt sáo không dính bài: “abstract futuristic tech / circuit boards / glowing code” trừ khi đúng chủ đề hạ tầng đó.
 
 ---
 

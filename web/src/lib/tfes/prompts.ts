@@ -160,6 +160,8 @@ type PipelineStep =
   | "finalize-a"
   | "finalize-b"
   | "finalize-polish"
+  | "finalize-hero"
+  | "finalize-reader-sim"
   | "finalize";
 
 const FORMAT_RULES_WRITE = `### Định dạng bài (bắt buộc)
@@ -334,11 +336,13 @@ ${prefs}
 - Một luận điểm xuyên suốt; không meta “Insight L2”; không Knowledge Record trong body
 - Title/Subtitle tiếng Việt, KHÔNG (L2); CẤM dòng "alt" trần
 - References chỉ URL từ Research; độ dài theo WRITING PREFS
-3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch):
-   - Concept · **Prompt (English):** "...." (tiếng Anh sạch) · Caption + Alt
+3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — tạm thời, sẽ được viết lại từ bản polish:
+   - Concept · **Prompt (English):** "...." · Caption + Alt
+   - Prompt phải mirror **luận điểm / metaphor của bài** (không generic “servers / circuit board / glowing code” nếu bài không nói hạ tầng đó)
 4. Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
+CẤM dòng gạch ngang markdown \`---\` / \`***\` giữa các đoạn trong bản sạch (dùng ## hoặc đoạn nối).
 
 ${NARRATIVE_FLOW_RULES}
 
@@ -351,13 +355,52 @@ Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Khô
 
 Sửa bắt buộc:
 - Gỡ sót: dòng "alt" trần, placeholder HERO_IMAGE lẻ, heading biên tập (Introduction/Context/Deep Analysis…), meta Insight L2
+- **Xóa mọi dòng chỉ có \`---\` / \`***\` / \`___\`** giữa nội dung (không dùng thematic break)
 - Nối mạch: câu cầu giữa các ##; gộp chỗ lặp "khi nào không nên"; bỏ listicle đánh số Hook/Framework
 - References: chỉ giữ URL có trong CONTEXT; bỏ link rỗng / bịa
 - Giữ \`![mô tả](HERO_IMAGE)\` ngay sau Subtitle (nếu đã có)
 - Độ dài / tránh format theo WRITING PREFS (nếu có)
+- Nếu CONTEXT có phản hồi Reader Simulation — ưu tiên sửa đúng các điểm đó (hook / lặp / ví dụ / insight)
 
 ${prefs}
 ${NARRATIVE_FLOW_RULES}`,
+
+    "finalize-hero": `## Nhiệm vụ: HERO IMAGE BRIEF từ bản sạch đã chốt
+Đọc Title + đoạn mở + luận điểm trong CONTEXT. Xuất ĐÚNG khối:
+
+\`\`\`text
+HERO IMAGE BRIEF
+Concept: <1 câu tiếng Việt — metaphor đúng bài này>
+Prompt (English): "<editorial illustration that visualizes THIS article's thesis/metaphor; soft lighting; no text/numbers/charts/logos/real people in the image; no watermark>"
+Caption: <1 câu tiếng Việt>
+Alt: <mô tả ngắn tiếng Việt cho a11y>
+\`\`\`
+
+Bắt buộc:
+- Prompt English mirror luận điểm thật (vd. tốc độ vs kiến trúc → fork in the road / scaffolding unfinished vs stopwatch — KHÔNG CPU/server generic nếu bài không về hạ tầng)
+- CẤM prompt sáo: "abstract futuristic technology background", "circuit boards", "glowing code on screen" trừ khi bài đúng chủ đề đó
+- Không viết lại bài; chỉ xuất HERO IMAGE BRIEF`,
+
+    "finalize-reader-sim": `## Nhiệm vụ bước 10c: READER SIMULATION (đáng đọc)
+Mô phỏng 3 độc giả đọc bản sạch trong CONTEXT. Domain roles đã chỉ định bên dưới — KHÔNG đổi vai.
+
+Với MỖI vai (≤4 dòng/vai):
+- **Giữ / Bỏ / Lướt:** một trong ba
+- **Khựng ở đâu:** đoạn/ý cụ thể (hoặc "không")
+- **Còn hỏi gì:** 1 câu hoặc "ổn"
+
+Rồi chấm nhanh (Pass/Fail từng mục):
+- Hook kéo trong ~15 giây?
+- Có ≥1 ví dụ đủ cụ thể để hình dung?
+- Có chỗ lặp / reset luận điểm?
+- Senior/Lead có thấy insight không hiển nhiên?
+
+Cuối cùng đúng một dòng:
+\`KẾT LUẬN: ĐẠT\` — chỉ khi ≥2/3 vai Không bỏ bài VÀ không Fail nặng hook/lặp
+hoặc
+\`KẾT LUẬN: CHƯA ĐẠT\` + 3 gạch đầu dòng sửa ngắn (cụ thể, làm được ở polish)
+
+Xuất ngắn (≤450 từ). Không viết lại bài. Không Knowledge Record / Hero.`,
 
     finalize: `## Nhiệm vụ FINALIZE (full legacy)
 Review + Fact-Check + Publish Ready theo Operating Prompt.

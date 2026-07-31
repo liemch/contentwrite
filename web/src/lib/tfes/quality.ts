@@ -149,6 +149,9 @@ export function assertCleanPublishQuality(
   if (BARE_ALT_LINE.test(clean)) {
     throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).');
   }
+  if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/m.test(clean)) {
+    throw new Error("Bản sạch còn dòng gạch ngang (---) giữa nội dung — bỏ thematic break, nối đoạn.");
+  }
   if (!READER_HONESTY_RE.test(clean)) {
     throw new Error(
       'Bản sạch thiếu điều kiện/phản biện (vd. “không nên”, “chỉ khi”, “không phù hợp”).',

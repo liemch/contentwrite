@@ -60,6 +60,14 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
   return body.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/** Gỡ thematic break markdown (`---` / `***` / `___`) giữa các đoạn — bản đọc liền không dùng hr */
+export function stripThematicBreaks(text: string): string {
+  return text
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Bản sạch đăng tin: gỡ heading biên tập Article.md còn sót (tránh soft-retry vòng).
  * Giữ nội dung đoạn; chỉ bỏ/đổi tên heading.
@@ -75,7 +83,7 @@ export function toReaderCleanPublish(content: string | null | undefined): string
 
   // Nhãn Section còn sót
   body = body.replace(/^\s*\*{0,2}Section\s*\d+\s*[:.-]\s*/gim, "");
-  body = body.replace(/\n{3,}/g, "\n\n").trim();
+  body = stripThematicBreaks(body);
   return body;
 }
 
@@ -95,6 +103,8 @@ export function prepareReaderContent(
   }
 
   body = sanitizeEditorialBody(body);
+
+  body = stripThematicBreaks(body);
 
   // Đảm bảo list markdown có dòng trống phía trước (CommonMark ổn định hơn)
   body = body.replace(/([^\n])\n([-*+] |\d+\. )/g, "$1\n\n$2");

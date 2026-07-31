@@ -12,9 +12,13 @@ import {
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
   parseFullOutput,
+  READER_SIM_DONE_MARK,
+  READER_SIM_RETRY_RE,
+  readerSimRetryCount,
   REVIEW_DONE_MARK,
   stripPipelineMarks,
   withGateRetryMark,
+  withReaderSimRetryMark,
   WRITE_DONE_MARK,
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
@@ -157,13 +161,40 @@ function insightPhaseOf(
 
 /** Tối đa research lại sau Gate < L2 (2 lần = tổng 3 lần Gate) */
 const MAX_GATE_RESEARCH_RETRIES = 2;
+/** Reader Sim fail → polish lại tối đa 1 lần rồi vẫn đưa người duyệt */
+const MAX_READER_SIM_RETRIES = 1;
+
+function readerRolesForDomain(domain: string): string {
+  if (domain === "soft-skills") {
+    return `Roles (soft-skills): **Engineer (IC)** · **Tech Lead** · **Engineering Manager**
+Góc đọc: hội thoại/hành vi có điều kiện, không self-help sáo; có lúc KHÔNG nên áp dụng.`;
+  }
+  return `Roles (engineering): **Junior Engineer** · **Senior Engineer** · **Tech Lead**
+Góc đọc: cơ chế/ràng buộc cụ thể; insight không hiển nhiên; có trade-off thật.`;
+}
+
+function readerSimFailed(text: string): boolean {
+  if (/KẾT\s*LUẬN\s*:\s*ĐẠT\b/i.test(text) && !/KẾT\s*LUẬN\s*:\s*CHƯA\s*ĐẠT/i.test(text)) {
+    return false;
+  }
+  if (/KẾT\s*LUẬN\s*:\s*CHƯA\s*ĐẠT/i.test(text)) return true;
+  // Không có kết luận rõ → coi như chưa đạt (ép model ghi đúng dòng)
+  return true;
+}
+
+function stripReaderSimSection(kr: string): string {
+  return stripPipelineMarks(kr)
+    .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
+    .replace(READER_SIM_RETRY_RE, "")
+    .trim();
+}
 
 function finalizePhaseOf(article: {
   knowledgeRecord?: string | null;
   factCheck?: string | null;
   cleanPublish?: string | null;
   errorMessage?: string | null;
-}): "review" | "fact" | "publish" | "polish" | "done" {
+}): "review" | "fact" | "publish" | "polish" | "reader-sim" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
   const clean = (article.cleanPublish ?? "").trim();
@@ -171,6 +202,10 @@ function finalizePhaseOf(article: {
   if (!reviewDone) return "review";
   if (!fc.trim()) return "fact";
   if (clean.length < 80) return "publish";
+  // Reader Sim fail → polish lại kèm feedback
+  if (article.errorMessage && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
+    return "polish";
+  }
   // Polish fail → chạy lại 10b; các lỗi bản sạch khác → viết lại Publish
   if (article.errorMessage && /Polish self-check/i.test(article.errorMessage)) {
     return "polish";
@@ -182,6 +217,7 @@ function finalizePhaseOf(article: {
     return "publish";
   }
   if (!clean.includes(CLEAN_POLISH_MARK)) return "polish";
+  if (!kr.includes(READER_SIM_DONE_MARK)) return "reader-sim";
   return "done";
 }
 
@@ -717,6 +753,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.factCheck, 1_200),
                   `Chủ đề: ${topic}`,
                   "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
+                  article.errorMessage?.trim() && /Reader Sim chưa đạt/i.test(article.errorMessage)
+                    ? `Phản hồi Reader Simulation cần sửa:\n${article.errorMessage.slice(0, 700)}`
+                    : "",
                 ),
                 prefsBlock,
               ),
@@ -764,11 +803,110 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const title = stripInsightLevelLabels(
           polished.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
         );
+
+        // Viết lại Hero Brief từ bản sạch đã polish (tránh prompt generic lệch bài)
+        const heroRaw = await chatCompletion(
+          [
+            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-hero",
+                appendContext(
+                  clipText(polished, 2_800),
+                  `Title: ${title}`,
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 500 },
+        );
+        const heroParsed = parseFullOutput(appendContext(heroRaw));
+        const heroBrief =
+          heroParsed.heroBrief?.trim() ||
+          ( /HERO IMAGE BRIEF/i.test(heroRaw) ? heroRaw.trim() : null) ||
+          article.heroBrief;
+
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
             cleanPublish: `${polished}\n\n${CLEAN_POLISH_MARK}`,
             title,
+            heroBrief,
+            status: ArticleStatus.DRAFT,
+            currentStep: WorkflowStep.FINALIZE,
+            errorMessage: null,
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "polish",
+        });
+      }
+
+      // Bước 10c: Reader Simulation → PUBLISH_READY
+      if (finPhase === "reader-sim") {
+        const llmStarted = Date.now();
+        const cleanBody = toReaderCleanPublish(stripPipelineMarks(article.cleanPublish));
+        const domain = article.domain === "soft-skills" ? "soft-skills" : "engineering";
+        const simRaw = await chatCompletion(
+          [
+            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-reader-sim",
+                appendContext(
+                  readerRolesForDomain(domain),
+                  clipText(cleanBody, 5_500),
+                  `Title: ${article.title || topic}`,
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 900 },
+        );
+
+        const simOut = stripPipelineMarks(simRaw).trim();
+        const retries = readerSimRetryCount(article.knowledgeRecord);
+        const failed = readerSimFailed(simOut);
+
+        if (failed && retries < MAX_READER_SIM_RETRIES) {
+          const feedback = simOut.slice(0, 600);
+          const krBase = stripReaderSimSection(article.knowledgeRecord ?? "");
+          const krNext = withReaderSimRetryMark(
+            retries + 1,
+            `${krBase}\n\n## Reader Simulation\n${simOut}`.trim(),
+          );
+          // Xóa polish mark → tick sau chạy lại polish kèm feedback
+          const cleanWithoutPolish = stripPipelineMarks(article.cleanPublish);
+          const updated = await prisma.article.update({
+            where: { id: articleId },
+            data: {
+              cleanPublish: cleanWithoutPolish,
+              knowledgeRecord: krNext,
+              status: ArticleStatus.DRAFT,
+              currentStep: WorkflowStep.FINALIZE,
+              errorMessage: `Reader Sim chưa đạt: ${feedback}`.slice(0, 500),
+            },
+          });
+          return withTimings(updated, {
+            llmMs: Date.now() - llmStarted,
+            finalizePhase: "reader-sim-fail",
+          });
+        }
+
+        const krBase = stripReaderSimSection(article.knowledgeRecord ?? "");
+        const krFinal = `${krBase}\n\n## Reader Simulation\n${simOut}\n\n${READER_SIM_DONE_MARK}`.trim();
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            knowledgeRecord: krFinal,
+            cleanPublish: article.cleanPublish?.includes(CLEAN_POLISH_MARK)
+              ? article.cleanPublish
+              : `${cleanBody}\n\n${CLEAN_POLISH_MARK}`,
             status: ArticleStatus.PUBLISH_READY,
             currentStep: null,
             errorMessage: null,
@@ -776,7 +914,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         return withTimings(updated, {
           llmMs: Date.now() - llmStarted,
-          finalizePhase: "polish",
+          finalizePhase: failed ? "reader-sim-soft" : "reader-sim",
         });
       }
 
@@ -801,6 +939,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               const marked = cleanedExisting.includes(CLEAN_POLISH_MARK)
                 ? cleanedExisting
                 : `${cleanedExisting}\n\n${CLEAN_POLISH_MARK}`;
+              const kr = article.knowledgeRecord ?? "";
+              if (!kr.includes(READER_SIM_DONE_MARK)) {
+                // Đã polish nhưng chưa Reader Sim — không skip lên PUBLISH_READY
+                const updated = await prisma.article.update({
+                  where: { id: articleId },
+                  data: {
+                    cleanPublish: marked,
+                    status: ArticleStatus.DRAFT,
+                    currentStep: WorkflowStep.FINALIZE,
+                    errorMessage: null,
+                  },
+                });
+                return withTimings(updated, { finalizePhase: "await-reader-sim" });
+              }
               const updated = await prisma.article.update({
                 where: { id: articleId },
                 data: {
@@ -949,7 +1101,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
     // Bản sạch fail → chỉ xóa cleanPublish, giữ nháp 12 phần + FINALIZE
     const isCleanPublishFail =
-      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid/i.test(raw) &&
+      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid|gạch ngang/i.test(raw) &&
       !isListicleRewrite;
 
     await prisma.article.update({

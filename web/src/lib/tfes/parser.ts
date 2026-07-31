@@ -11,14 +11,29 @@ export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
 /** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
-/** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng duyệt */
+/** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng Reader Sim */
 export const CLEAN_POLISH_MARK = "<!--TFES_CLEAN_POLISHED-->";
+/** Reader Simulation xong (10c) — mới PUBLISH_READY */
+export const READER_SIM_DONE_MARK = "<!--TFES_READER_SIM_DONE-->";
+/** Số lần đã polish lại sau Reader Sim fail — <!--TFES_READER_SIM_RETRY:N--> */
+export const READER_SIM_RETRY_RE = /<!--TFES_READER_SIM_RETRY:(\d+)-->/;
 /** Số lần đã research lại sau Gate &lt; L2 — <!--TFES_GATE_RETRY:N--> */
 export const GATE_RETRY_RE = /<!--TFES_GATE_RETRY:(\d+)-->/;
 
 export function gateRetryCount(text: string | null | undefined): number {
   const m = (text ?? "").match(GATE_RETRY_RE);
   return m ? Number(m[1]) || 0 : 0;
+}
+
+export function readerSimRetryCount(text: string | null | undefined): number {
+  const m = (text ?? "").match(READER_SIM_RETRY_RE);
+  return m ? Number(m[1]) || 0 : 0;
+}
+
+export function withReaderSimRetryMark(n: number, body: string): string {
+  const cleaned = body.replace(READER_SIM_RETRY_RE, "").trim();
+  if (n <= 0) return cleaned;
+  return `${cleaned}\n\n<!--TFES_READER_SIM_RETRY:${n}-->`.trim();
 }
 
 export function withGateRetryMark(n: number, body: string): string {

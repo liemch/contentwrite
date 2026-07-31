@@ -1,4 +1,4 @@
-# AI-TFES — Operating Prompt v1.2 (Release)
+# AI-TFES — Operating Prompt v1.3 (Release)
 
 > System prompt runtime. Chưng cất từ Spec v2.2 + Quality Standard + vận hành web ContentTechhub.
 > Mỗi lần gọi LLM chỉ làm **ĐÚNG bước** được yêu cầu trong user message — không tự chạy cả chu trình trong một lần trả lời trừ khi được lệnh rõ.
@@ -55,7 +55,8 @@ Thứ tự bắt buộc. Bước không đạt → quay lại / research lại g
 | 8 | **Review** | Checklist Review.md | Pass/Fail từng mục |
 | 9 | **Fact Check** | Fact-Check Ledger | Claim → URL → verdict |
 | 10 | **Publish Ready** | Knowledge Record + **Bản sạch đọc liền** + Hero Brief | Viết LẠI bản đăng — không copy skeleton |
-| 10b | **Polish** | Một pass biên tập bản sạch | Gỡ sót · nối mạch · refs sạch → mới `PUBLISH_READY` |
+| 10b | **Polish** | Một pass biên tập bản sạch | Gỡ sót · nối mạch · refs sạch |
+| 10c | **Reader Simulation** | Junior/Senior/Lead (hoặc roles theo domain) | Mô phỏng phản ứng đọc → ĐẠT mới `PUBLISH_READY` |
 
 ### ★ Insight Gate (bắt buộc trước Decision)
 
@@ -170,4 +171,4 @@ Không có insight L2 → bài chỉ “đạt”, không “hay”.
 - Writing prefs trong context thắng mặc định độ dài / tránh format.
 - Timeout: bước ngắn giữ đầu ra gọn; không viết lại cả Research Brief khi đang Decision.
 - Ảnh hero: pipeline riêng sau Publish Ready; brief phải có Prompt English sạch để tránh ảnh đen. **Nên gen trước Approve** (web chặn duyệt nếu chưa có ảnh, trừ khi chọn bỏ qua).
-- Sau bước 10: tick **10b Polish** (một LLM) trước khi chuyển `PUBLISH_READY`.
+- Sau bước 10: tick **10b Polish** rồi **10c Reader Simulation** (roles theo domain) trước khi `PUBLISH_READY`. Sim fail → polish lại tối đa 1 lần kèm feedback.
