@@ -38,14 +38,22 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
   body = body.replace(/^(#{1,3}\s+)(.+)$/gm, (_, hashes: string, title: string) => {
     return `${hashes}${stripInsightLevelLabels(title)}`;
   });
+
+  // Bản đăng: giữ nội dung phụ đề, bỏ nhãn "Subtitle:" / "Title:"
   body = body.replace(
-    /^(\*{0,2}Subtitle:\*{0,2}\s*)(.+)$/gim,
-    (_, label: string, sub: string) => `${label}${stripInsightLevelLabels(sub)}`,
+    /^\*{0,2}Subtitle:\*{0,2}\s*(.+)$/gim,
+    (_, sub: string) => `*${stripInsightLevelLabels(sub.trim())}*`,
   );
-  body = body.replace(
-    /^(\*{0,2}Title:\*{0,2}\s*)(.+)$/gim,
-    (_, label: string, title: string) => `${label}${stripInsightLevelLabels(title)}`,
-  );
+  body = body.replace(/^\*{0,2}Title:\*{0,2}\s*(.+)$/gim, (_, title: string) => {
+    return `# ${stripInsightLevelLabels(title.trim())}`;
+  });
+  // Dòng chỉ có "Subtitle" / "Title" rồi nội dung dòng sau
+  body = body.replace(/^\*{0,2}Subtitle\*{0,2}\s*$/gim, "");
+  body = body.replace(/^\*{0,2}Title\*{0,2}\s*$/gim, "");
+
+  // Encoding hỏng / replacement char
+  body = body.replace(/\uFFFD/g, "");
+  body = body.replace(/�+/g, "");
 
   // Placeholder hero sót chữ "alt" trần hoặc alt rỗng
   body = body.replace(/^\s*alt\s*$/gim, "");

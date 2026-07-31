@@ -31,6 +31,16 @@ const LISTICLE_OUTLINE =
   /(?:^|\n)\s*#{0,3}\s*\d+\.\s*(Hook|Executive Summary|Khi nào nên|Khi nào không|Trade-?off|Decision Framework|Ví dụ thực tiễn|Kết luận)\b/i;
 
 const BARE_ALT_LINE = /(?:^|\n)\s*alt\s*(?:\n|$)/i;
+const BARE_SUBTITLE_LABEL = /(?:^|\n)\s*\*{0,2}Subtitle\*{0,2}\s*:?\s*(?:\n|$)/i;
+const HANDBOOK_VOICE =
+  /Cần áp dụng các biện pháp sau|Khuyến nghị thực tiễn\s*\n+(?:\s*[-*+]|\s*\d+\.)/i;
+const CONCRETE_SCENE =
+  /(?:stage\s*\d|pipeline|snapshot|rollback|retry|incident|mất\s+(?:hàng\s+)?giờ|xuống\s+phút|failure\s*mode|node\s+(?:nào|gây)|họp\b|1:1|code\s*review|sprint|đồng nghiệp|stakeholder|hội thoại|ví dụ[:：])/i;
+
+function countPercentClaims(text: string): number {
+  const matches = text.match(/\d{1,3}\s*%/g) ?? [];
+  return new Set(matches.map((m) => m.replace(/\s+/g, ""))).size;
+}
 
 export type QualityIssue = { code: string; message: string };
 
@@ -149,8 +159,31 @@ export function assertCleanPublishQuality(
   if (BARE_ALT_LINE.test(clean)) {
     throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).');
   }
+  if (BARE_SUBTITLE_LABEL.test(clean)) {
+    throw new Error(
+      'Bản sạch còn nhãn “Subtitle” — chỉ giữ phụ đề in nghiêng dưới # Title, không viết chữ Subtitle.',
+    );
+  }
+  if (/\uFFFD|�/.test(clean)) {
+    throw new Error("Bản sạch còn ký tự encoding lỗi (�) — chạy lại Polish.");
+  }
   if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/m.test(clean)) {
     throw new Error("Bản sạch còn dòng gạch ngang (---) giữa nội dung — bỏ thematic break, nối đoạn.");
+  }
+  if (HANDBOOK_VOICE.test(clean)) {
+    throw new Error(
+      "Bản sạch còn giọng handbook (“Cần áp dụng các biện pháp sau” / khuyến nghị checklist) — viết lại thành đoạn có tình huống.",
+    );
+  }
+  if (countPercentClaims(clean) >= 6) {
+    throw new Error(
+      "Bản sạch có quá nhiều ngưỡng % cụ thể (≥6) — dễ bịa; giữ ≤5 số có trong Research hoặc viết định tính.",
+    );
+  }
+  if (!CONCRETE_SCENE.test(clean)) {
+    throw new Error(
+      "Bản sạch thiếu tình huống cụ thể (pipeline/stage/retry/snapshot…) — thêm ≥1 mini-case trước khi Publish Ready.",
+    );
   }
   if (!READER_HONESTY_RE.test(clean)) {
     throw new Error(
@@ -265,6 +298,34 @@ export function editorialSelfCheck(input: {
     issues.push({
       code: "BARE_ALT",
       message: "Còn dòng “alt” sót từ placeholder hero.",
+    });
+  }
+
+  if (clean.trim() && BARE_SUBTITLE_LABEL.test(clean)) {
+    issues.push({
+      code: "SUBTITLE_LABEL",
+      message: "Bản sạch còn nhãn Subtitle — chỉ giữ phụ đề in nghiêng.",
+    });
+  }
+
+  if (clean.trim() && HANDBOOK_VOICE.test(clean)) {
+    issues.push({
+      code: "HANDBOOK",
+      message: "Giọng handbook/checklist khuyến nghị — viết lại thành đoạn có tình huống.",
+    });
+  }
+
+  if (clean.trim() && countPercentClaims(clean) >= 6) {
+    issues.push({
+      code: "STAT_SPAM",
+      message: "Quá nhiều ngưỡng % cụ thể — dễ bịa; bớt số hoặc khớp Research.",
+    });
+  }
+
+  if (clean.trim() && !CONCRETE_SCENE.test(clean)) {
+    issues.push({
+      code: "NO_SCENE",
+      message: "Thiếu mini-case / tình huống kỹ thuật cụ thể trên bản sạch.",
     });
   }
 

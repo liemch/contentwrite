@@ -1101,7 +1101,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
     // Bản sạch fail → chỉ xóa cleanPublish, giữ nháp 12 phần + FINALIZE
     const isCleanPublishFail =
-      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid|gạch ngang/i.test(raw) &&
+      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid|gạch ngang|Subtitle|handbook|ngưỡng %|tình huống cụ thể|encoding/i.test(raw) &&
       !isListicleRewrite;
 
     await prisma.article.update({

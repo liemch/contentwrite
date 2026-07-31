@@ -178,7 +178,18 @@ const NARRATIVE_FLOW_RULES = `### Nhịp đọc (bắt buộc — bản đăng p
 - Hook mở đầu phải nối mượt vào Introduction/Context (không dựng xong rồi nhảy sang bullet tóm tắt)
 - Đoạn chuyển: cuối mỗi phần có câu cầu nối sang phần sau ("điểm mù…", "vì vậy…", "trade-off thật…")
 - Giọng engineering: cụ thể (cơ chế, ràng buộc, failure mode) — không giọng slide consulting / % bịa
-- Nhịp câu: xen câu ngắn chốt sau vài câu dài; tránh mọi đoạn đều 3 câu khuôn mẫu`;
+- Nhịp câu: xen câu ngắn chốt sau vài câu dài; tránh mọi đoạn đều 3 câu khuôn mẫu
+- CẤM giọng handbook: "Cần áp dụng các biện pháp sau" + bullet dài; viết thành đoạn có tình huống
+- ≥1 tình huống cụ thể (pipeline/stage/incident hoặc failure mode có thời gian/hậu quả) — không chỉ nguyên tắc trừu tượng
+- Số % / ngưỡng / năm chỉ giữ nếu có trong Research/Fact CONTEXT; không có → viết định tính ("thường", "khi retry dày", "khi overhead governance lấn") thay vì bịa 50%/15%/2025`;
+
+/** Quy tắc polish “đáng đọc” — bổ sung NARRATIVE */
+const READER_POLISH_RULES = `### Polish đáng đọc (bắt buộc)
+- Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title
+- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện
+- Nếu ≥4 con số % cụ thể mà CONTEXT Research không có → bớt số, giữ luận điểm điều kiện
+- Thêm/giữ một mini-case (trước/sau: mất giờ → mất phút, hoặc tương đương) gần phần đầu hoặc giữa bài
+- Sửa ký tự lỗi encoding (�) nếu còn`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -331,11 +342,11 @@ Xuất theo thứ tự:
 ${prefs}
 ### BẢN SẠCH = BÀI ĐỌC LIỀN
 - CẤM heading biên tập: Introduction, Context, Problem Statement, Deep Analysis, Real-world Examples, Practical Recommendations, Executive Summary, Key Takeaways, Metadata
-- Cấu trúc: \`# Title\` → Subtitle → \`![mô tả ngắn](HERO_IMAGE)\` → đoạn mở (hook + luận điểm sớm) → thân bài liền mạch → kết ngắn → (tuỳ) câu hỏi thảo luận → References
+- Cấu trúc: \`# Title\` → một dòng *phụ đề in nghiêng* (KHÔNG viết chữ Subtitle) → \`![mô tả ngắn](HERO_IMAGE)\` → đoạn mở (hook + luận điểm sớm + ≥1 tình huống cụ thể) → thân bài liền mạch → kết ngắn → (tuỳ) câu hỏi thảo luận → References
 - \`##\` chỉ dùng tiêu đề ĐỌC ĐƯỢC (vd. “Ba rủi ro cần nhìn thẳng”) — không dùng tên section Article.md
 - Một luận điểm xuyên suốt; không meta “Insight L2”; không Knowledge Record trong body
-- Title/Subtitle tiếng Việt, KHÔNG (L2); CẤM dòng "alt" trần
-- References chỉ URL từ Research; độ dài theo WRITING PREFS
+- Title tiếng Việt, KHÔNG (L2); CẤM dòng "Subtitle" / "alt" trần
+- Số % chỉ khi có trong Research/Fact; References chỉ URL từ Research; độ dài theo WRITING PREFS
 3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — tạm thời, sẽ được viết lại từ bản polish:
    - Concept · **Prompt (English):** "...." · Caption + Alt
    - Prompt phải mirror **luận điểm / metaphor của bài** (không generic “servers / circuit board / glowing code” nếu bài không nói hạ tầng đó)
@@ -355,15 +366,18 @@ Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Khô
 
 Sửa bắt buộc:
 - Gỡ sót: dòng "alt" trần, placeholder HERO_IMAGE lẻ, heading biên tập (Introduction/Context/Deep Analysis…), meta Insight L2
+- **Xóa nhãn** \`Subtitle\` / \`Subtitle:\` / \`Title:\` — chỉ giữ nội dung phụ đề (in nghiêng) và \`# Title\`
 - **Xóa mọi dòng chỉ có \`---\` / \`***\` / \`___\`** giữa nội dung (không dùng thematic break)
 - Nối mạch: câu cầu giữa các ##; gộp chỗ lặp "khi nào không nên"; bỏ listicle đánh số Hook/Framework
 - References: chỉ giữ URL có trong CONTEXT; bỏ link rỗng / bịa
-- Giữ \`![mô tả](HERO_IMAGE)\` ngay sau Subtitle (nếu đã có)
+- Giữ \`![mô tả](HERO_IMAGE)\` ngay sau phụ đề in nghiêng (nếu đã có)
 - Độ dài / tránh format theo WRITING PREFS (nếu có)
 - Nếu CONTEXT có phản hồi Reader Simulation — ưu tiên sửa đúng các điểm đó (hook / lặp / ví dụ / insight)
 
 ${prefs}
-${NARRATIVE_FLOW_RULES}`,
+${NARRATIVE_FLOW_RULES}
+
+${READER_POLISH_RULES}`,
 
     "finalize-hero": `## Nhiệm vụ: HERO IMAGE BRIEF từ bản sạch đã chốt
 Đọc Title + đoạn mở + luận điểm trong CONTEXT. Xuất ĐÚNG khối:
