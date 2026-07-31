@@ -10,9 +10,12 @@ import {
   AVOID_FORMAT_FLAGS,
   type AvoidFormatFlag,
   DEFAULT_TARGET_WORD_COUNT,
+  MAX_TARGET_WORD_COUNT,
+  MIN_TARGET_WORD_COUNT,
   parseAvoidFormats,
   serializeAvoidFormats,
 } from "@/lib/tfes/writing-prefs";
+import { domainSelectOptions } from "@/lib/tfes/domains";
 
 const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
   table: "Table (bảng markdown)",
@@ -24,7 +27,7 @@ export default function NewArticlePage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [domain, setDomain] = useState("engineering");
-  const [targetWordCount, setTargetWordCount] = useState(DEFAULT_TARGET_WORD_COUNT);
+  const [targetWordCount, setTargetWordCount] = useState<number>(DEFAULT_TARGET_WORD_COUNT);
   const [avoidFlags, setAvoidFlags] = useState<AvoidFormatFlag[]>(["table"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -122,8 +125,11 @@ export default function NewArticlePage() {
           <div>
             <Label htmlFor="domain">Domain profile</Label>
             <Select id="domain" value={domain} onChange={(e) => setDomain(e.target.value)}>
-              <option value="engineering">engineering — kỹ thuật</option>
-              <option value="soft-skills">soft-skills — kỹ năng mềm</option>
+              {domainSelectOptions().map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </Select>
             <FieldHint>Quyết định tông giọng, tier nguồn và nhóm chủ đề.</FieldHint>
           </div>
@@ -137,7 +143,8 @@ export default function NewArticlePage() {
               placeholder="VD: MCP là gì và vì sao thành chuẩn kết nối agent"
             />
             <FieldHint>
-              Để trống → hệ thống tự chọn 1 dòng từ seed_topics (engineering/soft-skills), tránh trùng bài đã có.
+              Để trống → hệ thống tự chọn 1 dòng từ seed_topics theo domain (Domain Profile +
+              Settings), tránh trùng bài đã có.
             </FieldHint>
           </div>
 
@@ -148,13 +155,21 @@ export default function NewArticlePage() {
               <Input
                 id="words"
                 type="number"
-                min={400}
-                max={4000}
+                min={MIN_TARGET_WORD_COUNT}
+                max={MAX_TARGET_WORD_COUNT}
                 step={50}
                 value={targetWordCount}
-                onChange={(e) => setTargetWordCount(Number(e.target.value) || DEFAULT_TARGET_WORD_COUNT)}
+                onChange={(e) => {
+                  const n = Number(e.target.value) || DEFAULT_TARGET_WORD_COUNT;
+                  setTargetWordCount(
+                    Math.max(MIN_TARGET_WORD_COUNT, Math.min(MAX_TARGET_WORD_COUNT, n)),
+                  );
+                }}
               />
-              <FieldHint>Bản đăng đọc liền nhắm khoảng số từ này (±15%). Prefill từ Settings.</FieldHint>
+              <FieldHint>
+                Bản đăng đọc liền nhắm khoảng số từ này (tối đa {MAX_TARGET_WORD_COUNT}). Prefill từ
+                Settings.
+              </FieldHint>
             </div>
             <div>
               <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format</p>

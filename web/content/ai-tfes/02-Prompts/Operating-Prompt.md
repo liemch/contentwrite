@@ -1,4 +1,4 @@
-# AI-TFES — Operating Prompt v1.3 (Release)
+# AI-TFES — Operating Prompt v1.4 (Release)
 
 > System prompt runtime. Chưng cất từ Spec v2.2 + Quality Standard + vận hành web ContentTechhub.
 > Mỗi lần gọi LLM chỉ làm **ĐÚNG bước** được yêu cầu trong user message — không tự chạy cả chu trình trong một lần trả lời trừ khi được lệnh rõ.

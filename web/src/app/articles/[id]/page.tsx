@@ -223,7 +223,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
       const softQuality =
-        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|Reader Sim|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
+        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|Reader Sim|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table|Table|ngưỡng %|Mermaid|handbook/i.test(
           msg,
         );
       if (
@@ -232,12 +232,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         (refreshed.status === "DRAFT" || refreshed.status === "RUNNING") &&
         (isTimeoutLike(msg, res.status) || softQuality)
       ) {
-        const isCleanOnly = /Bản sạch|heading biên tập|điều kiện\/phản biện/i.test(msg);
+        const isCleanOnly =
+          /Bản sạch|heading biên tập|điều kiện\/phản biện|ngưỡng %|handbook|tình huống cụ thể/i.test(
+            msg,
+          );
         const isListicle = /listicle|outline listicle/i.test(msg);
         pushLog(
           "warn",
           isCleanOnly
-            ? "⚠ Bản sạch chưa đạt — chỉ chạy lại Publish Ready (giữ nháp)..."
+            ? "⚠ Bản sạch chưa đạt — giữ bản lỗi, lần sau sửa (polish/repair), không viết lại từ nháp..."
             : isListicle
               ? "⚠ Listicle — viết lại từ bước Viết..."
               : isTimeoutLike(msg, res.status)

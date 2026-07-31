@@ -7,6 +7,7 @@ import {
   READER_HONESTY_RE,
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
+import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
 export function countWords(text: string | null | undefined): number {
   const t = (text ?? "").trim();
@@ -43,6 +44,85 @@ function countPercentClaims(text: string): number {
   const matches = text.match(/\d{1,3}\s*%/g) ?? [];
   return new Set(matches.map((m) => m.replace(/\s+/g, ""))).size;
 }
+
+/** Giữ tối đa `maxKeep` ngưỡng % khác nhau; phần thừa → wording định tính (thoát soft-retry vòng). */
+export function softenExcessPercentClaims(text: string, maxKeep = 5): string {
+  if (countPercentClaims(text) <= maxKeep) return text;
+  const seen = new Set<string>();
+  const soft = ["thường", "phần lớn trường hợp", "không ít", "một tỷ lệ đáng kể", "khá phổ biến"];
+  let softIdx = 0;
+  return text.replace(/\d{1,3}\s*%/g, (m) => {
+    const key = m.replace(/\s+/g, "");
+    if (!seen.has(key) && seen.size < maxKeep) {
+      seen.add(key);
+      return m;
+    }
+    const word = soft[softIdx % soft.length];
+    softIdx += 1;
+    return word;
+  });
+}
+
+/** Đổi markdown table → bullet (thoát soft-retry khi prefs cấm table). */
+export function stripMarkdownTablesToBullets(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    const next = lines[i + 1] ?? "";
+    const isTableStart =
+      /^\s*\|.+\|\s*$/.test(line) &&
+      (/^\s*\|?\s*:?-{3,}/.test(next) || /^\s*\|?\s*[-:| ]+\s*$/.test(next));
+    if (!isTableStart) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+
+    const tableRows: string[] = [];
+    while (i < lines.length && /^\s*\|/.test(lines[i] ?? "")) {
+      tableRows.push(lines[i] ?? "");
+      i += 1;
+    }
+    for (const row of tableRows) {
+      if (/^\s*\|?\s*[-:\s|]+\s*$/.test(row)) continue;
+      const cells = row
+        .split("|")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      if (cells.length === 0) continue;
+      out.push(`- ${cells.join(" — ")}`);
+    }
+    out.push("");
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Sửa máy các lỗi hay soft-retry vòng (table / % / --- / mermaid / Subtitle). */
+export function applyDeterministicCleanFixes(
+  text: string,
+  prefs?: WritingPrefs | null,
+): string {
+  let t = text;
+  t = softenExcessPercentClaims(t, 5);
+  if (!prefs || hasAvoid(prefs, "table") || hasMarkdownTable(t)) {
+    // Prefs cấm table, hoặc vẫn còn table → luôn strip để thoát loop
+    if (!prefs || hasAvoid(prefs, "table")) {
+      t = stripMarkdownTablesToBullets(t);
+    }
+  }
+  if (prefs && hasAvoid(prefs, "mermaid")) {
+    t = t.replace(/```\s*mermaid[\s\S]*?```/gi, "");
+  }
+  t = t.replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, "");
+  t = t.replace(/^\*{0,2}Subtitle\*{0,2}\s*:?\s*$/gim, "");
+  t = t.replace(/^\s*alt\s*$/gim, "");
+  t = t.replace(/\uFFFD/g, "").replace(/�+/g, "");
+  return t.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export { countPercentClaims };
 
 export type QualityIssue = { code: string; message: string };
 
@@ -126,18 +206,22 @@ export function cleanWordBounds(prefs?: WritingPrefs | null): {
   aimWords: number;
   maxWords: number;
 } {
-  const target = prefs?.targetWordCount ?? 1200;
-  const minWords = Math.max(450, Math.round(target * 0.7));
-  const aimWords = Math.max(minWords, Math.round(target * 0.85));
-  const maxWords = Math.round(target * 1.6) + 300;
+  const { words } = PIPELINE_CONFIG;
+  const target = prefs?.targetWordCount ?? words.defaultTarget;
+  const minWords = Math.max(450, Math.round(target * words.cleanMinRatio));
+  const aimWords = Math.max(minWords, Math.round(target * words.cleanAimRatio));
+  const maxWords = Math.round(target * words.cleanMaxRatio) + words.cleanMaxBuffer;
   return { target, minWords, aimWords, maxWords };
 }
 
 /** max_tokens completion cho Publish/Polish/Expand — tỷ lệ theo target (reasoning model ăn budget). */
 export function cleanGenMaxTokens(targetWordCount?: number | null): number {
-  const target = targetWordCount && targetWordCount > 0 ? targetWordCount : 1200;
-  // ~5 token/từ VI + đệm reasoning/markdown; trần API mặc định 16384
-  return Math.min(16_384, Math.max(8_000, Math.round(target * 5) + 2_000));
+  const { words, llm } = PIPELINE_CONFIG;
+  const target = targetWordCount && targetWordCount > 0 ? targetWordCount : words.defaultTarget;
+  return Math.min(
+    llm.cleanMaxTokensCap,
+    Math.max(llm.cleanMaxTokensFloor, Math.round(target * llm.cleanTokensPerWord) + llm.cleanTokensExtra),
+  );
 }
 
 /** Bản sạch Publish Ready — bài đọc liền trước khi PUBLISH_READY */

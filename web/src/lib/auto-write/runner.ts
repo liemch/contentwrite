@@ -6,9 +6,22 @@ import {
   parseCustomTopics,
   parseSeedTopics,
   type AutoWriteSettings,
+  type DomainId,
+  type DomainMode,
 } from "@/lib/auto-write/schedule";
 import { isTopicUsed } from "@/lib/auto-write/topic-dedupe";
 import { runWorkflowStep } from "@/lib/tfes/workflow";
+import {
+  nextRotatedDomain,
+  resolveDomainId,
+  resolveDomainMode,
+} from "@/lib/tfes/domains";
+import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
+import {
+  DEFAULT_TARGET_WORD_COUNT,
+  MAX_TARGET_WORD_COUNT,
+  MIN_TARGET_WORD_COUNT,
+} from "@/lib/tfes/writing-prefs";
 
 const CONFIG_ID = "default";
 
@@ -36,8 +49,7 @@ export function serializeConfig(row: Awaited<ReturnType<typeof getAutoWriteConfi
     intervalHours: row.intervalHours,
     preferredHour: row.preferredHour,
     timezone: row.timezone,
-    domain:
-      row.domain === "soft-skills" || row.domain === "rotate" ? row.domain : "engineering",
+    domain: resolveDomainMode(row.domain),
     useSeedTopics: row.useSeedTopics,
     customTopics: row.customTopics ?? "",
     seedTopicsEngineering: row.seedTopicsEngineering ?? "",
@@ -60,7 +72,7 @@ export type UpdateAutoWriteInput = Partial<{
   intervalHours: number;
   preferredHour: number;
   timezone: string;
-  domain: "engineering" | "soft-skills" | "rotate";
+  domain: DomainMode;
   useSeedTopics: boolean;
   customTopics: string;
   seedTopicsEngineering: string;
@@ -95,7 +107,7 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
       intervalHours,
       preferredHour,
       timezone,
-      domain: input.domain ?? current.domain,
+      domain: input.domain ? resolveDomainMode(input.domain) : current.domain,
       useSeedTopics: input.useSeedTopics ?? current.useSeedTopics,
       customTopics: input.customTopics !== undefined ? input.customTopics : current.customTopics,
       seedTopicsEngineering:
@@ -108,8 +120,11 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
           : current.seedTopicsSoftSkills,
       maxPendingReview: Math.max(1, Math.min(20, input.maxPendingReview ?? current.maxPendingReview)),
       defaultTargetWordCount: Math.max(
-        400,
-        Math.min(4000, input.defaultTargetWordCount ?? current.defaultTargetWordCount ?? 1200),
+        MIN_TARGET_WORD_COUNT,
+        Math.min(
+          MAX_TARGET_WORD_COUNT,
+          input.defaultTargetWordCount ?? current.defaultTargetWordCount ?? DEFAULT_TARGET_WORD_COUNT,
+        ),
       ),
       defaultAvoidFormats:
         input.defaultAvoidFormats !== undefined
@@ -126,13 +141,13 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
 async function pickDomain(
   mode: string,
   lastDomain: string | null,
-): Promise<"engineering" | "soft-skills"> {
-  if (mode === "soft-skills") return "soft-skills";
-  if (mode === "engineering") return "engineering";
-  return lastDomain === "engineering" ? "soft-skills" : "engineering";
+): Promise<DomainId> {
+  const resolved = resolveDomainMode(mode);
+  if (resolved === "rotate") return nextRotatedDomain(lastDomain);
+  return resolved;
 }
 
-async function collectUsedTopics(domain: "engineering" | "soft-skills"): Promise<string[]> {
+async function collectUsedTopics(domain: DomainId): Promise<string[]> {
   const [articles, knowledge] = await Promise.all([
     prisma.article.findMany({
       where: { domain },
@@ -166,7 +181,7 @@ async function collectUsedTopics(domain: "engineering" | "soft-skills"): Promise
  * Hết chủ đề mới → throw (auto bỏ qua lần chạy, không quay vòng trùng).
  */
 export async function pickFreshTopic(
-  domain: "engineering" | "soft-skills",
+  domain: DomainId | string,
   options: {
     useSeedTopics?: boolean;
     customTopics?: string | null;
@@ -174,7 +189,7 @@ export async function pickFreshTopic(
     seedTopicsSoftSkills?: string | null;
   } = {},
 ): Promise<string> {
-  return pickTopic(domain, {
+  return pickTopic(resolveDomainId(domain), {
     useSeed: options.useSeedTopics !== false,
     customTopics: options.customTopics ?? null,
     seedTopicsEngineering: options.seedTopicsEngineering ?? null,
@@ -183,7 +198,7 @@ export async function pickFreshTopic(
 }
 
 async function pickTopic(
-  domain: "engineering" | "soft-skills",
+  domain: DomainId,
   options: {
     useSeed: boolean;
     customTopics: string | null;
@@ -194,7 +209,9 @@ async function pickTopic(
   const settingsSeeds =
     domain === "soft-skills"
       ? parseCustomTopics(options.seedTopicsSoftSkills)
-      : parseCustomTopics(options.seedTopicsEngineering);
+      : domain === "engineering"
+        ? parseCustomTopics(options.seedTopicsEngineering)
+        : [];
 
   const pool = [
     ...(options.useSeed ? parseSeedTopics(domain) : []),
@@ -216,7 +233,7 @@ async function pickTopic(
 
   if (fresh.length === 0) {
     throw new Error(
-      `Hết chủ đề mới cho domain “${domain}” (đã tránh trùng ${used.length} topic/title). Thêm seed trong Cài đặt.`,
+      `Hết chủ đề mới cho domain “${domain}” (đã tránh trùng ${used.length} topic/title). Thêm seed trong Cài đặt / Domain Profile.`,
     );
   }
 
@@ -253,6 +270,7 @@ export type AutoWriteRunResult = {
  * - force=true: bỏ qua nextRunAt (nút Chạy ngay nên loop phía client)
  */
 export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<AutoWriteRunResult> {
+  await hydrateTfesOverrides();
   const config = await getAutoWriteConfig();
   const force = options.force === true;
 
@@ -324,7 +342,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
   });
 
   let topic = article?.topic ?? "";
-  let domain = (article?.domain as "engineering" | "soft-skills") || "engineering";
+  let domain = resolveDomainId(article?.domain);
 
   if (!article) {
     domain = await pickDomain(config.domain, config.lastDomain);
@@ -364,7 +382,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     });
   } else {
     topic = article.topic || topic;
-    domain = (article.domain as "engineering" | "soft-skills") || domain;
+    domain = resolveDomainId(article.domain);
   }
 
   try {

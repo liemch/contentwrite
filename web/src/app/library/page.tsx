@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
 import { prisma } from "@/lib/db";
+import { DOMAIN_META, isDomainId } from "@/lib/tfes/domains";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function LibraryPage({
 }) {
   noStore();
   const { domain } = await searchParams;
-  const selected = domain === "soft-skills" ? "soft-skills" : domain === "engineering" ? "engineering" : "all";
+  const selected = isDomainId(domain) ? domain : "all";
 
   const articles = await prisma.article.findMany({
     where: {
@@ -37,17 +38,18 @@ export default async function LibraryPage({
   const featured = articles[0];
   const rest = articles.slice(1);
 
+  const filters: Array<{ key: string; label: string }> = [
+    { key: "all", label: "Tất cả" },
+    ...Object.values(DOMAIN_META).map((d) => ({ key: d.id, label: d.short })),
+  ];
+
   return (
     <AppShell
       title="Thư viện nội bộ"
       subtitle="Các bài đã duyệt / publish — đọc lại, chia sẻ nội bộ, đối chiếu Knowledge Base."
     >
       <div className="mb-8 flex flex-wrap gap-2">
-        {[
-          { key: "all", label: "Tất cả" },
-          { key: "engineering", label: "Engineering" },
-          { key: "soft-skills", label: "Soft skills" },
-        ].map((item) => (
+        {filters.map((item) => (
           <Link
             key={item.key}
             href={item.key === "all" ? "/library" : `/library?domain=${item.key}`}

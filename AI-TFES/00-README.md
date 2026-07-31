@@ -45,7 +45,10 @@ AI-TFES/
 │   └── Topic-Backlog.xlsx
 ├── 04-Domain-Profiles/
 │   ├── engineering.md
-│   └── soft-skills.md
+│   ├── soft-skills.md
+│   ├── product.md
+│   ├── ai-ml.md
+│   └── security.md
 └── 05-Templates/
     ├── Research-Brief.md
     ├── Article.md

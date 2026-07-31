@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorResponse, requireAdmin } from "@/lib/auth";
-import { suggestTrendSeedTopics, type SeedDomain } from "@/lib/auto-write/suggest-seeds";
+import { resolveDomainId } from "@/lib/tfes/domains";
+import { suggestTrendSeedTopics } from "@/lib/auto-write/suggest-seeds";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,8 +11,7 @@ export async function POST(request: NextRequest) {
       existingSeeds?: string;
     };
 
-    const domain: SeedDomain =
-      body.domain === "soft-skills" ? "soft-skills" : "engineering";
+    const domain = resolveDomainId(body.domain);
 
     const result = await suggestTrendSeedTopics({
       domain,

@@ -2,21 +2,13 @@ import { chatCompletion } from "@/lib/nvidia";
 import { formatSearchResults, webSearch } from "@/lib/search";
 import { getSystemPromptLite } from "@/lib/tfes/prompts";
 import { parseCustomTopics } from "@/lib/auto-write/schedule";
+import {
+  DOMAIN_META,
+  resolveDomainId,
+  type DomainId,
+} from "@/lib/tfes/domains";
 
-export type SeedDomain = "engineering" | "soft-skills";
-
-const TREND_QUERIES: Record<SeedDomain, string[]> = {
-  engineering: [
-    "software engineering architecture trends last 3 months 2026",
-    "developer tools platform DevOps AI coding agents trends 2026",
-    "cloud reliability observability API security trade-offs 2026",
-  ],
-  "soft-skills": [
-    "engineering leadership soft skills workplace trends last 3 months 2026",
-    "remote team feedback decision making career growth trends 2026",
-    "manager communication conflict collaboration trends tech teams 2026",
-  ],
-};
+export type SeedDomain = DomainId;
 
 function parseSeedLines(raw: string): string[] {
   return raw
@@ -46,10 +38,12 @@ function dedupeLines(lines: string[]): string[] {
 
 /** Tavily (3 tháng) → NVIDIA format 20–30 seed topics */
 export async function suggestTrendSeedTopics(input: {
-  domain: SeedDomain;
+  domain: SeedDomain | string;
   existingSeeds?: string;
 }): Promise<{ topics: string[]; searchHits: number; llmMs: number }> {
-  const queries = TREND_QUERIES[input.domain];
+  const domain = resolveDomainId(input.domain);
+  const meta = DOMAIN_META[domain];
+  const queries = meta.trendQueries;
   const batches = await Promise.all(
     queries.map((q) =>
       webSearch(q, { depth: "basic", maxResults: 6, days: 90 }).catch(() => []),
@@ -74,23 +68,18 @@ export async function suggestTrendSeedTopics(input: {
       ? `\n### Seed đang có (TRÁNH trùng gần đúng)\n${existing.map((t) => `- ${t}`).join("\n")}\n`
       : "";
 
-  const domainLabel =
-    input.domain === "soft-skills"
-      ? "soft-skills (leadership, feedback, collaboration, career)"
-      : "engineering (architecture, platform, reliability, AI tooling, API)";
-
   const llmStarted = Date.now();
   const raw = await chatCompletion(
     [
       {
         role: "system",
-        content: getSystemPromptLite(input.domain),
+        content: getSystemPromptLite(domain),
       },
       {
         role: "user",
         content: `## Nhiệm vụ: gợi ý SEED TOPICS đang trend (~3 tháng gần đây)
 
-Domain: **${domainLabel}**
+Domain: **${meta.seedLabel}**
 
 Từ WEB SEARCH RESULTS (nguồn thật), rút **20–30** chủ đề bài viết editorial (AI-TFES) — góc học tập/thực tiễn cho đội ngũ, KHÔNG clickbait SEO.
 
@@ -98,21 +87,19 @@ Yêu cầu format:
 - Chỉ xuất danh sách, mỗi dòng 1 chủ đề
 - 1 dòng = 1 góc viết được (cụ thể hơn tiêu đề tin tức chung)
 - Ưu tiên tiếng Việt; thuật ngữ kỹ thuật giữ tiếng Anh khi cần
-- Độ dài mỗi dòng ~8–80 ký tự
-- Không đánh số, không bullet markdown bắt buộc, không giải thích, không URL
+- Có trade-off / “khi nào không” tiềm ẩn trong góc chủ đề
 ${avoidBlock}
-=== WEB SEARCH RESULTS ===
-${formatSearchResults(results)}`,
+### WEB SEARCH RESULTS
+${formatSearchResults(results)}
+`,
       },
     ],
     { maxTokens: 1200, temperature: 0.4, reasoningEffort: "low" },
   );
 
   const topics = dedupeLines(parseSeedLines(raw)).slice(0, 30);
-  if (topics.length < 12) {
-    throw new Error(
-      `AI chỉ trả ${topics.length} seed (cần ≥12). Thử lại hoặc kiểm tra NVIDIA.`,
-    );
+  if (topics.length < 8) {
+    throw new Error("LLM trả quá ít seed hợp lệ — thử lại.");
   }
 
   return {

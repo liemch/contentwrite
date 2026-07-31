@@ -107,7 +107,7 @@ model AutoWriteConfig {
   intervalHours    Int       @default(24)
   preferredHour    Int       @default(9)
   timezone         String    @default("Asia/Ho_Chi_Minh")
-  /// engineering | soft-skills | rotate
+  /// engineering | soft-skills | product | ai-ml | security | rotate
   domain           String    @default("engineering")
   useSeedTopics    Boolean   @default(true)
   customTopics     String?   @db.Text
@@ -129,4 +129,15 @@ model AutoWriteConfig {
   lastDomain       String?
   updatedAt        DateTime  @updatedAt
   createdAt        DateTime  @default(now())
+}
+
+/// Override nội dung file AI-TFES (.md) — runtime ưu tiên DB hơn content/ai-tfes trên disk
+model TfesDocument {
+  id        String   @id @default(cuid())
+  /// Đường dẫn tương đối, vd. 04-Domain-Profiles/engineering.md
+  path      String   @unique
+  content   String   @db.Text
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

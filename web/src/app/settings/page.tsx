@@ -4,15 +4,20 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { UsersAdminPanel } from "@/components/users-admin-panel";
+import { TfesDocsEditor } from "@/components/tfes-docs-editor";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
 import {
   AVOID_FORMAT_FLAGS,
   type AvoidFormatFlag,
+  MAX_TARGET_WORD_COUNT,
+  MIN_TARGET_WORD_COUNT,
   parseAvoidFormats,
   serializeAvoidFormats,
 } from "@/lib/tfes/writing-prefs";
+import { DOMAIN_IDS, domainSelectOptions, type DomainId } from "@/lib/tfes/domains";
+import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
 const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
   table: "Table (bảng markdown)",
@@ -46,9 +51,9 @@ export default function SettingsPage() {
     nvidia?: { ok: boolean; detail: string; ms?: number; pending?: boolean };
   } | null>(null);
 
-  const [suggesting, setSuggesting] = useState<"engineering" | "soft-skills" | null>(null);
+  const [suggesting, setSuggesting] = useState<DomainId | null>(null);
   const [seedPreview, setSeedPreview] = useState<{
-    domain: "engineering" | "soft-skills";
+    domain: DomainId;
     topics: string[];
     searchHits: number;
   } | null>(null);
@@ -210,7 +215,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function suggestSeeds(domain: "engineering" | "soft-skills") {
+  async function suggestSeeds(domain: DomainId) {
     if (!config) return;
     setSuggesting(domain);
     setError("");
@@ -258,12 +263,19 @@ export default function SettingsPage() {
           ? blob
           : [config.seedTopicsEngineering.trim(), blob].filter(Boolean).join("\n");
       setConfig({ ...config, seedTopicsEngineering: next });
-    } else {
+    } else if (seedPreview.domain === "soft-skills") {
       const next =
         mode === "replace"
           ? blob
           : [config.seedTopicsSoftSkills.trim(), blob].filter(Boolean).join("\n");
       setConfig({ ...config, seedTopicsSoftSkills: next });
+    } else {
+      // product / ai-ml / security — ghi vào Custom topics (chưa có cột seed riêng)
+      const next =
+        mode === "replace"
+          ? blob
+          : [config.customTopics.trim(), blob].filter(Boolean).join("\n");
+      setConfig({ ...config, customTopics: next });
     }
     setSeedPreview(null);
     setMessage(
@@ -325,8 +337,8 @@ export default function SettingsPage() {
     let lastError: string | undefined;
 
     try {
-      for (let i = 0; i < 10; i++) {
-        setMessage(`Đang chạy bước ${i + 1}/10…`);
+      for (let i = 0; i < PIPELINE_CONFIG.retries.autoWriteRunNowMaxSteps; i++) {
+        setMessage(`Đang chạy bước ${i + 1}/${PIPELINE_CONFIG.retries.autoWriteRunNowMaxSteps}…`);
         let res: Response;
         try {
           res = await fetch("/api/auto-write/run", { method: "POST" });
@@ -378,7 +390,7 @@ export default function SettingsPage() {
           );
           break;
         }
-        if (i === 9) {
+        if (i === PIPELINE_CONFIG.retries.autoWriteRunNowMaxSteps - 1) {
           setMessage(
             `Chưa xong (${lastStatus}). Bấm Chạy ngay lại hoặc mở /articles/${articleId ?? ""}`,
           );
@@ -393,12 +405,16 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Cài đặt"
-      subtitle="Users, hạn mức bài/ngày, auto-write và kiểm tra API."
+      subtitle="Users, tài liệu AI-TFES (.md), auto-write và kiểm tra API."
       backHref="/dashboard"
       backLabel="Biên tập"
     >
       <div className="mb-6">
         <UsersAdminPanel />
+      </div>
+
+      <div className="mb-6">
+        <TfesDocsEditor />
       </div>
 
       {loading || !config ? (
@@ -515,9 +531,12 @@ export default function SettingsPage() {
                   })
                 }
               >
-                <option value="engineering">engineering</option>
-                <option value="soft-skills">soft-skills</option>
-                <option value="rotate">Xoay vòng hai domain</option>
+                <option value="rotate">Xoay vòng tất cả domain</option>
+                {domainSelectOptions().map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </Select>
             </div>
 
@@ -551,17 +570,22 @@ export default function SettingsPage() {
                 <Input
                   id="defaultTargetWordCount"
                   type="number"
-                  min={400}
-                  max={4000}
+                  min={MIN_TARGET_WORD_COUNT}
+                  max={MAX_TARGET_WORD_COUNT}
                   step={50}
                   value={config.defaultTargetWordCount ?? 1200}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const n = Number(e.target.value) || 1200;
                     setConfig({
                       ...config,
-                      defaultTargetWordCount: Number(e.target.value) || 1200,
-                    })
-                  }
+                      defaultTargetWordCount: Math.max(
+                        MIN_TARGET_WORD_COUNT,
+                        Math.min(MAX_TARGET_WORD_COUNT, n),
+                      ),
+                    });
+                  }}
                 />
+                <FieldHint>Tối đa {MAX_TARGET_WORD_COUNT} từ (đếm khoảng trắng).</FieldHint>
               </div>
               <div>
                 <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format (mặc định)</p>
@@ -609,8 +633,9 @@ export default function SettingsPage() {
                   Ghép seed từ Domain Profile (file AI-TFES)
                 </label>
                 <FieldHint>
-                  Bật = lấy seed trong engineering.md / soft-skills.md + seed bên dưới. Tắt = chỉ dùng
-                  seed Cài đặt.
+                  Bật = lấy seed trong Domain Profile ({DOMAIN_IDS.join(", ")}) + seed Cài đặt bên
+                  dưới (engineering / soft-skills). product / ai-ml / security: seed trong file
+                  profile + Custom topics. Tắt = chỉ seed Cài đặt + custom.
                 </FieldHint>
               </div>
             </div>
@@ -720,7 +745,7 @@ export default function SettingsPage() {
                 rows={4}
                 value={config.customTopics}
                 onChange={(e) => setConfig({ ...config, customTopics: e.target.value })}
-                placeholder={"Chủ đề dùng được cho cả engineering lẫn soft-skills\n..."}
+                placeholder={"Chủ đề dùng chung mọi domain (kể cả product / ai-ml / security)\n..."}
               />
               <FieldHint>Ghép thêm vào pool bất kể domain đang chạy (rotate cũng dùng).</FieldHint>
             </div>

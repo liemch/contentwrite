@@ -1,4 +1,11 @@
 import { readTfesFile } from "@/lib/tfes/prompts";
+import {
+  domainProfilePath,
+  resolveDomainId,
+  resolveDomainMode,
+  type DomainId,
+  type DomainMode,
+} from "@/lib/tfes/domains";
 
 export type AutoWriteSettings = {
   enabled: boolean;
@@ -6,7 +13,7 @@ export type AutoWriteSettings = {
   intervalHours: number;
   preferredHour: number;
   timezone: string;
-  domain: "engineering" | "soft-skills" | "rotate";
+  domain: DomainMode;
   useSeedTopics: boolean;
   customTopics: string;
   /** Seed vận hành theo miền — ưu tiên/ghép với Domain Profile */
@@ -26,13 +33,9 @@ export type AutoWriteSettings = {
   lastDomain: string | null;
 };
 
-export function parseSeedTopics(domain: "engineering" | "soft-skills"): string[] {
+export function parseSeedTopics(domain: string): string[] {
   try {
-    const file =
-      domain === "soft-skills"
-        ? "04-Domain-Profiles/soft-skills.md"
-        : "04-Domain-Profiles/engineering.md";
-    const md = readTfesFile(file);
+    const md = readTfesFile(domainProfilePath(resolveDomainId(domain)));
     const match = md.match(/##\s*seed_topics\s*\n([\s\S]*?)(?=\n##\s|$)/i);
     if (!match?.[1]) return [];
     return match[1]
@@ -138,3 +141,6 @@ export function isDue(nextRunAt: Date | null | undefined, now = new Date()): boo
   if (!nextRunAt) return true;
   return nextRunAt.getTime() <= now.getTime();
 }
+
+export type { DomainId, DomainMode };
+export { resolveDomainId, resolveDomainMode };

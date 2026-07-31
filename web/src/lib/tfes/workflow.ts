@@ -26,6 +26,7 @@ import {
 } from "@/lib/tfes/parser";
 import {
   assertCleanPublishQuality,
+  applyDeterministicCleanFixes,
   cleanGenMaxTokens,
   cleanWordBounds,
   countWords,
@@ -50,6 +51,9 @@ import {
   resolveWritingPrefs,
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
+import { readerRolesForDomain, resolveDomainId } from "@/lib/tfes/domains";
+import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
 function isPlaceholderTopic(topic: string | null | undefined): boolean {
@@ -166,17 +170,8 @@ function insightPhaseOf(
 
 /** Tối đa research lại sau Gate < L2 (2 lần = tổng 3 lần Gate) */
 const MAX_GATE_RESEARCH_RETRIES = 2;
-/** Reader Sim fail → polish lại tối đa 1 lần rồi vẫn đưa người duyệt */
-const MAX_READER_SIM_RETRIES = 1;
-
-function readerRolesForDomain(domain: string): string {
-  if (domain === "soft-skills") {
-    return `Roles (soft-skills): **Engineer (IC)** · **Tech Lead** · **Engineering Manager**
-Góc đọc: hội thoại/hành vi có điều kiện, không self-help sáo; có lúc KHÔNG nên áp dụng.`;
-  }
-  return `Roles (engineering): **Junior Engineer** · **Senior Engineer** · **Tech Lead**
-Góc đọc: cơ chế/ràng buộc cụ thể; insight không hiển nhiên; có trade-off thật.`;
-}
+/** Reader Sim fail → polish lại tối đa N lần rồi vẫn đưa người duyệt */
+const MAX_READER_SIM_RETRIES = PIPELINE_CONFIG.retries.maxReaderSimRetries;
 
 function readerSimFailed(text: string): boolean {
   if (/KẾT\s*LUẬN\s*:\s*ĐẠT\b/i.test(text) && !/KẾT\s*LUẬN\s*:\s*CHƯA\s*ĐẠT/i.test(text)) {
@@ -217,8 +212,82 @@ function priorPipelineSupportBlock(article: {
     parts.push(
       `### Reader Simulation — sửa đúng các điểm này\n${clipText(article.errorMessage, 700)}`,
     );
+  } else if (
+    article.errorMessage?.trim() &&
+    /Bản sạch|Self-check|Polish self-check|ngưỡng %|handbook|quá ngắn|heading biên tập|Subtitle|tình huống cụ thể|điều kiện\/phản biện/i.test(
+      article.errorMessage,
+    )
+  ) {
+    parts.push(
+      `### Lỗi chất lượng bản sạch (lần trước) — BẮT BUỘC sửa đúng điểm này, không lặp lại\n${clipText(article.errorMessage, 700)}`,
+    );
   }
   return parts.join("\n\n");
+}
+
+/**
+ * Chấm bản sạch; fail → sửa máy (table/%/---) → (nếu cần) 1 pass LLM repair → sửa máy lại.
+ */
+async function ensureCleanPublishQuality(input: {
+  clean: string;
+  prefs: WritingPrefs;
+  topic: string;
+  domain: string | null | undefined;
+  researchBrief?: string | null;
+  factCheck?: string | null;
+  qualityHint?: string | null;
+}): Promise<string> {
+  let clean = input.clean;
+  try {
+    assertCleanPublishQuality(clean, input.prefs);
+    return clean;
+  } catch (first) {
+    const hint =
+      (first instanceof Error ? first.message : String(first)) ||
+      input.qualityHint ||
+      "Quality gate fail";
+
+    // 1) Sửa máy trước (table / % / ---) — tránh soft-retry vòng với cùng lỗi
+    clean = applyDeterministicCleanFixes(clean, input.prefs);
+    try {
+      assertCleanPublishQuality(clean, input.prefs);
+      return clean;
+    } catch {
+      /* cần LLM */
+    }
+
+    const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+    const repairedRaw = await chatCompletion(
+      [
+        { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
+        {
+          role: "user",
+          content: buildPipelinePrompt(
+            "finalize-repair",
+            appendContext(
+              clipText(clean, 18_000),
+              clipText(input.researchBrief, 2_000),
+              clipText(input.factCheck, 1_200),
+              `Chủ đề: ${input.topic}`,
+              `LỖI MÁY CHẤM (sửa đúng):\n${hint.slice(0, 700)}`,
+              /table|Table|\|/i.test(hint)
+                ? "CẤM markdown table (|---|). Đổi thành đoạn hoặc bullet `- cột1 — cột2`."
+                : "",
+            ),
+            prefsBlock,
+          ),
+        },
+      ],
+      { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
+    );
+    const repaired = toReaderCleanPublish(
+      sanitizeEditorialBody(stripPipelineMarks(repairedRaw)),
+    );
+    if (repaired.length >= 80) clean = repaired;
+    clean = applyDeterministicCleanFixes(clean, input.prefs);
+    assertCleanPublishQuality(clean, input.prefs);
+    return clean;
+  }
 }
 
 /**
@@ -284,15 +353,13 @@ function finalizePhaseOf(article: {
   if (article.errorMessage && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
     return "polish";
   }
-  // Polish fail → chạy lại 10b; các lỗi bản sạch khác → viết lại Publish
-  if (article.errorMessage && /Polish self-check/i.test(article.errorMessage)) {
-    return "polish";
-  }
   if (
     article.errorMessage &&
-    /Self-check|listicle|Bản sạch|outline|BAR VIẾT|khi nào không nên/i.test(article.errorMessage)
+    /Bản sạch|Self-check|Polish self-check|ngưỡng %|heading biên tập|handbook|tình huống cụ thể|Subtitle|gạch ngang|listicle|outline|BAR VIẾT|khi nào không nên/i.test(
+      article.errorMessage,
+    )
   ) {
-    return "publish";
+    return "polish";
   }
   if (!clean.includes(CLEAN_POLISH_MARK)) return "polish";
   if (!kr.includes(READER_SIM_DONE_MARK)) return "reader-sim";
@@ -319,6 +386,8 @@ function failedInsightGate(text: string): boolean {
 }
 
 export async function runWorkflowStep(articleId: string): Promise<Article> {
+  await hydrateTfesOverrides();
+
   let article = await prisma.article.findUnique({ where: { id: articleId } });
   if (!article) {
     throw new Error("Không tìm thấy bài viết");
@@ -340,7 +409,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
     // Topic trống / placeholder cũ → chọn seed thật và lưu lại trước khi research
     if (isPlaceholderTopic(topic)) {
-      const domain = article.domain === "soft-skills" ? "soft-skills" : "engineering";
+      const domain = resolveDomainId(article.domain);
       const config = await getAutoWriteConfig();
       topic = await pickFreshTopic(domain, {
         useSeedTopics: config.useSeedTopics,
@@ -868,7 +937,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           domain: article.domain,
           researchBrief: article.researchBrief,
         });
-        assertCleanPublishQuality(polished, prefs);
+        try {
+          polished = await ensureCleanPublishQuality({
+            clean: polished,
+            prefs,
+            topic,
+            domain: article.domain,
+            researchBrief: article.researchBrief,
+            factCheck: article.factCheck,
+            qualityHint: article.errorMessage,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await prisma.article.update({
+            where: { id: articleId },
+            data: {
+              cleanPublish: polished.length >= 80 ? polished : article.cleanPublish,
+              status: ArticleStatus.DRAFT,
+              currentStep: WorkflowStep.FINALIZE,
+              errorMessage: msg.slice(0, 500),
+            },
+          });
+          throw err instanceof Error ? err : new Error(msg);
+        }
 
         const polishCheck = editorialSelfCheck({
           researchBrief: article.researchBrief,
@@ -944,7 +1035,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (finPhase === "reader-sim") {
         const llmStarted = Date.now();
         const cleanBody = toReaderCleanPublish(stripPipelineMarks(article.cleanPublish));
-        const domain = article.domain === "soft-skills" ? "soft-skills" : "engineering";
+        const domain = resolveDomainId(article.domain);
         const simRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPrompt(article.domain) },
@@ -1120,7 +1211,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           domain: article.domain,
           researchBrief: article.researchBrief,
         });
-        assertCleanPublishQuality(cleanPublish, prefs);
+        try {
+          cleanPublish = await ensureCleanPublishQuality({
+            clean: cleanPublish,
+            prefs,
+            topic,
+            domain: article.domain,
+            researchBrief: article.researchBrief,
+            factCheck: article.factCheck,
+            qualityHint: article.errorMessage,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await prisma.article.update({
+            where: { id: articleId },
+            data: {
+              cleanPublish: cleanPublish.length >= 80 ? cleanPublish : article.cleanPublish,
+              status: ArticleStatus.DRAFT,
+              currentStep: WorkflowStep.FINALIZE,
+              errorMessage: msg.slice(0, 500),
+            },
+          });
+          throw err instanceof Error ? err : new Error(msg);
+        }
 
         const selfCheck = editorialSelfCheck({
           researchBrief: article.researchBrief,
@@ -1209,7 +1322,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       );
     // Listicle ở nửa đầu → viết lại Write A
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
-    // Bản sạch fail → chỉ xóa cleanPublish, giữ nháp 12 phần + FINALIZE
+    // Bản sạch fail → GIỮ cleanPublish để lần sau polish/sửa (không viết lại từ nháp rồi lặp lỗi)
     const isCleanPublishFail =
       /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid|gạch ngang|Subtitle|handbook|ngưỡng %|tình huống cụ thể|encoding/i.test(raw) &&
       !isListicleRewrite;
@@ -1226,7 +1339,6 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             }
           : isCleanPublishFail
             ? {
-                cleanPublish: null,
                 currentStep: WorkflowStep.FINALIZE,
               }
             : {}),

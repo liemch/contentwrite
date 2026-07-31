@@ -1,5 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { domainProfilePath, resolveDomainId } from "@/lib/tfes/domains";
+import { getTfesOverrideCached, readTfesFileFromDisk } from "@/lib/tfes/tfes-docs";
 
 const TFES_ROOT = join(process.cwd(), "content", "ai-tfes");
 
@@ -11,17 +13,24 @@ function assertTfesRoot() {
   }
 }
 
+/**
+ * Đọc file AI-TFES: ưu tiên override DB (Settings), fallback disk content/ai-tfes.
+ * Gọi hydrateTfesOverrides() trước khi chạy pipeline / API docs.
+ */
 export function readTfesFile(relativePath: string): string {
-  assertTfesRoot();
-  const fullPath = join(TFES_ROOT, relativePath);
-  if (!existsSync(fullPath)) {
-    throw new Error(`AI-TFES file không tồn tại: ${relativePath}`);
-  }
-  return readFileSync(fullPath, "utf-8");
-}
+  const override = getTfesOverrideCached(relativePath);
+  if (override != null && override.length > 0) return override;
 
-function domainProfilePath(domain: string): string {
-  return `04-Domain-Profiles/${domain === "soft-skills" ? "soft-skills" : "engineering"}.md`;
+  assertTfesRoot();
+  try {
+    return readTfesFileFromDisk(relativePath);
+  } catch {
+    const fullPath = join(TFES_ROOT, relativePath);
+    if (!existsSync(fullPath)) {
+      throw new Error(`AI-TFES file không tồn tại: ${relativePath}`);
+    }
+    return readFileSync(fullPath, "utf-8");
+  }
 }
 
 /**
@@ -64,14 +73,15 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
  * Không nhồi Operating-Prompt full → tránh gpt-oss reasoning quá lâu / timeout 240s.
  */
 export function getSystemPromptLite(domain: string): string {
-  const domainProfile = readTfesFile(domainProfilePath(domain));
+  const id = resolveDomainId(domain);
+  const domainProfile = readTfesFile(domainProfilePath(id));
   // Chỉ lấy phần đầu hồ sơ (audience, tông, tier) — đủ cho Decision
   const clipped = domainProfile.slice(0, 1_200).trim();
 
   return `Bạn là biên tập viên AI-TFES. Chỉ làm ĐÚNG nhiệm vụ trong user message — không làm thêm bước khác.
 Tiếng Việt. Evidence-first; không bịa nguồn/số liệu. Trả lời ngắn, đúng format yêu cầu.
 
-Domain: **${domain === "soft-skills" ? "soft-skills" : "engineering"}**
+Domain: **${id}**
 ${clipped}
 
 CẤM: viết dài lan man; lặp lại toàn bộ Research; gắn (L2) vào Title; HERO IMAGE BRIEF; Planning khi đang Decision (và ngược lại).`;
@@ -88,7 +98,7 @@ export function buildDailyTaskPrompt(input: {
     "kho đang trống — chạy Seeding Mode";
 
   return template
-    .replace("`<engineering | soft-skills>`", input.domain)
+    .replace("`<engineering | soft-skills>`", resolveDomainId(input.domain))
     .replace(
       "<dán vào đây, hoặc ghi \"kho đang trống — chạy Seeding Mode\">",
       memory,
@@ -161,6 +171,7 @@ type PipelineStep =
   | "finalize-b"
   | "finalize-polish"
   | "finalize-expand"
+  | "finalize-repair"
   | "finalize-hero"
   | "finalize-reader-sim"
   | "finalize";
@@ -439,6 +450,20 @@ Xuất lại TOÀN BỘ bài markdown hoàn chỉnh (\`# Title\` → phụ đề
 - Viết THÊM vào thân: mini-case cụ thể, trade-off, phản biện, đoạn cầu nối — để đạt gần target từ trong PREFS
 - CẤM rút gọn; CẤM synopsis; CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
 - Giọng blog/tin tức kỹ thuật; không handbook
+
+${prefs}
+${NARRATIVE_FLOW_RULES}
+${BLOG_NEWS_VOICE}
+${STORY_ARC_CLEAN}`,
+
+    "finalize-repair": `## Nhiệm vụ: SỬA BẢN SẠCH THEO LỖI QUALITY GATE
+Bài trong CONTEXT đã gần xong nhưng MÁY CHẤM FAIL. Sửa ĐÚNG lỗi được nêu — xuất lại TOÀN BỘ bài markdown.
+
+- GIỮ luận điểm, title, mạch; KHÔNG bịa số liệu / URL mới
+- Nếu lỗi "quá nhiều ngưỡng %" → giữ ≤5 con số % (ưu tiên số có trong Research/Fact); còn lại viết định tính (thường / phần lớn / khi…)
+- Nếu lỗi khác (handbook, mở khô, thiếu mini-case, heading biên tập, Subtitle, ---) → sửa đúng điểm đó
+- CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
+- Độ dài theo WRITING PREFS — không rút synopsis
 
 ${prefs}
 ${NARRATIVE_FLOW_RULES}

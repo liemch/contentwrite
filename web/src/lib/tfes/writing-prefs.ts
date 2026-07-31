@@ -1,9 +1,14 @@
 /** Cấu hình viết theo bài + mặc định Settings */
 
+import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+
 export const AVOID_FORMAT_FLAGS = ["table", "mermaid", "numbered_outline"] as const;
 export type AvoidFormatFlag = (typeof AVOID_FORMAT_FLAGS)[number];
 
-export const DEFAULT_TARGET_WORD_COUNT = 1200;
+export const DEFAULT_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.defaultTarget;
+export const MIN_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.minTarget;
+/** Trần cấu hình — trên mức này pipeline dễ cắt token / timeout */
+export const MAX_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.maxTarget;
 export const DEFAULT_AVOID_FORMATS = "table";
 
 export type WritingPrefs = {
@@ -35,9 +40,15 @@ export function resolveWritingPrefs(input: {
 }): WritingPrefs {
   const target =
     input.targetWordCount && input.targetWordCount > 0
-      ? Math.max(400, Math.min(4000, Math.round(input.targetWordCount)))
+      ? Math.max(
+          MIN_TARGET_WORD_COUNT,
+          Math.min(MAX_TARGET_WORD_COUNT, Math.round(input.targetWordCount)),
+        )
       : input.defaultTargetWordCount && input.defaultTargetWordCount > 0
-        ? Math.max(400, Math.min(4000, Math.round(input.defaultTargetWordCount)))
+        ? Math.max(
+            MIN_TARGET_WORD_COUNT,
+            Math.min(MAX_TARGET_WORD_COUNT, Math.round(input.defaultTargetWordCount)),
+          )
         : DEFAULT_TARGET_WORD_COUNT;
 
   const avoidRaw =
@@ -73,9 +84,9 @@ export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
     avoidLines.push("- Không ràng buộc format đặc biệt ngoài BAR VIẾT");
   }
 
-  const min = Math.round(prefs.targetWordCount * 0.7);
-  const aim = Math.round(prefs.targetWordCount * 0.85);
-  const max = Math.round(prefs.targetWordCount * 1.6);
+  const min = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMinRatio);
+  const aim = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanAimRatio);
+  const max = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMaxRatio);
 
   return `### WRITING PREFS (bắt buộc tuân thủ)
 - Độ dài = số TỪ tiếng Việt (tách khoảng trắng), KHÔNG phải số ký tự/chữ cái

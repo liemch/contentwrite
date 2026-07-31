@@ -3,6 +3,8 @@ import { assertCanCreateArticle, editorialWhere, getQuotaInfo } from "@/lib/acce
 import { AuthError, authErrorResponse, requireUser } from "@/lib/auth";
 import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
+import { resolveDomainId } from "@/lib/tfes/domains";
+import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 import {
   DEFAULT_AVOID_FORMATS,
   DEFAULT_TARGET_WORD_COUNT,
@@ -52,9 +54,10 @@ export async function POST(request: NextRequest) {
       targetWordCount?: number;
       avoidFormats?: string;
     };
-    const domain = body.domain === "soft-skills" ? "soft-skills" : "engineering";
+    const domain = resolveDomainId(body.domain);
     let topic = body.topic?.trim() || "";
 
+    await hydrateTfesOverrides();
     const config = await getAutoWriteConfig();
 
     if (!topic) {
