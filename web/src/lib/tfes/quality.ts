@@ -320,7 +320,16 @@ export function editorialSelfCheck(input: {
   if (clean.trim() && HANDBOOK_VOICE.test(clean)) {
     issues.push({
       code: "HANDBOOK",
-      message: "Giọng handbook/checklist khuyến nghị — viết lại thành đoạn có tình huống.",
+      message: "Giọng handbook/brochure — viết lại như blog/tin tức kỹ thuật.",
+    });
+  }
+
+  const openSample =
+    clean.replace(/^#[^\n]+\n+/, "").replace(/^\*[^\n]+\*\n+/, "").slice(0, 600);
+  if (clean.trim() && /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample)) {
+    issues.push({
+      code: "DRY_OPEN",
+      message: "Đoạn mở khô/giáo trình — cần cảnh hoặc nghịch lý như blog.",
     });
   }
 
