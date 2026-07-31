@@ -32,11 +32,39 @@ function stripMd(value: string): string {
     .trim();
 }
 
+/** Prompt ngắn, ASCII-heavy — FLUX cloud hay trả ảnh đen nếu nhồi markdown/VI/cấm đoán dài */
+function sanitizeFluxPrompt(raw: string, topic: string): string {
+  let p = stripMd(raw)
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[^\x20-\x7E]/g, " ") // bỏ non-ASCII (VI / ký tự lạ)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Cắt cụm “no X” quá nhiều — dễ kích safety / ảnh đen
+  p = p
+    .replace(/\bno\s+(readable\s+)?text[^.]*\.?/gi, "")
+    .replace(/\bno\s+real\s+people[^.]*\.?/gi, "")
+    .replace(/\bno\s+logos?[^.]*\.?/gi, "")
+    .replace(/\bno\s+fake\s+charts?[^.]*\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (p.length < 24) {
+    p = `Minimal abstract editorial tech illustration about ${topic}. Soft teal geometric forms, magazine hero composition.`;
+  }
+
+  // FLUX NIM: prompt rõ, vừa phải — quá dài dễ fail im lặng
+  p = p.slice(0, 480).trim();
+  if (!/[.!?]$/.test(p)) p = `${p}.`;
+  return `${p} Clean abstract editorial style, soft lighting.`;
+}
+
 /** Lấy prompt English sạch — tránh nhồi cả Hero Brief (markdown/VI) vào FLUX → ảnh đen */
 function extractPromptFromHeroBrief(heroBrief: string | null | undefined, fallbackTopic: string): string {
-  const fallback = `Minimal abstract editorial tech illustration about ${fallbackTopic}. Soft teal lighting, geometric forms, no text, no people, no logos, no charts with fake numbers.`;
+  const topic = fallbackTopic.slice(0, 80) || "technology";
+  const fallback = `Minimal abstract editorial tech illustration about ${topic}. Soft teal lighting, geometric forms, magazine cover mood.`;
 
-  if (!heroBrief?.trim()) return fallback;
+  if (!heroBrief?.trim()) return sanitizeFluxPrompt(fallback, topic);
 
   const promptMatch =
     heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*"([^"]+)"/i) ||
@@ -51,28 +79,58 @@ function extractPromptFromHeroBrief(heroBrief: string | null | undefined, fallba
 
   let base = stripMd(promptMatch?.[1] || "");
 
-  // Không có dòng Prompt → lấy câu tiếng Anh dài nhất trong brief
   if (base.length < 40) {
     const englishLines = heroBrief
       .split(/\n+/)
       .map((l) => stripMd(l))
       .filter((l) => l.length > 40 && /[a-zA-Z]{4,}/.test(l) && !/HERO|Concept|Caption|Alt|Status/i.test(l))
-      .filter((l) => (l.match(/[a-zA-Z]/g)?.length ?? 0) > (l.match(/[àáạảãăằắặẳẵâầấậẩẫèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi)?.length ?? 0) * 2);
+      .filter(
+        (l) =>
+          (l.match(/[a-zA-Z]/g)?.length ?? 0) >
+          (l.match(/[àáạảãăằắặẳẵâầấậẩẫèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi)?.length ??
+            0) *
+            2,
+      );
     base = englishLines.sort((a, b) => b.length - a.length)[0] || "";
   }
 
-  if (base.length < 24) return fallback;
-
-  // Cắt prompt quá dài / dính markdown còn sót
-  base = base.replace(/https?:\/\/\S+/g, "").slice(0, 900);
-  return `${base}. Editorial tech magazine hero, abstract, no readable text overlays, no real people, no logos, no fake charts or data visualizations.`;
+  if (base.length < 24) base = fallback;
+  return sanitizeFluxPrompt(base, topic);
 }
 
 function extractAlt(heroBrief: string | null | undefined, title: string): string {
   const altMatch =
     heroBrief?.match(/\*\*[^*]*Alt[^*]*:\*\*\s*([^\n]+)/i) ||
-    heroBrief?.match(/Alt\s*text\s*:\s*([^\n]+)/i);
+    heroBrief?.match(/Alt\s*text\s*:\s*([^\n]+)/i) ||
+    heroBrief?.match(/^Alt:\s*([^\n]+)/im);
   return stripMd(altMatch?.[1] || title || "Hero illustration").slice(0, 180);
+}
+
+function decodeFluxBase64(raw: unknown): Buffer | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  let b64 = raw.trim();
+  const dataIdx = b64.indexOf("base64,");
+  if (dataIdx >= 0) b64 = b64.slice(dataIdx + 7);
+  b64 = b64.replace(/\s+/g, "");
+  try {
+    const buf = Buffer.from(b64, "base64");
+    return buf.length > 100 ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
+/** JPEG/PNG quá nhỏ với 1344×768 ≈ ảnh đen / placeholder safety */
+function isLikelyEmptyOrBlackImage(buffer: Buffer): boolean {
+  if (buffer.length < 18_000) return true;
+  // PNG gần đen: nhiều byte 0 ở IDAT vẫn lớn — kiểm tra entropy thô
+  let zeros = 0;
+  const sample = Math.min(buffer.length, 4000);
+  for (let i = 0; i < sample; i += 17) {
+    if (buffer[i] < 8) zeros += 1;
+  }
+  const checks = Math.ceil(sample / 17);
+  return zeros / checks > 0.85 && buffer.length < 80_000;
 }
 
 async function postJsonCurl(url: string, headers: Record<string, string>, body: unknown, timeoutMs = 120000) {
@@ -142,39 +200,91 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
   if (!apiKey) throw new Error("NVIDIA_API_KEY chưa được cấu hình");
 
   const url = "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev";
-  const res = await postJsonCurl(
-    url,
-    { Authorization: `Bearer ${apiKey}` },
-    {
-      prompt,
-      // FLUX.1-dev chỉ nhận: 768,832,…,1344 — 576 (cũ 16:9) bị 422
-      width: 1344,
-      height: 768,
-      seed: Math.floor(Math.random() * 1_000_000),
-      steps: 20,
-    },
-    100000,
+
+  async function once(p: string, seed: number): Promise<Buffer> {
+    const res = await postJsonCurl(
+      url,
+      { Authorization: `Bearer ${apiKey}` },
+      {
+        prompt: p,
+        mode: "base",
+        cfg_scale: 3.5,
+        // Landscape gần 16:9 trong enum API
+        width: 1344,
+        height: 768,
+        seed,
+        steps: 28,
+        samples: 1,
+      },
+      110000,
+    );
+
+    if (!res.ok) {
+      throw new Error(`FLUX lỗi (${res.status}): ${res.text.slice(0, 280)}`);
+    }
+
+    let json: {
+      artifacts?: Array<{
+        base64?: string;
+        image?: string;
+        b64_json?: string;
+        finishReason?: string;
+      }>;
+      finishReason?: string;
+    };
+    try {
+      json = JSON.parse(res.text) as typeof json;
+    } catch {
+      throw new Error(`FLUX trả JSON lỗi: ${res.text.slice(0, 200)}`);
+    }
+
+    const art = json.artifacts?.[0];
+    const reason = (art?.finishReason || json.finishReason || "").toUpperCase();
+    if (reason && /FILTER|NSFW|SAFETY|ERROR|REJECT/i.test(reason)) {
+      throw new Error(`FLUX bị chặn (${reason}). Rút gọn / đổi Hero Prompt tiếng Anh trung tính.`);
+    }
+
+    const buffer =
+      decodeFluxBase64(art?.base64) ||
+      decodeFluxBase64(art?.image) ||
+      decodeFluxBase64(art?.b64_json);
+
+    if (!buffer) {
+      throw new Error(
+        `FLUX không trả ảnh (artifacts trống). Prompt ~${p.length} ký tự — thử lại hoặc rút Hero Brief.`,
+      );
+    }
+    if (isLikelyEmptyOrBlackImage(buffer)) {
+      throw new Error("FLUX_BLACK");
+    }
+    return buffer;
+  }
+
+  const safeFallback = sanitizeFluxPrompt(
+    "Abstract soft teal geometric shapes floating over a dark editorial background, technology magazine hero, calm lighting",
+    "technology",
   );
 
-  if (!res.ok) {
-    throw new Error(`FLUX lỗi (${res.status}): ${res.text.slice(0, 240)}`);
-  }
-
-  let json: { artifacts?: Array<{ base64?: string; image?: string }> };
   try {
-    json = JSON.parse(res.text) as typeof json;
-  } catch {
-    throw new Error(`FLUX trả JSON lỗi: ${res.text.slice(0, 200)}`);
+    return await once(prompt, Math.floor(Math.random() * 1_000_000));
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Ảnh đen / filter → thử 1 lần với prompt sạch ngắn
+    if (msg === "FLUX_BLACK" || /chặn|FILTER|NSFW|rỗng|đen/i.test(msg)) {
+      try {
+        return await once(safeFallback, Math.floor(Math.random() * 1_000_000));
+      } catch (retryErr) {
+        const r = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        if (r === "FLUX_BLACK") {
+          throw new Error(
+            "FLUX trả ảnh rỗng/đen sau 2 lần. Rút Hero Brief (Prompt English ngắn, không markdown/VI) rồi gen lại.",
+          );
+        }
+        throw retryErr instanceof Error ? retryErr : new Error(r);
+      }
+    }
+    throw error instanceof Error ? error : new Error(msg);
   }
-  const b64 = json.artifacts?.[0]?.base64 || json.artifacts?.[0]?.image;
-  if (!b64) throw new Error("FLUX không trả về ảnh (artifacts trống)");
-  const buffer = Buffer.from(b64, "base64");
-  if (buffer.length < 12_000) {
-    throw new Error(
-      "FLUX trả ảnh rỗng/đen — thử lại hoặc rút gọn Hero Brief (prompt English sạch, không markdown).",
-    );
-  }
-  return buffer;
 }
 
 async function generateWithQwen(prompt: string): Promise<Buffer> {
