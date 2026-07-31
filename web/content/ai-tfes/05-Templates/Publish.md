@@ -65,51 +65,51 @@
 > Marker bắt buộc đúng dòng: `=== BẢN SẠCH ĐỂ ĐĂNG ===`
 > Ngay bên dưới là **toàn bộ** bài đăng — không log, không bảng điểm Review, không Knowledge Record.
 
-### A. Khung bài đọc liền (bắt buộc)
+### A. Khung bài đọc liền (bắt buộc — **chọn 1 biến thể**, không copy khuôn mọi bài)
+
+Pipeline gán **ARTICLE_SHAPE** theo bài (paradox-deepdive · failure-postmortem · debate-two-sides · narrative-case · question-led · field-note). Bản sạch phải theo nhịp shape đó.
 
 - CẤM dòng gạch ngang markdown `---` / `***` giữa các đoạn trong body (dùng `##` hoặc câu cầu nối).
+- CẤM mọi bài cùng công thức: cảnh mở → tension → cơ chế → mini-case → guardrail → 3 câu hỏi thảo luận + khuyến nghị Cá nhân/Team/Tổ chức.
 
 ```markdown
 # <Title — <80 ký tự, không giật tít, không (L2)/(L3)>
 
-**Subtitle:** <20–40 từ — giá trị cho người đọc>
+*<Phụ đề 20–40 từ — lead báo, không nhãn Subtitle>*
 
 ![<mô tả ngắn chủ đề bằng tiếng Việt>](HERO_IMAGE)
 
-<Đoạn mở 120–180 từ: hook cụ thể → insight sớm (điều kiện) → vì sao đáng đọc tiếp>
+<Đoạn mở theo shape: cảnh / sự cố / câu hỏi / đội+áp lực… — insight sớm có điều kiện>
 
-## <Tiêu đề đọc được #1>
+## <Tiêu đề đọc được #1 — wording đa dạng, không lặp cụm sáo giữa các bài>
 ...
 
 ## <Tiêu đề đọc được #2>
 ...
 
-## <Tiêu đề đọc được #3 — thường là “nên / không nên làm gì”>
-...
+## <… thêm ## theo nhịp shape — không bắt buộc đúng 3 mục>
 
-<Kết 80–120 từ: hệ quả mở hoặc 1 câu hỏi — KHÔNG tóm tắt lại toàn bài>
+<Kết theo shape: hệ quả / bài học hẹp / câu hỏi đúng hơn — KHÔNG tóm tắt lại toàn bài>
 
 ### Câu hỏi thảo luận
-1.
-2.
-3.
+(chỉ khi shape yêu cầu hoặc thật sự kích thảo luận — có thể bỏ)
 
 ## References
 1. <Tên — “…” — URL>
 2.
 ```
 
-### B. Gợi ý tiêu đề thân bài (ĐỌC ĐƯỢC — chọn/đổi theo góc bài)
+### B. Gợi ý tiêu đề thân bài (ĐỌC ĐƯỢC — chọn/đổi theo góc + shape)
 
-Dùng `##` tự nhiên. **CẤM** copy tên section Article.md.
+Dùng `##` tự nhiên. **CẤM** copy tên section Article.md. **CẤM** lặp cùng cụm heading ở mọi bài (“Ba rủi ro cần nhìn thẳng”, “Khi nào nên dừng”…).
 
-| Thay vì (biên tập) | Dùng kiểu (đăng tin) |
-|--------------------|----------------------|
-| Introduction / Context | Cảnh kỹ sư hay gặp · Bối cảnh thật trên production |
-| Problem Statement | Câu hỏi còn bỏ ngỏ · Điểm mù đội thường bỏ qua |
-| Deep Analysis | Cơ chế đằng sau · Trade-off bị giấu · Điều kiện ẩn |
-| Real-world Examples | Hai tình huống đủ “xương” · Case đúng / case sai |
-| Practical Recommendations | Việc làm được tuần này · Khi nào nên dừng |
+| Thay vì (biên tập) | Dùng kiểu (đăng tin) — ví dụ, đổi theo bài |
+|--------------------|---------------------------------------------|
+| Introduction / Context | Cảnh kỹ sư hay gặp · Đêm sự cố · Câu hỏi đội hay đặt |
+| Problem Statement | Điểm mù · Cuộc cãi trong PR · Quyết định tuần này |
+| Deep Analysis | Cơ chế đằng sau · Hai phe · Root cause không phải thứ nghĩ ban đầu |
+| Real-world Examples | Case xuyên suốt · Timeline ngắn · Anti-pattern hiện trường |
+| Practical Recommendations | Việc làm được · Khi nào dừng · Tín hiệu nhận biết |
 | Executive Summary / Key Takeaways | (gộp vào mở + kết — không tách mục tóm tắt giữa bài) |
 
 ### C. Nhịp & nghề viết (BAR VIẾT — bản sạch)

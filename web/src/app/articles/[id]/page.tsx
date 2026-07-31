@@ -10,6 +10,8 @@ import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
+import { extractAlt, suggestEditableHeroPrompt } from "@/lib/image/hero-prompt";
+import { getArticleShape } from "@/lib/tfes/article-shapes";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
@@ -103,6 +105,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [heroError, setHeroError] = useState("");
   const [actionError, setActionError] = useState("");
   const [heroOpen, setHeroOpen] = useState(false);
+  const [heroPromptDraft, setHeroPromptDraft] = useState("");
+  const [heroAltDraft, setHeroAltDraft] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
 
   useEffect(() => {
@@ -118,6 +122,29 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       setHeroOpen(true);
     }
   }, [article?.status, article?.heroImageUrl, article?.cleanPublish]);
+
+  useEffect(() => {
+    if (!article) return;
+    setHeroPromptDraft(
+      suggestEditableHeroPrompt({
+        heroPromptUsed: article.heroPromptUsed,
+        heroBrief: article.heroBrief,
+        topic: article.topic,
+        title: article.title,
+      }),
+    );
+    setHeroAltDraft(
+      article.heroImageAlt?.trim() ||
+        extractAlt(article.heroBrief, article.title || article.topic || "Hero illustration"),
+    );
+  }, [
+    article?.id,
+    article?.heroBrief,
+    article?.heroPromptUsed,
+    article?.heroImageAlt,
+    article?.topic,
+    article?.title,
+  ]);
 
   const pushLog = useCallback((level: PipelineLogLine["level"], text: string) => {
     logSeq += 1;
@@ -469,8 +496,28 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  function resetHeroPromptFromBrief() {
+    if (!article) return;
+    setHeroPromptDraft(
+      suggestEditableHeroPrompt({
+        heroPromptUsed: null,
+        heroBrief: article.heroBrief,
+        topic: article.topic,
+        title: article.title,
+      }),
+    );
+    setHeroAltDraft(
+      extractAlt(article.heroBrief, article.title || article.topic || "Hero illustration"),
+    );
+  }
+
   async function generateHero(model: "flux" | "qwen") {
     if (!id) return;
+    const prompt = heroPromptDraft.trim();
+    if (!prompt) {
+      setHeroError("Nhập hoặc chỉnh prompt ảnh trước khi gen.");
+      return;
+    }
     setGenning(model);
     setHeroError("");
     pushLog("info", `→ Gen hero (${model})...`);
@@ -479,7 +526,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     const res = await fetch(`/api/articles/${id}/hero`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model }),
+      body: JSON.stringify({
+        model,
+        prompt,
+        alt: heroAltDraft.trim() || undefined,
+      }),
     });
     const data = (await res.json()) as { article?: Article; error?: string; hero?: { modelLabel: string } };
     setGenning(null);
@@ -609,26 +660,35 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     >
       <section className="mb-5">
         <PipelineSteps article={article} running={running} />
-        {(article.targetWordCount || article.avoidFormats) && (
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-            {article.targetWordCount ? (
-              <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]">
-                ~{article.targetWordCount} từ (bản sạch)
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+          {(() => {
+            const shape = getArticleShape(article.id);
+            return (
+              <span
+                className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
+                title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}`}
+              >
+                Khung: {shape.labelVi}
               </span>
-            ) : null}
-            {(article.avoidFormats || "")
-              .split(/[,;\s]+/)
-              .filter(Boolean)
-              .map((f) => (
-                <span
-                  key={f}
-                  className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
-                >
-                  tránh {f}
-                </span>
-              ))}
-          </div>
-        )}
+            );
+          })()}
+          {article.targetWordCount ? (
+            <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]">
+              ~{article.targetWordCount} từ (bản sạch)
+            </span>
+          ) : null}
+          {(article.avoidFormats || "")
+            .split(/[,;\s]+/)
+            .filter(Boolean)
+            .map((f) => (
+              <span
+                key={f}
+                className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
+              >
+                tránh {f}
+              </span>
+            ))}
+        </div>
       </section>
 
       <PipelineRunPanel
@@ -715,7 +775,43 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </button>
         {heroOpen && (
           <div className="border-t border-[var(--line)] px-4 py-4 sm:px-5">
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="hero-prompt">Prompt ảnh (English) — sửa nếu lệch chủ đề</Label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-50"
+                    disabled={!!genning || running}
+                    onClick={resetHeroPromptFromBrief}
+                  >
+                    Lấy lại từ Hero Brief
+                  </button>
+                </div>
+                <Textarea
+                  id="hero-prompt"
+                  rows={4}
+                  value={heroPromptDraft}
+                  onChange={(e) => setHeroPromptDraft(e.target.value)}
+                  disabled={!!genning || running}
+                  placeholder="Mô tả ảnh hero bằng tiếng Anh, đúng chủ đề bài..."
+                  className="min-h-[96px] font-mono text-xs leading-relaxed"
+                />
+              </div>
+              <div>
+                <Label htmlFor="hero-alt">Alt text</Label>
+                <Textarea
+                  id="hero-alt"
+                  rows={2}
+                  value={heroAltDraft}
+                  onChange={(e) => setHeroAltDraft(e.target.value)}
+                  disabled={!!genning || running}
+                  placeholder="Mô tả ngắn cho accessibility / markdown export"
+                  className="mt-1.5 min-h-[56px] text-sm"
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button size="sm" disabled={!!genning || running} onClick={() => generateHero("flux")}>
                 {genning === "flux" ? "Đang gen Flux..." : "Gen FLUX.1-dev"}
               </Button>
@@ -746,12 +842,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                     <span className="font-medium text-[var(--ink)]">Model:</span>{" "}
                     {article.heroImageModel || "—"}
                   </p>
-                  <p className="mt-2">
-                    <span className="font-medium text-[var(--ink)]">Alt:</span>{" "}
-                    {article.heroImageAlt || "—"}
+                  <p className="mt-2 text-xs text-[var(--ink-faint)]">
+                    Sửa prompt phía trên rồi gen lại nếu ảnh lệch chủ đề.
                   </p>
                   {article.heroPromptUsed && (
                     <p className="mt-3 rounded-xl bg-[var(--surface-muted)] p-3 text-xs leading-relaxed">
+                      <span className="font-medium text-[var(--ink)]">Prompt đã dùng: </span>
                       {article.heroPromptUsed}
                     </p>
                   )}
@@ -759,7 +855,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               </div>
             ) : (
               <p className="mt-3 text-sm text-[var(--ink-faint)]">
-                Chưa có ảnh. Nên xong Publish Ready trước để có Hero Brief.
+                Chưa có ảnh. Chỉnh prompt cho đúng chủ đề rồi gen — nên có Hero Brief sau Publish Ready.
               </p>
             )}
           </div>

@@ -53,6 +53,7 @@ import {
 } from "@/lib/tfes/writing-prefs";
 import { readerRolesForDomain, resolveDomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+import { formatArticleShapePrompt } from "@/lib/tfes/article-shapes";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
@@ -73,6 +74,10 @@ async function writingPrefsForArticle(article: {
     defaultTargetWordCount: config.defaultTargetWordCount,
     defaultAvoidFormats: config.defaultAvoidFormats,
   });
+}
+
+function shapeBlockFor(articleId: string): string {
+  return formatArticleShapePrompt(articleId);
 }
 
 export const STEP_ORDER: WorkflowStep[] = [
@@ -233,6 +238,7 @@ async function ensureCleanPublishQuality(input: {
   prefs: WritingPrefs;
   topic: string;
   domain: string | null | undefined;
+  articleId: string;
   researchBrief?: string | null;
   factCheck?: string | null;
   qualityHint?: string | null;
@@ -275,6 +281,7 @@ async function ensureCleanPublishQuality(input: {
                 : "",
             ),
             prefsBlock,
+            shapeBlockFor(input.articleId),
           ),
         },
       ],
@@ -299,6 +306,7 @@ async function expandCleanIfShort(input: {
   prefs: WritingPrefs;
   topic: string;
   domain: string | null | undefined;
+  articleId: string;
   researchBrief?: string | null;
 }): Promise<string> {
   const { target, aimWords, minWords } = cleanWordBounds(input.prefs);
@@ -321,6 +329,7 @@ async function expandCleanIfShort(input: {
             `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
           ),
           prefsBlock,
+          shapeBlockFor(input.articleId),
         ),
       },
     ],
@@ -622,7 +631,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                   "Trả lời bullet ngắn ≤200 từ. Không nhắc lại Research / Gate tests.",
                 ),
-              ),
+              undefined,
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 700, temperature: 0.3, reasoningEffort: "low" },
@@ -660,7 +671,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.researchBrief, 2_000),
                   `Chủ đề: ${topic}`,
                 ),
-              ),
+              undefined,
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 1400, temperature: 0.35, reasoningEffort: "low" },
@@ -718,7 +731,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
                 prefsBlock,
-              ),
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 3500 },
@@ -762,7 +776,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
                 prefsBlock,
-              ),
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 3500 },
@@ -821,7 +836,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(stripPipelineMarks(article.draft12), 7_000),
                   `Chủ đề: ${topic}`,
                 ),
-              ),
+              undefined,
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
@@ -911,7 +928,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Độ dài = số TỪ (khoảng trắng), target ~${target} từ (aim ≥${aimWords}, sàn ≥${minWords}). Không rút synopsis.`,
                 ),
                 prefsBlock,
-              ),
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
@@ -931,6 +949,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           throw new Error("Polish bản sạch thất bại (quá ngắn). Chạy lại Publish Ready.");
         }
         polished = await expandCleanIfShort({
+          articleId,
           clean: polished,
           prefs,
           topic,
@@ -939,7 +958,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         try {
           polished = await ensureCleanPublishQuality({
-            clean: polished,
+          articleId,
+          clean: polished,
             prefs,
             topic,
             domain: article.domain,
@@ -1049,7 +1069,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Title: ${article.title || topic}`,
                   `Chủ đề: ${topic}`,
                 ),
-              ),
+              undefined,
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: 900 },
@@ -1178,7 +1200,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                     : "",
                 ),
                 prefsBlock,
-              ),
+              shapeBlockFor(articleId),
+            ),
             },
           ],
           { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
@@ -1205,6 +1228,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
         }
         cleanPublish = await expandCleanIfShort({
+          articleId,
           clean: cleanPublish,
           prefs,
           topic,
@@ -1213,7 +1237,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         try {
           cleanPublish = await ensureCleanPublishQuality({
-            clean: cleanPublish,
+          articleId,
+          clean: cleanPublish,
             prefs,
             topic,
             domain: article.domain,

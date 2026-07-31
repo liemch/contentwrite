@@ -212,24 +212,22 @@ Tránh / CẤM trên bản sạch:
 - Đoạn toàn định nghĩa / liệt kê nguyên tắc không có người hoặc tình huống
 - Thuật ngữ dày đặc không có câu dịch ý cho người đọc nhanh`;
 
-/** Story arc cho bản đăng (thay Story Flow mơ hồ) */
-const STORY_ARC_CLEAN = `### Story arc bản đăng (6 nhịp — không dùng tên này làm heading)
-1. **Cảnh mở** — tình huống cụ thể hoặc nghịch lý
-2. **Tension** — điều kiện ẩn / “X chỉ đúng khi Y”
-3. **Cơ chế** — vì sao (1–2 ý sâu, có hình ảnh)
-4. **Mini-case** — trước/sau hoặc failure mode
-5. **Guardrail** — khi nào KHÔNG (gộp một chỗ)
-6. **Mở** — hệ quả / câu hỏi (không tóm tắt lại bài)`;
+/** Story arc — chi tiết nhịp lấy từ ARTICLE_SHAPE (mỗi bài một biến thể) */
+const STORY_ARC_CLEAN = `### Story arc bản đăng
+Tuân thủ block **ARTICLE_SHAPE** trong prompt (nhịp + mở/kết + discussion).
+KHÔNG ép mọi bài cùng khuôn “Cảnh → Tension → Cơ chế → Mini-case → Guardrail → hỏi thảo luận”.
+Vẫn bắt buộc: một luận điểm xuyên suốt · ≥1 tình huống cụ thể · điều kiện/phản biện · giọng blog kỹ thuật.`;
 
 /** Quy tắc polish “đáng đọc” — bổ sung NARRATIVE */
 const READER_POLISH_RULES = `### Polish đáng đọc (bắt buộc)
 - Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title (phụ đề nghe như câu lead báo, không brochure)
 - Viết lại đoạn mở nếu còn giọng giáo trình / “ngày càng phức tạp… được nhắc đến như…”
-- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện, có chủ ngữ (đội / lead / bạn)
+- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện, có chủ ngữ (đội / lead / bạn) — trừ khi ARTICLE_SHAPE là field-note (được phép hành động hẹp rõ ràng, vẫn không listicle Hook/Framework)
 - Nếu ≥4 con số % cụ thể mà CONTEXT Research không có → bớt số, giữ luận điểm điều kiện
-- Thêm/giữ một mini-case (trước/sau: mất giờ → mất phút, hoặc tương đương) gần phần đầu hoặc giữa bài
+- Thêm/giữ tình huống cụ thể theo shape (postmortem / case / mini-case…) — không ép mọi bài cùng một kiểu case
 - Sửa ký tự lỗi encoding nếu còn
-- Đọc lại to: nếu nghe như tài liệu nội bộ hơn blog → viết lại đoạn đó ngắn và sống hơn`;
+- Đọc lại to: nếu nghe như tài liệu nội bộ hơn blog → viết lại đoạn đó ngắn và sống hơn
+- Nếu bài giống “khuôn nhà máy” (mọi ## đều cùng nhịp với bài generic) → viết lại heading + mở cho khớp ARTICLE_SHAPE`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -238,11 +236,13 @@ function templateBlock(title: string, relativePath: string): string {
 /**
  * User prompt từng bước — nhúng template thư viện AI-TFES.
  * @param writingPrefsBlock — block WRITING PREFS (số từ / tránh format) từ article + Settings
+ * @param articleShapeBlock — block ARTICLE_SHAPE (biến thể khung bài) theo articleId
  */
 export function buildPipelinePrompt(
   step: PipelineStep,
   context: string,
   writingPrefsBlock?: string,
+  articleShapeBlock?: string,
 ): string {
   const articleTpl = templateBlock("Article.md (12 phần)", "05-Templates/Article.md");
   const factTpl = templateBlock("FactCheck.md", "05-Templates/FactCheck.md");
@@ -250,6 +250,9 @@ export function buildPipelinePrompt(
   const reviewTpl = templateBlock("Review.md", "05-Templates/Review.md");
   const prefs = writingPrefsBlock?.trim()
     ? `\n${writingPrefsBlock.trim()}\n`
+    : "";
+  const shape = articleShapeBlock?.trim()
+    ? `\n${articleShapeBlock.trim()}\n`
     : "";
 
   const instructions: Record<PipelineStep, string> = {
@@ -277,30 +280,36 @@ Xuất bullet ngắn (≤250 từ), đúng các mục:
 - **Audience:** …
 - **Lý do chọn** (thực tiễn + học hỏi + evergreen — KHÔNG "vì đang hot"): …
 - **Rủi ro editorial** (nếu có): …
+- **Shape gợi ý** (nếu hợp): 1 dòng khớp ARTICLE_SHAPE hoặc “giữ shape đã gán”
 
 Không viết dài. Không lặp lại Gate tests.`,
 
     "insight-planning": `## Nhiệm vụ bước 6: PLANNING (gọn)
 Decision đã chốt. CHỈ Planning — CẤM viết bài 12 phần / Hero.
 
+${shape}
+
 Xuất checklist (≤600 từ):
 - Objective · Audience · 1 Core Message (insight L2/L3)
+- **ARTICLE_SHAPE id** (copy đúng id đã gán) + 1 câu vì sao hợp bài này
 - 3–5 Key Insights (mỗi ý + nguồn ngắn từ Research)
-- Ví dụ dự kiến (≥2)
-- Story Flow theo arc: Cảnh mở → Tension/điều kiện ẩn → Cơ chế → Mini-case → Guardrail → Mở (3–6 gạch, không đặt tên arc làm heading bài)
-- Khuyến nghị 3 cấp: Cá nhân / Team / Tổ chức (làm gì / khi nào / khi nào KHÔNG)
-- Discussion Questions (3)
+- Ví dụ / tình huống dự kiến (≥1, khớp shape — postmortem = sự cố; debate = 2 phe…)
+- Story Flow: 3–6 gạch **theo nhịp ARTICLE_SHAPE** (không mặc định Cảnh→Tension→… nếu shape khác)
+- So what / khuyến nghị: theo shape — CẤM khuôn cứng Cá nhân/Team/Tổ chức trừ khi thật sự cần
+- Discussion: chỉ khi shape = required/optional và bạn chọn dùng
 
 Không viết lại Decision / Gate.`,
 
     "insight-b": `## Nhiệm vụ Insight Decision+Planning (legacy gộp)
-Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.`,
+Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.
+${shape}`,
 
     write: `## Nhiệm vụ bước 7: WRITING (AI-TFES)
 Insight ≥ L2 + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md (bản làm việc nội bộ).
-Có "khi nào KHÔNG". Độ dài theo WRITING PREFS.
+Có "khi nào KHÔNG". Độ dài theo WRITING PREFS. Nháp chuẩn bị bản sạch theo ARTICLE_SHAPE.
 
 ${prefs}
+${shape}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -314,9 +323,9 @@ Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY) —
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
-- Hook cụ thể — CẤM mở chung chung; sau hook viết tiếp mạch (không đóng lại bằng bullet tóm tắt)
+- Hook / mở khớp ARTICLE_SHAPE (postmortem = sự cố; question-led = câu hỏi; narrative-case = đội+áp lực…) — CẤM mở chung chung
 - Đặt insight L2/L3 sớm (1–2 câu rõ điều kiện) rồi mới Context / Problem
-- Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện (không gắn nhãn L2 vào title)
+- Deep Analysis ≥ 350–500 từ: trade-off có điều kiện; trọng tâm theo draftHint của shape
 - Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
 - Heading đúng tên Article.md (## Introduction, ## Context…) — CẤM "1. Hook", "2. Executive Summary"
 - Giọng nửa đầu cũng phải sống (cảnh + người/đội) — đừng viết như abstract paper
@@ -324,6 +333,7 @@ Yêu cầu độ sâu:
 Dừng sau Deep Analysis. KHÔNG Examples / Recommendations / Takeaways / Discussion / References / HERO.
 
 ${prefs}
+${shape}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -334,14 +344,15 @@ ${articleTpl}`,
 
     "write-b": `## Nhiệm vụ bước 7 WRITING — Phase B (nửa sau)
 Tiếp tục NỬA SAU theo Article.md + Planning trong CONTEXT — nối tiếp nửa đầu (đọc part A trong CONTEXT):
-- Real-world Examples (≥2): ràng buộc kỹ thuật cụ thể — CẤM "Công ty ABC"; mỗi case minh họa luận điểm đã nêu, không case minh họa sơ đồ
-- Practical Recommendations Cá nhân/Team/Tổ chức: làm gì / khi nào / khi nào KHÔNG / rủi ro — chỉ MỘT khối “khi nào KHÔNG” (không tách mục riêng trùng)
-- Key Takeaways (3) · Discussion Questions (3) · References (chỉ Research Brief, URL thật)
-- Câu chuyển từ Deep Analysis → Examples → Recommendations phải liền mạch
+- Real-world Examples: khớp ARTICLE_SHAPE (≥1 case đủ xương; debate có thể 2 góc; CẤM "Công ty ABC")
+- Practical Recommendations: theo shape — CẤM mặc định 3 khối Cá nhân/Team/Tổ chức; vẫn phải có “khi nào KHÔNG” (một chỗ)
+- Key Takeaways (2–3) · Discussion chỉ nếu shape required/optional · References (chỉ Research Brief, URL thật)
+- Câu chuyển Deep Analysis → Examples → Recommendations liền mạch theo nhịp shape
 
 KHÔNG viết lại nửa đầu. KHÔNG HERO IMAGE BRIEF.
 
 ${prefs}
+${shape}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -359,14 +370,16 @@ Phải đạt hết (ghi Pass/Fail từng mục):
 - Đủ bằng chứng
 - ≥3 insight + ≥1 trade-off + ≥1 góc phản biện + ≥1 bài học
 - Giá trị thực tiễn (biết nên / không nên làm gì)
-- Có câu hỏi thảo luận
+- Có câu hỏi thảo luận — chỉ Fail nếu shape bắt buộc discussion mà thiếu
 - Không quảng bá · Không sao chép
 - Tránh tuyệt đối hóa ("luôn luôn / chắc chắn / tốt nhất…") trừ khi có bằng chứng
 - **Nhịp đọc:** Fail nếu listicle đánh số (Hook/Khi nào nên/Framework…), mục “không nên” lặp, hoặc các phần không nối với nhau
+- **Đa dạng format:** Pass nếu nháp chuẩn bị được bản sạch theo ARTICLE_SHAPE
 
 Xuất theo template Review.md. Kết luận: Publish / Minor Revision / Major Revision / Rewrite.
 Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist).
 
+${shape}
 ${reviewTpl}`,
 
     "finalize-a": `## Nhiệm vụ bước 9: FACT CHECK (AI-TFES)
@@ -389,13 +402,15 @@ Xuất theo thứ tự:
 1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date (metadata nội bộ — KHÔNG nằm trong bản sạch)
 2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** rồi bài đăng bên dưới:
 ${prefs}
-### BẢN SẠCH = BÀI ĐỌC LIỀN
+${shape}
+### BẢN SẠCH = BÀI ĐỌC LIỀN (theo ARTICLE_SHAPE — mỗi bài một khung)
 - CẤM heading biên tập: Introduction, Context, Problem Statement, Deep Analysis, Real-world Examples, Practical Recommendations, Executive Summary, Key Takeaways, Metadata
-- Cấu trúc: \`# Title\` → một dòng *phụ đề in nghiêng* (KHÔNG viết chữ Subtitle) → \`![mô tả ngắn](HERO_IMAGE)\` → đoạn mở (hook + luận điểm sớm + ≥1 tình huống cụ thể) → thân bài liền mạch → kết ngắn → (tuỳ) câu hỏi thảo luận → References
-- \`##\` chỉ dùng tiêu đề ĐỌC ĐƯỢC (vd. “Ba rủi ro cần nhìn thẳng”) — không dùng tên section Article.md
+- Cấu trúc tối thiểu: \`# Title\` → một dòng *phụ đề in nghiêng* (KHÔNG viết chữ Subtitle) → \`![mô tả ngắn](HERO_IMAGE)\` → thân theo nhịp shape → kết theo shape → References
+- \`##\` chỉ tiêu đề ĐỌC ĐƯỢC — đa dạng wording; đừng lặp cụm “Ba rủi ro…” / “Khi nào nên dừng” ở mọi bài
 - Một luận điểm xuyên suốt; không meta “Insight L2”; không Knowledge Record trong body
 - Title tiếng Việt, KHÔNG (L2); CẤM dòng "Subtitle" / "alt" trần
 - Số % chỉ khi có trong Research/Fact; References chỉ URL từ Research; độ dài theo WRITING PREFS
+- Discussion / khuyến nghị 3 cấp: chỉ khi shape yêu cầu — tránh “công thức nhà máy”
 3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — tạm thời, sẽ được viết lại từ bản polish:
    - Concept · **Prompt (English):** "...." · Caption + Alt
    - Prompt phải mirror **luận điểm / metaphor của bài** (không generic “servers / circuit board / glowing code” nếu bài không nói hạ tầng đó)
@@ -403,7 +418,7 @@ ${prefs}
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
 CẤM dòng gạch ngang markdown \`---\` / \`***\` giữa các đoạn trong bản sạch (dùng ## hoặc đoạn nối).
-Bản sạch = bài blog/tin tức kỹ thuật — áp dụng đủ Story arc + giọng blog bên dưới.
+Bản sạch = bài blog/tin tức kỹ thuật — Story arc theo ARTICLE_SHAPE + giọng blog bên dưới.
 
 ${NARRATIVE_FLOW_RULES}
 
@@ -415,7 +430,7 @@ ${publishTpl}`,
 
     "finalize-polish": `## Nhiệm vụ bước 10b: POLISH BẢN SẠCH (đăng tin)
 Biên tập LẠI bản sạch đã có thành bản sẵn sàng đăng — KHÔNG viết lại luận điểm, KHÔNG bịa số liệu / nguồn mới.
-Ưu tiên: đọc như blog/tin tức kỹ thuật, không khô như tài liệu nội bộ.
+Ưu tiên: đọc như blog/tin tức kỹ thuật, không khô như tài liệu nội bộ; **giữ / siết theo ARTICLE_SHAPE** (đừng kéo về khuôn generic).
 **Pipeline bổ trợ:** áp dụng nốt góp ý còn sót từ Editorial Review + Fact-Check (+ Reader Sim nếu có) trong CONTEXT.
 
 Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge Record, không HERO IMAGE BRIEF, không STATUS.
@@ -431,8 +446,10 @@ Sửa bắt buộc:
 - Số liệu Fact FAIL / Opinion trong Ledger — chỉnh wording cho khớp (không bịa nguồn mới)
 - Nếu CONTEXT có phản hồi Reader Simulation — ưu tiên sửa đúng các điểm đó (hook / lặp / ví dụ / insight)
 - Nếu CONTEXT còn Fail từ Review — sửa đúng chỗ đó trên bản đăng
+- Heading / mở / kết: nếu đang “giống mọi bài khác” → chỉnh cho khớp shape
 
 ${prefs}
+${shape}
 ${NARRATIVE_FLOW_RULES}
 
 ${BLOG_NEWS_VOICE}
@@ -446,12 +463,13 @@ Bài trong CONTEXT đang THIẾU độ dài so với WRITING PREFS.
 Đếm từ = tách khoảng trắng (tiếng Việt), KHÔNG đếm ký tự.
 
 Xuất lại TOÀN BỘ bài markdown hoàn chỉnh (\`# Title\` → phụ đề nghiêng → HERO → thân → kết → References nếu có).
-- GIỮ luận điểm, title, cấu trúc; KHÔNG bịa số liệu / URL mới
-- Viết THÊM vào thân: mini-case cụ thể, trade-off, phản biện, đoạn cầu nối — để đạt gần target từ trong PREFS
+- GIỮ luận điểm, title, **ARTICLE_SHAPE**; KHÔNG bịa số liệu / URL mới
+- Viết THÊM vào thân theo nhịp shape (case / tranh luận / tín hiệu hiện trường…) — để đạt gần target từ trong PREFS
 - CẤM rút gọn; CẤM synopsis; CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
 - Giọng blog/tin tức kỹ thuật; không handbook
 
 ${prefs}
+${shape}
 ${NARRATIVE_FLOW_RULES}
 ${BLOG_NEWS_VOICE}
 ${STORY_ARC_CLEAN}`,
@@ -459,13 +477,14 @@ ${STORY_ARC_CLEAN}`,
     "finalize-repair": `## Nhiệm vụ: SỬA BẢN SẠCH THEO LỖI QUALITY GATE
 Bài trong CONTEXT đã gần xong nhưng MÁY CHẤM FAIL. Sửa ĐÚNG lỗi được nêu — xuất lại TOÀN BỘ bài markdown.
 
-- GIỮ luận điểm, title, mạch; KHÔNG bịa số liệu / URL mới
+- GIỮ luận điểm, title, mạch, ARTICLE_SHAPE; KHÔNG bịa số liệu / URL mới
 - Nếu lỗi "quá nhiều ngưỡng %" → giữ ≤5 con số % (ưu tiên số có trong Research/Fact); còn lại viết định tính (thường / phần lớn / khi…)
 - Nếu lỗi khác (handbook, mở khô, thiếu mini-case, heading biên tập, Subtitle, ---) → sửa đúng điểm đó
 - CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
 - Độ dài theo WRITING PREFS — không rút synopsis
 
 ${prefs}
+${shape}
 ${NARRATIVE_FLOW_RULES}
 ${BLOG_NEWS_VOICE}
 ${STORY_ARC_CLEAN}`,
@@ -500,6 +519,7 @@ Rồi chấm nhanh (Pass/Fail từng mục):
 - Có ≥1 ví dụ/mini-case đủ cụ thể để hình dung?
 - Có chỗ lặp / reset luận điểm?
 - Senior/Lead có thấy insight không hiển nhiên?
+- Bài có bị “khuôn công nghiệp” (giống mọi bài khác) không — nếu có, ghi 1 gạch chỉnh mở/heading theo shape
 
 Cuối cùng đúng một dòng:
 \`KẾT LUẬN: ĐẠT\` — chỉ khi ≥2/3 vai Không bỏ bài VÀ không Fail nặng hook/khô/lặp
@@ -510,6 +530,7 @@ Xuất ngắn (≤450 từ). Không viết lại bài. Không Knowledge Record /
 
     finalize: `## Nhiệm vụ FINALIZE (full legacy)
 Review + Fact-Check + Publish Ready theo Operating Prompt.
+${shape}
 
 ${factTpl}
 

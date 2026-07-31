@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { extractAlt, resolveHeroPrompt, sanitizeFluxPrompt } from "@/lib/image/hero-prompt";
 
 export type HeroImageModel = "flux" | "qwen";
 
@@ -21,90 +22,6 @@ export const HERO_MODELS: Record<
     description: "Mạnh text-in-image · cần FAL_KEY",
   },
 };
-
-function stripMd(value: string): string {
-  return value
-    .replace(/\*\*/g, "")
-    .replace(/`+/g, "")
-    .replace(/^#+\s*/gm, "")
-    .replace(/^["'\s]+|["'\s]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Prompt ngắn, ASCII-heavy — FLUX cloud hay trả ảnh đen nếu nhồi markdown/VI/cấm đoán dài */
-function sanitizeFluxPrompt(raw: string, topic: string): string {
-  let p = stripMd(raw)
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/[^\x20-\x7E]/g, " ") // bỏ non-ASCII (VI / ký tự lạ)
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // Cắt cụm “no X” quá nhiều — dễ kích safety / ảnh đen
-  p = p
-    .replace(/\bno\s+(readable\s+)?text[^.]*\.?/gi, "")
-    .replace(/\bno\s+real\s+people[^.]*\.?/gi, "")
-    .replace(/\bno\s+logos?[^.]*\.?/gi, "")
-    .replace(/\bno\s+fake\s+charts?[^.]*\.?/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (p.length < 24) {
-    p = `Minimal abstract editorial tech illustration about ${topic}. Soft teal geometric forms, magazine hero composition.`;
-  }
-
-  // FLUX NIM: prompt rõ, vừa phải — quá dài dễ fail im lặng
-  p = p.slice(0, 480).trim();
-  if (!/[.!?]$/.test(p)) p = `${p}.`;
-  return `${p} Clean abstract editorial style, soft lighting.`;
-}
-
-/** Lấy prompt English sạch — tránh nhồi cả Hero Brief (markdown/VI) vào FLUX → ảnh đen */
-function extractPromptFromHeroBrief(heroBrief: string | null | undefined, fallbackTopic: string): string {
-  const topic = fallbackTopic.slice(0, 80) || "technology";
-  const fallback = `Minimal abstract editorial tech illustration about ${topic}. Soft teal lighting, geometric forms, magazine cover mood.`;
-
-  if (!heroBrief?.trim()) return sanitizeFluxPrompt(fallback, topic);
-
-  const promptMatch =
-    heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*"([^"]+)"/i) ||
-    heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*'([^']+)'/i) ||
-    heroBrief.match(/\*\*[^*]*Prompt[^*]*:\*\*\s*([^\n]+)/i) ||
-    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*"([^"]+)"/i) ||
-    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*'([^']+)'/i) ||
-    heroBrief.match(/Prompt\s*\(English\)\s*:?\s*([^\n]+)/i) ||
-    heroBrief.match(/English prompt\s*:\s*"([^"]+)"/i) ||
-    heroBrief.match(/English prompt\s*:\s*([^\n]+)/i) ||
-    heroBrief.match(/```(?:text|prompt)?\n([\s\S]*?)```/i);
-
-  let base = stripMd(promptMatch?.[1] || "");
-
-  if (base.length < 40) {
-    const englishLines = heroBrief
-      .split(/\n+/)
-      .map((l) => stripMd(l))
-      .filter((l) => l.length > 40 && /[a-zA-Z]{4,}/.test(l) && !/HERO|Concept|Caption|Alt|Status/i.test(l))
-      .filter(
-        (l) =>
-          (l.match(/[a-zA-Z]/g)?.length ?? 0) >
-          (l.match(/[àáạảãăằắặẳẵâầấậẩẫèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/gi)?.length ??
-            0) *
-            2,
-      );
-    base = englishLines.sort((a, b) => b.length - a.length)[0] || "";
-  }
-
-  if (base.length < 24) base = fallback;
-  return sanitizeFluxPrompt(base, topic);
-}
-
-function extractAlt(heroBrief: string | null | undefined, title: string): string {
-  const altMatch =
-    heroBrief?.match(/\*\*[^*]*Alt[^*]*:\*\*\s*([^\n]+)/i) ||
-    heroBrief?.match(/Alt\s*text\s*:\s*([^\n]+)/i) ||
-    heroBrief?.match(/^Alt:\s*([^\n]+)/im);
-  return stripMd(altMatch?.[1] || title || "Hero illustration").slice(0, 180);
-}
 
 function decodeFluxBase64(raw: unknown): Buffer | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
@@ -364,9 +281,19 @@ export async function generateHeroImage(input: {
   heroBrief?: string | null;
   topic?: string | null;
   title?: string | null;
+  /** Prompt English do user chỉnh — ưu tiên hơn extract từ Hero Brief */
+  promptOverride?: string | null;
+  altOverride?: string | null;
 }) {
-  const prompt = extractPromptFromHeroBrief(input.heroBrief, input.topic || input.title || "technology");
-  const alt = extractAlt(input.heroBrief, input.title || input.topic || "Hero image");
+  const prompt = resolveHeroPrompt({
+    promptOverride: input.promptOverride,
+    heroBrief: input.heroBrief,
+    topic: input.topic,
+    title: input.title,
+  });
+  const alt =
+    input.altOverride?.trim().slice(0, 180) ||
+    extractAlt(input.heroBrief, input.title || input.topic || "Hero image");
 
   const buffer =
     input.model === "flux" ? await generateWithFlux(prompt) : await generateWithQwen(prompt);

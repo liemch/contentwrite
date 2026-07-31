@@ -14,7 +14,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const user = await requireUser();
     const { id } = await params;
-    const body = (await request.json()) as { model?: string };
+    const body = (await request.json()) as {
+      model?: string;
+      prompt?: string;
+      alt?: string;
+    };
     const model = body.model === "qwen" ? "qwen" : body.model === "flux" ? "flux" : null;
 
     if (!model) {
@@ -27,9 +31,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
     assertCanAccessArticle(user, article);
 
-    if (!article.heroBrief && !article.cleanPublish && !article.topic) {
+    if (!article.heroBrief && !article.cleanPublish && !article.topic && !body.prompt?.trim()) {
       return NextResponse.json(
-        { error: "Chưa có Hero Brief / chủ đề để gen ảnh. Chạy Finalize trước." },
+        { error: "Chưa có Hero Brief / chủ đề / prompt để gen ảnh. Chạy Finalize hoặc nhập prompt." },
         { status: 400 },
       );
     }
@@ -40,6 +44,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       heroBrief: article.heroBrief,
       topic: article.topic,
       title: article.title,
+      promptOverride: body.prompt?.trim() || null,
+      altOverride: body.alt?.trim() || null,
     });
 
     const cleanPublish = injectHeroIntoCleanPublish(
