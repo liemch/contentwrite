@@ -2,9 +2,9 @@ import { compare, hash } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { UserRole } from "@/generated/prisma/client";
+import { COOKIE_NAME } from "@/lib/auth-cookie";
 import { prisma } from "@/lib/db";
 
-const COOKIE_NAME = "cth_session";
 const BCRYPT_ROUNDS = 10;
 
 export type SessionUser = {
@@ -165,4 +165,4 @@ export async function ensureBootstrapAdmin(): Promise<void> {
   });
 }
 
-export { COOKIE_NAME };
+export { COOKIE_NAME } from "@/lib/auth-cookie";

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-import { COOKIE_NAME } from "@/lib/auth";
+import { COOKIE_NAME } from "@/lib/auth-cookie";
 
 const PUBLIC_PATHS = [
   "/login",
