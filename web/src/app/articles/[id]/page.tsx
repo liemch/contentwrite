@@ -204,13 +204,20 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       setActionError(msg);
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
+      const softQuality =
+        /listicle|outline|Bản sạch|Self-check|BAR VIẾT|sáo ngữ|quá ngắn|khi nào KHÔNG/i.test(msg);
       if (
         action === "run-step" &&
-        isTimeoutLike(msg, res.status) &&
         refreshed &&
-        (refreshed.status === "DRAFT" || refreshed.status === "RUNNING")
+        (refreshed.status === "DRAFT" || refreshed.status === "RUNNING") &&
+        (isTimeoutLike(msg, res.status) || softQuality)
       ) {
-        pushLog("warn", "⚠ Timeout — giữ tiến độ, tự chạy lại bước hiện tại...");
+        pushLog(
+          "warn",
+          softQuality
+            ? "⚠ Chất lượng chưa đạt — xóa nháp lỗi (nếu listicle) và tự viết lại..."
+            : "⚠ Timeout — giữ tiến độ, tự chạy lại bước hiện tại...",
+        );
         return { article: refreshed, softContinue: true };
       }
       return { article: null };

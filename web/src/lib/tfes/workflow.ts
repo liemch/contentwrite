@@ -819,12 +819,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT|listicle|Bản sạch|outline/i.test(
         raw,
       );
-    // Timeout / chất lượng: giữ Đang soạn để chạy lại bước
+    // Listicle thường nằm ở nửa đầu — xóa nháp để lần sau viết lại từ Write A
+    const isListicleRewrite = /listicle|outline listicle/i.test(raw);
     await prisma.article.update({
       where: { id: articleId },
       data: {
         status: isTimeout || isQuality ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
         errorMessage: redactSecrets(raw).slice(0, 500),
+        ...(isListicleRewrite
+          ? {
+              draft12: null,
+              currentStep: WorkflowStep.WRITE,
+            }
+          : {}),
       },
     });
     throw error instanceof Error ? error : new Error(raw);

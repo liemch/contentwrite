@@ -55,6 +55,11 @@ export function assertWritePhaseQuality(
       "Mở bài kiểu sáo ngữ (cấm theo BAR VIẾT). Chạy lại bước Viết với hook cụ thể.",
     );
   }
+  if (LISTICLE_OUTLINE.test(draft)) {
+    throw new Error(
+      "Nháp còn outline listicle (1. Hook / Khi nào nên / Framework…). Viết lại theo heading Article.md, liền mạch.",
+    );
+  }
 }
 
 export function assertFullDraftQuality(draft: string): void {
