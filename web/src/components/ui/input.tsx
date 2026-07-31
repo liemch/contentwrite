@@ -19,8 +19,8 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return <select className={`${fieldClass} ${className ?? ""}`} {...props} />;
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={fieldClass} {...props} />;
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={`${fieldClass} ${className ?? ""}`} {...props} />;
 }
 
 export function FieldHint({ children }: { children: React.ReactNode }) {

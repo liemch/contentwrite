@@ -175,42 +175,71 @@ export function TfesDocsEditor() {
   }
 
   return (
-    <div className="surface-card space-y-4 p-6 sm:p-8">
-      <div>
-        <p className="text-sm font-semibold text-[var(--ink)]">Tài liệu AI-TFES (.md)</p>
-        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-          Prompt / Domain Profile / Template mà pipeline nhúng vào LLM. Lưu = override trên DB
-          (ưu tiên hơn file trong repo). Reset = về bản disk.
-        </p>
+    <div className="surface-card w-full space-y-4 p-5 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[var(--ink)]">Tài liệu AI-TFES (.md)</p>
+          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            Prompt / Domain Profile / Template mà pipeline nhúng vào LLM. Lưu = override trên DB
+            (ưu tiên hơn file trong repo). Reset = về bản disk.
+          </p>
+        </div>
       </div>
 
-      <div>
-        <Label htmlFor="tfes-doc-path">File</Label>
-        <Select
-          id="tfes-doc-path"
-          value={path}
-          onChange={(e) => {
-            if (dirty && !window.confirm("Có thay đổi chưa lưu — đổi file?")) return;
-            setPath(e.target.value);
-          }}
-        >
-          {grouped.map(([group, docs]) => (
-            <optgroup key={group} label={group}>
-              {docs.map((doc) => (
-                <option key={doc.path} value={doc.path}>
-                  {doc.label}
-                  {doc.hasOverride ? " · DB" : ""}
-                  {!doc.onDisk ? " · thiếu disk" : ""}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
-        <FieldHint>
-          {detail?.hasOverride
-            ? `Đang dùng override DB${detail.updatedAt ? ` · ${new Date(detail.updatedAt).toLocaleString("vi-VN")}` : ""}${detail.updatedBy ? ` · ${detail.updatedBy}` : ""}`
-            : "Đang dùng bản disk (chưa có override)"}
-        </FieldHint>
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] lg:items-start">
+        <div className="min-w-0">
+          <Label htmlFor="tfes-doc-path">File</Label>
+          <Select
+            id="tfes-doc-path"
+            value={path}
+            onChange={(e) => {
+              if (dirty && !window.confirm("Có thay đổi chưa lưu — đổi file?")) return;
+              setPath(e.target.value);
+            }}
+          >
+            {grouped.map(([group, docs]) => (
+              <optgroup key={group} label={group}>
+                {docs.map((doc) => (
+                  <option key={doc.path} value={doc.path}>
+                    {doc.label}
+                    {doc.hasOverride ? " · DB" : ""}
+                    {!doc.onDisk ? " · thiếu disk" : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </Select>
+          <FieldHint>
+            {detail?.hasOverride
+              ? `Đang dùng override DB${detail.updatedAt ? ` · ${new Date(detail.updatedAt).toLocaleString("vi-VN")}` : ""}${detail.updatedBy ? ` · ${detail.updatedBy}` : ""}`
+              : "Đang dùng bản disk (chưa có override)"}
+          </FieldHint>
+        </div>
+
+        <div className="flex min-w-0 flex-wrap gap-2 lg:justify-end lg:pt-7">
+          <Button type="button" disabled={!dirty || saving || loadingDoc} onClick={() => void onSave()}>
+            {saving ? "Đang lưu…" : "Lưu override"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!detail?.hasOverride || saving}
+            onClick={() => void onReset()}
+          >
+            Reset về disk
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!detail?.diskContent || saving}
+            onClick={restoreDisk}
+          >
+            Dán bản disk
+          </Button>
+          {dirty && (
+            <span className="self-center text-xs font-medium text-[var(--accent)]">Chưa lưu</span>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -230,41 +259,16 @@ export function TfesDocsEditor() {
         </div>
       )}
 
-      <div>
+      <div className="min-w-0 w-full">
         <Label htmlFor="tfes-doc-body">Nội dung Markdown</Label>
         <Textarea
           id="tfes-doc-body"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           disabled={loadingDoc || saving}
-          className="min-h-[320px] font-mono text-xs leading-relaxed"
+          className="mt-2 min-h-[min(70vh,640px)] w-full max-w-none resize-y font-mono text-[13px] leading-relaxed"
           spellCheck={false}
         />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" disabled={!dirty || saving || loadingDoc} onClick={() => void onSave()}>
-          {saving ? "Đang lưu…" : "Lưu override"}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!detail?.hasOverride || saving}
-          onClick={() => void onReset()}
-        >
-          Reset về disk
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!detail?.diskContent || saving}
-          onClick={restoreDisk}
-        >
-          Dán bản disk
-        </Button>
-        {dirty && (
-          <span className="self-center text-xs font-medium text-[var(--accent)]">Chưa lưu</span>
-        )}
       </div>
     </div>
   );

@@ -13,6 +13,8 @@ type AppShellProps = {
   backLabel?: string;
   actions?: React.ReactNode;
   showHeaderTitle?: boolean;
+  /** Nội dung rộng hơn (vd. Settings editor markdown) */
+  wide?: boolean;
 };
 
 const NAV_BASE = [
@@ -30,6 +32,7 @@ export function AppShell({
   backLabel = "Quay lại",
   actions,
   showHeaderTitle = true,
+  wide = false,
 }: AppShellProps) {
   const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState(false);
@@ -55,7 +58,7 @@ export function AppShell({
   return (
     <div className="app-shell-bg min-h-screen">
       <header className="sticky top-0 z-30 border-b border-[var(--line)]/80 bg-[rgba(243,247,249,0.82)] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5 sm:px-8">
+        <div className={`mx-auto flex items-center justify-between gap-4 px-5 py-3.5 sm:px-8 ${wide ? "max-w-7xl" : "max-w-6xl"}`}>
           <div className="flex items-center gap-6">
             <Link href="/dashboard" className="group flex items-center gap-3">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-[var(--ink)] text-sm font-bold text-white shadow-md">
@@ -121,7 +124,7 @@ export function AppShell({
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 sm:py-10">
+      <main className={`mx-auto w-full px-5 py-8 sm:px-8 sm:py-10 ${wide ? "max-w-7xl" : "max-w-6xl"}`}>
         <div className="animate-fade-up">
           {backHref && (
             <Link
