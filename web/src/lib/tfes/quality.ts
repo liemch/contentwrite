@@ -26,8 +26,23 @@ const BARE_ALT_LINE = /(?:^|\n)\s*alt\s*(?:\n|$)/i;
 
 export type QualityIssue = { code: string; message: string };
 
-function countWhenNotMentions(text: string): number {
-  return (text.match(/khi nào\s+(không|KHÔNG)|không nên dùng|KHÔNG nên/gi) ?? []).length;
+/**
+ * Đếm khối/heading dành riêng cho “khi nào KHÔNG” — không đếm mọi lần nhắc trong bài
+ * (chủ đề kiểu “Khi nào nên dùng…” dễ có 5+ cụm từ bình thường).
+ */
+function countWhenNotBlocks(text: string): number {
+  const heading =
+    text.match(/^#{1,3}\s+[^\n]*(khi nào\s+không|không nên dùng|when not to)[^\n]*$/gim) ??
+    [];
+  const labeled =
+    text.match(
+      /(?:^|\n)\s*(?:\*\*)?Khi nào không nên(?:\*\*)?\s*[:：]/gi,
+    ) ?? [];
+  const numberedWhenNot =
+    text.match(
+      /(?:^|\n)\s*\d+\.\s*Khi nào (?:không|KHÔNG)[^\n]{0,80}/g,
+    ) ?? [];
+  return heading.length + labeled.length + numberedWhenNot.length;
 }
 
 export function assertWritePhaseQuality(
@@ -82,9 +97,9 @@ export function assertFullDraftQuality(draft: string): void {
       "Nháp còn outline listicle (1. Hook / Khi nào nên / Framework…). Viết lại theo heading Article.md, liền mạch.",
     );
   }
-  if (countWhenNotMentions(draft) >= 5) {
+  if (countWhenNotBlocks(draft) >= 3) {
     throw new Error(
-      "Mục “khi nào không nên” bị lặp quá nhiều — gộp một lần trong Recommendations rồi viết tiếp.",
+      "Có ≥3 khối/heading “khi nào không nên” riêng — gộp một lần trong Recommendations rồi viết tiếp.",
     );
   }
 }
@@ -102,9 +117,9 @@ export function assertCleanPublishQuality(clean: string): void {
       "Bản sạch còn outline listicle — bước Publish phải viết lại một mạch theo Article.md (không copy checklist).",
     );
   }
-  if (countWhenNotMentions(clean) >= 5) {
+  if (countWhenNotBlocks(clean) >= 3) {
     throw new Error(
-      "Bản sạch lặp “khi nào không nên” — gộp một lần rồi đẩy luận điểm tiếp.",
+      "Bản sạch có ≥3 khối “khi nào không nên” — gộp một lần trong Recommendations.",
     );
   }
   if (BARE_ALT_LINE.test(clean)) {
@@ -185,10 +200,11 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (countWhenNotMentions(body) >= 5) {
+  if (countWhenNotBlocks(body) >= 3) {
     issues.push({
       code: "WHEN_NOT_REPEAT",
-      message: "Lặp “khi nào không nên” quá nhiều — nhịp đọc bị reset.",
+      message:
+        "Có ≥3 khối/heading “khi nào không nên” riêng — gộp một lần trong Recommendations.",
     });
   }
 

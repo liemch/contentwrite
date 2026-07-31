@@ -54,6 +54,8 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
   // Meta biên tập hay lọt vào body
   body = body.replace(/\(\s*L\s*[0-3]\s*insight\s*\)/gi, "");
   body = body.replace(/\bL2 insight\b/gi, "insight");
+  body = body.replace(/^\s*\*{0,2}Insight\s*L\s*[0-3]\s*:\s*/gim, "");
+  body = body.replace(/\bInsight\s*L\s*[0-3]\s*:\s*/gi, "");
 
   return body.replace(/\n{3,}/g, "\n\n").trim();
 }
