@@ -26,13 +26,13 @@ function domainProfilePath(domain: string): string {
 
 /**
  * System prompt chuẩn AI-TFES:
- * Operating-Prompt-SHORT + Domain Profile đầy đủ (tông, tier nguồn, sensitivity, seed…).
+ * Operating-Prompt.md (full) + Domain Profile đầy đủ (tông, tier nguồn, sensitivity, seed…).
  */
 export function getSystemPrompt(domain: string): string {
-  const operatingShort = readTfesFile("02-Prompts/Operating-Prompt-SHORT.md");
+  const operating = readTfesFile("02-Prompts/Operating-Prompt.md");
   const domainProfile = readTfesFile(domainProfilePath(domain));
 
-  return `${operatingShort}
+  return `${operating}
 
 ---
 
@@ -61,7 +61,7 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 
 /**
  * System prompt MỎNG cho bước ngắn (Gate / Decision / Planning / Review / Fact).
- * Tránh nhồi Operating-Prompt-SHORT + Domain đầy đủ → gpt-oss reasoning quá lâu / timeout 240s.
+ * Không nhồi Operating-Prompt full → tránh gpt-oss reasoning quá lâu / timeout 240s.
  */
 export function getSystemPromptLite(domain: string): string {
   const domainProfile = readTfesFile(domainProfilePath(domain));
