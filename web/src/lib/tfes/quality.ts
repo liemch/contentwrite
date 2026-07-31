@@ -4,6 +4,7 @@ import {
   EDITORIAL_HEADING_RE,
   hasAvoid,
   hasMarkdownTable,
+  READER_HONESTY_RE,
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
 
@@ -148,8 +149,10 @@ export function assertCleanPublishQuality(
   if (BARE_ALT_LINE.test(clean)) {
     throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).');
   }
-  if (!WHEN_NOT.test(clean)) {
-    throw new Error('Bản sạch thiếu “khi nào KHÔNG nên”.');
+  if (!READER_HONESTY_RE.test(clean)) {
+    throw new Error(
+      'Bản sạch thiếu điều kiện/phản biện (vd. “không nên”, “chỉ khi”, “không phù hợp”).',
+    );
   }
 }
 
@@ -189,7 +192,7 @@ export function editorialSelfCheck(input: {
     issues.push({ code: "INSIGHT_LEVEL", message: "Insight Gate có vẻ < L2." });
   }
 
-  if (!WHEN_NOT.test(body)) {
+  if (!WHEN_NOT.test(draft) && !READER_HONESTY_RE.test(clean || draft)) {
     issues.push({
       code: "WHEN_NOT",
       message: "Thiếu “khi nào KHÔNG nên” / điều kiện không áp dụng.",

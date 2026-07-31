@@ -85,6 +85,11 @@ ${avoidLines.join("\n")}`;
 export const EDITORIAL_HEADING_RE =
   /^#{1,3}\s*(Introduction|Context|Problem Statement|Deep Analysis|Real-world Examples|Practical Recommendations|Executive Summary|Key Takeaways|Metadata)\b/im;
 
+/** Trung thực trí tuệ trên bản đọc liền (không bắt đúng cụm “khi nào KHÔNG nên”) */
+export const READER_HONESTY_RE =
+  /khi nào\s+(không|KHÔNG)|không nên|tránh khi|chỉ (?:nên |dùng )?khi|không phù hợp|không áp dụng|hạn chế khi|không đưa vào production|điều kiện tiên quyết|khi thiếu/i;
+
 export function hasMarkdownTable(text: string): boolean {
   return /^\s*\|.+\|\s*$/m.test(text) && /^\s*\|?\s*:?-{3,}/m.test(text);
 }
+

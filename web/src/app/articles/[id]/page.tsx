@@ -207,18 +207,26 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
       const softQuality =
-        /listicle|outline|Bản sạch|Self-check|BAR VIẾT|sáo ngữ|quá ngắn|khi nào KHÔNG/i.test(msg);
+        /listicle|outline listicle|Bản sạch|Self-check|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
+          msg,
+        );
       if (
         action === "run-step" &&
         refreshed &&
         (refreshed.status === "DRAFT" || refreshed.status === "RUNNING") &&
         (isTimeoutLike(msg, res.status) || softQuality)
       ) {
+        const isCleanOnly = /Bản sạch|heading biên tập|điều kiện\/phản biện/i.test(msg);
+        const isListicle = /listicle|outline listicle/i.test(msg);
         pushLog(
           "warn",
-          softQuality
-            ? "⚠ Chất lượng chưa đạt — xóa nháp lỗi (nếu listicle) và tự viết lại..."
-            : "⚠ Timeout — giữ tiến độ, tự chạy lại bước hiện tại...",
+          isCleanOnly
+            ? "⚠ Bản sạch chưa đạt — chỉ chạy lại Publish Ready (giữ nháp)..."
+            : isListicle
+              ? "⚠ Listicle — viết lại từ bước Viết..."
+              : isTimeoutLike(msg, res.status)
+                ? "⚠ Timeout — giữ tiến độ, tự chạy lại bước hiện tại..."
+                : "⚠ Chất lượng chưa đạt — tự chạy lại bước hiện tại...",
         );
         return { article: refreshed, softContinue: true };
       }
@@ -356,9 +364,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     let safety = 0;
     let softRetries = 0;
+    let publishSoftRetries = 0;
     let current = article;
     const MAX_STEPS = 40;
     const MAX_SOFT_RETRIES = 16;
+    const MAX_PUBLISH_SOFT = 4;
 
     while (
       safety < MAX_STEPS &&
@@ -377,6 +387,17 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
       if (result.softContinue) {
         softRetries += 1;
+        const err = current.errorMessage || actionError || "";
+        if (/Bản sạch|heading biên tập|điều kiện\/phản biện/i.test(err)) {
+          publishSoftRetries += 1;
+          if (publishSoftRetries > MAX_PUBLISH_SOFT) {
+            pushLog(
+              "error",
+              `✗ Publish Ready fail ${MAX_PUBLISH_SOFT} lần — dừng. Giữ tab Bản sạch / bấm “Chạy bước tiếp” sau khi deploy bản mới.`,
+            );
+            break;
+          }
+        }
         if (softRetries > MAX_SOFT_RETRIES) {
           pushLog(
             "error",
@@ -384,7 +405,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           );
           break;
         }
-        // Nghỉ ngắn trước khi thử lại cùng bước (tránh spam NVIDIA)
         await new Promise((r) => setTimeout(r, 1500));
         continue;
       }

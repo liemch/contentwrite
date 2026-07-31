@@ -33,6 +33,7 @@ import {
 import {
   sanitizeEditorialBody,
   stripInsightLevelLabels,
+  toReaderCleanPublish,
 } from "@/lib/publish-content";
 import {
   formatWritingPrefsPrompt,
@@ -699,12 +700,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         if (finPhase === "done" && (article.cleanPublish ?? "").trim().length >= 80) {
           try {
-            assertCleanPublishQuality(article.cleanPublish!, prefs);
+            const cleanedExisting = toReaderCleanPublish(article.cleanPublish!);
+            assertCleanPublishQuality(cleanedExisting, prefs);
             const skipCheck = editorialSelfCheck({
               researchBrief: article.researchBrief,
               insightGate: article.insightGate,
               draft12: stripPipelineMarks(article.draft12),
-              cleanPublish: article.cleanPublish,
+              cleanPublish: cleanedExisting,
               factCheck: article.factCheck,
               writingPrefs: prefs,
             });
@@ -712,6 +714,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               const updated = await prisma.article.update({
                 where: { id: articleId },
                 data: {
+                  cleanPublish: cleanedExisting,
                   status: ArticleStatus.PUBLISH_READY,
                   currentStep: null,
                   errorMessage: null,
@@ -751,14 +754,18 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const parsed = parseFullOutput(appendContext(finalizeB));
-        let cleanPublish = sanitizeEditorialBody(stripPipelineMarks(parsed.cleanPublish ?? ""));
+        let cleanPublish = toReaderCleanPublish(
+          sanitizeEditorialBody(stripPipelineMarks(parsed.cleanPublish ?? "")),
+        );
         if (cleanPublish.length < 80) {
-          const strippedOut = sanitizeEditorialBody(stripPipelineMarks(finalizeB));
+          const strippedOut = toReaderCleanPublish(
+            sanitizeEditorialBody(stripPipelineMarks(finalizeB)),
+          );
           cleanPublish =
             strippedOut.length >= 80
               ? strippedOut
               : draftClean.length >= 80
-                ? sanitizeEditorialBody(draftClean)
+                ? toReaderCleanPublish(sanitizeEditorialBody(draftClean))
                 : "";
         }
         if (cleanPublish.length < 80) {
@@ -844,11 +851,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
     const isTimeout = /timed? ?out|timeout|Request timed out|Hobby chỉ cho/i.test(raw);
     const isQuality =
-      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT|listicle|Bản sạch|outline/i.test(
+      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT|listicle|Bản sạch|outline|heading biên tập|không phù hợp|điều kiện\/phản biện/i.test(
         raw,
       );
-    // Listicle thường nằm ở nửa đầu — xóa nháp để lần sau viết lại từ Write A
+    // Listicle ở nửa đầu → viết lại Write A
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
+    // Bản sạch fail → chỉ xóa cleanPublish, giữ nháp 12 phần + FINALIZE
+    const isCleanPublishFail =
+      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid/i.test(raw) &&
+      !isListicleRewrite;
+
     await prisma.article.update({
       where: { id: articleId },
       data: {
@@ -859,7 +871,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               draft12: null,
               currentStep: WorkflowStep.WRITE,
             }
-          : {}),
+          : isCleanPublishFail
+            ? {
+                cleanPublish: null,
+                currentStep: WorkflowStep.FINALIZE,
+              }
+            : {}),
       },
     });
     throw error instanceof Error ? error : new Error(raw);

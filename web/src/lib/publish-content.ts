@@ -60,6 +60,25 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
   return body.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/**
+ * Bản sạch đăng tin: gỡ heading biên tập Article.md còn sót (tránh soft-retry vòng).
+ * Giữ nội dung đoạn; chỉ bỏ/đổi tên heading.
+ */
+export function toReaderCleanPublish(content: string | null | undefined): string {
+  if (!content?.trim()) return content ?? "";
+  let body = sanitizeEditorialBody(content);
+
+  body = body.replace(
+    /^#{1,3}\s*(Introduction|Context|Problem Statement|Deep Analysis|Real-world Examples|Practical Recommendations|Executive Summary|Key Takeaways|Metadata)\b[^\n]*$/gim,
+    "",
+  );
+
+  // Nhãn Section còn sót
+  body = body.replace(/^\s*\*{0,2}Section\s*\d+\s*[:.-]\s*/gim, "");
+  body = body.replace(/\n{3,}/g, "\n\n").trim();
+  return body;
+}
+
 export function prepareReaderContent(
   content: string,
   options: { stripLeadingHeroImage?: boolean; stripHeroBriefSection?: boolean } = {},
