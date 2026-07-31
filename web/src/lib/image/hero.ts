@@ -147,8 +147,9 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
     { Authorization: `Bearer ${apiKey}` },
     {
       prompt,
-      width: 1024,
-      height: 576,
+      // FLUX.1-dev chỉ nhận: 768,832,…,1344 — 576 (cũ 16:9) bị 422
+      width: 1344,
+      height: 768,
       seed: Math.floor(Math.random() * 1_000_000),
       steps: 20,
     },
