@@ -48,10 +48,21 @@ const TABS = [
 
 function timeoutMessage(status: number): string {
   if (status === 504 || status === 408) {
-    return "Timeout — bấm chạy bước lại (chu trình tách nhỏ từng bước).";
+    return "Timeout — hệ thống sẽ tự chạy lại bước (chu trình tách nhỏ từng bước).";
   }
   return `HTTP ${status}`;
 }
+
+function isTimeoutLike(message: string, status?: number): boolean {
+  if (status === 504 || status === 408) return true;
+  return /timed? ?out|timeout|Hobby chỉ cho|Request timed out/i.test(message);
+}
+
+type CallActionResult = {
+  article: Article | null;
+  /** Tiếp tục vòng lặp full-pipeline (timeout / gate soft) */
+  softContinue?: boolean;
+};
 
 function tabForArticle(a: Article): string {
   const clean = (a.cleanPublish ?? "").trim();
@@ -118,8 +129,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   async function callAction(
     action: "run-step" | "reset" | "approve" | "publish",
-  ): Promise<Article | null> {
-    if (!id) return null;
+  ): Promise<CallActionResult> {
+    if (!id) return { article: null };
 
     const stepBefore = article?.currentStep ?? "RESEARCH";
     if (action === "run-step") {
@@ -154,7 +165,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       setRunningLabel("");
       setActionError(msg);
       pushLog("error", `✗ Không gọi được API: ${msg}`);
-      return null;
+      // Mạng đứt tạm — full pipeline có thể thử lại
+      if (action === "run-step" && /fetch|network|Failed to fetch|aborted/i.test(msg)) {
+        const refreshed = await load();
+        if (refreshed && refreshed.status === "DRAFT") {
+          pushLog("warn", "⚠ Mất kết nối tạm — sẽ tự thử lại bước...");
+          return { article: refreshed, softContinue: true };
+        }
+      }
+      return { article: null };
     }
 
     let data: {
@@ -184,13 +203,22 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       const msg = data.error ?? timeoutMessage(res.status);
       setActionError(msg);
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
-      await load();
-      return null;
+      const refreshed = await load();
+      if (
+        action === "run-step" &&
+        isTimeoutLike(msg, res.status) &&
+        refreshed &&
+        (refreshed.status === "DRAFT" || refreshed.status === "RUNNING")
+      ) {
+        pushLog("warn", "⚠ Timeout — giữ tiến độ, tự chạy lại bước hiện tại...");
+        return { article: refreshed, softContinue: true };
+      }
+      return { article: null };
     }
 
     if (!data.article) {
       pushLog("error", "✗ API không trả về article");
-      return null;
+      return { article: null };
     }
 
     const next = data.article;
@@ -209,7 +237,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       } else {
         setTab(tabForArticle(next));
       }
-      return next;
+      return { article: next };
     }
 
     const isGateRetry =
@@ -220,14 +248,24 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
       pushLog("info", "→ Quay bước Research (Tavily + Verify/Synth) với góc sắc hơn");
       setTab("research");
-      return next;
+      return { article: next, softContinue: true };
     }
 
     if (next.errorMessage && action === "run-step") {
       setActionError(next.errorMessage);
       pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
       setTab(tabForArticle(next));
-      return next;
+      // Self-check / quality: giữ DRAFT — full pipeline thử lại cùng bước
+      if (
+        next.status === "DRAFT" &&
+        /Self-check|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
+          next.errorMessage,
+        )
+      ) {
+        pushLog("warn", "⚠ Chất lượng chưa đạt — tự chạy lại bước hiện tại...");
+        return { article: next, softContinue: true };
+      }
+      return { article: next };
     }
 
     if (action === "run-step") {
@@ -299,37 +337,51 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("success", `✓ ${action} → ${next.status} (${elapsedSec}s)`);
     }
 
-    return next;
+    return { article: next };
   }
 
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
-    pushLog("info", "→ Chạy cả chu trình AI-TFES (10 bước + Gate)...");
+    pushLog("info", "→ Chạy cả chu trình AI-TFES (10 bước + Gate) — timeout sẽ tự retry...");
 
     let safety = 0;
+    let softRetries = 0;
     let current = article;
+    const MAX_STEPS = 40;
+    const MAX_SOFT_RETRIES = 16;
 
     while (
-      safety < 24 &&
+      safety < MAX_STEPS &&
       current.status !== "PUBLISH_READY" &&
       current.status !== "FAILED" &&
       current.status !== "PUBLISHED" &&
       current.status !== "APPROVED"
     ) {
       safety += 1;
-      const next = await callAction("run-step");
-      if (!next) {
+      const result = await callAction("run-step");
+      if (!result.article) {
         pushLog("error", "✗ Dừng chu trình vì lỗi mạng/API — bấm lại để tiếp tục");
         break;
       }
-      current = next;
-      const softRetry =
-        Boolean(current.errorMessage) &&
-        /Gate < L2|nghiên cứu lại/i.test(current.errorMessage || "");
+      current = result.article;
+
+      if (result.softContinue) {
+        softRetries += 1;
+        if (softRetries > MAX_SOFT_RETRIES) {
+          pushLog(
+            "error",
+            `✗ Đã tự retry ${MAX_SOFT_RETRIES} lần (timeout/chất lượng) — dừng để anh kiểm tra log`,
+          );
+          break;
+        }
+        // Nghỉ ngắn trước khi thử lại cùng bước (tránh spam NVIDIA)
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+
       if (current.status === "FAILED" || current.status === "PUBLISH_READY") break;
-      // Self-check fail cứng (DRAFT + error) dừng; gate-retry thì tiếp tục
-      if (current.errorMessage && !softRetry) break;
+      if (current.errorMessage) break;
     }
 
     if (current.status === "PUBLISH_READY") {
@@ -337,18 +389,21 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     } else if (current.status === "FAILED") {
       pushLog(
         "error",
-        current.currentStep === "INSIGHT" || /Insight|Cổng Insight|Gate|Self-check/i.test(current.errorMessage || "")
+        current.currentStep === "INSIGHT" ||
+          /Insight|Cổng Insight|Gate|Self-check/i.test(current.errorMessage || "")
           ? "✗ Dừng ở cổng chất lượng (Gate/Self-check). Xem log · đổi góc hoặc Làm lại từ đầu."
           : "✗ Chu trình dừng vì lỗi",
       );
-      if (current.errorMessage && current.status !== "FAILED") {
-        pushLog("warn", `⚠ ${current.errorMessage}`);
-      }
     } else if (
       current.errorMessage &&
       /Gate < L2|nghiên cứu lại/i.test(current.errorMessage)
     ) {
       pushLog("warn", `⚠ ${current.errorMessage} — bấm tiếp để Research lại`);
+    } else if (softRetries > 0 && current.status === "DRAFT") {
+      pushLog(
+        "warn",
+        `⚠ Dừng giữa chừng sau ${softRetries} lần soft-retry — bấm “Cả chu trình” để tiếp tục`,
+      );
     }
   }
 
@@ -469,7 +524,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           size="sm"
           disabled={running || article.status === "PUBLISHED" || isReviewMode}
           onClick={runFullPipeline}
-          title="Có thể 10–20 phút · dễ timeout nếu đóng tab"
+          title="Timeout/self-check sẽ tự retry đến PUBLISH_READY (giữ tab mở)"
         >
           Chạy cả chu trình
         </Button>
@@ -502,8 +557,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           </Button>
         )}
         <p className="w-full text-[11px] text-[var(--ink-faint)] sm:w-auto sm:ml-auto">
-          Nên dùng <span className="font-medium text-[var(--ink-muted)]">Chạy bước tiếp</span> (an
-          toàn timeout). “Cả chu trình” chỉ khi anh theo dõi tab.
+          Timeout / self-check: hệ thống tự chạy lại bước (tối đa ~16 lần). Giữ tab mở khi dùng
+          “Cả chu trình”.
         </p>
       </section>
 

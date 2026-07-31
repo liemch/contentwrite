@@ -394,12 +394,15 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
   } catch (error) {
     const message = error instanceof Error ? error.message : "Lỗi auto-write";
     const isTimeout = /timed? ?out|timeout|Hobby chỉ cho/i.test(message);
-    const nextRunAt = computeNextRunAt({
-      scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
-      intervalHours: config.intervalHours,
-      preferredHour: config.preferredHour,
-      timezone: config.timezone,
-    });
+    // Timeout: hẹn lại ~45s để tick/cron tự resume bước (không đợi lịch daily)
+    const nextRunAt = isTimeout
+      ? new Date(Date.now() + 45_000)
+      : computeNextRunAt({
+          scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
+          intervalHours: config.intervalHours,
+          preferredHour: config.preferredHour,
+          timezone: config.timezone,
+        });
     await prisma.autoWriteConfig.update({
       where: { id: CONFIG_ID },
       data: {
@@ -407,7 +410,9 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         nextRunAt,
         lastArticleId: article.id,
         lastDomain: domain,
-        lastError: message.slice(0, 500),
+        lastError: isTimeout
+          ? `Timeout — tự retry sau 45s: ${message}`.slice(0, 500)
+          : message.slice(0, 500),
       },
     });
     await prisma.article.update({

@@ -47,7 +47,15 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
     (_, label: string, title: string) => `${label}${stripInsightLevelLabels(title)}`,
   );
 
-  return body.trim();
+  // Placeholder hero sót chữ "alt" trần hoặc alt rỗng
+  body = body.replace(/^\s*alt\s*$/gim, "");
+  body = body.replace(/!\[(?:alt)?\]\(HERO_IMAGE\)/gi, "![Minh họa chủ đề bài](HERO_IMAGE)");
+
+  // Meta biên tập hay lọt vào body
+  body = body.replace(/\(\s*L\s*[0-3]\s*insight\s*\)/gi, "");
+  body = body.replace(/\bL2 insight\b/gi, "insight");
+
+  return body.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export function prepareReaderContent(

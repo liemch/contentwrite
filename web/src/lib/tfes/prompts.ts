@@ -54,7 +54,9 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 - Đoạn Deep Analysis chỉ liệt kê chung chung không có trade-off có điều kiện
 - Gắn (L2)/(L3)/L2 vào Title hoặc Subtitle (cấp insight chỉ nằm ở tab Insight)
 - Nhét HERO IMAGE BRIEF vào bản nháp 12 phần (Hero chỉ ở Publish Ready)
-- Lạm dụng markdown table — ưu tiên bullet/numbered list; table chỉ khi so sánh ≤3 cột số liệu thật`;
+- Lạm dụng markdown table — ưu tiên bullet/numbered list; table chỉ khi so sánh ≤3 cột số liệu thật
+- Bản đăng kiểu listicle đánh số (1. Hook / 2. Khi nào nên / Decision Framework…) — phải viết liền mạch theo Article.md
+- Lặp mục “khi nào không nên” nhiều lần chỉ để đệm chữ`;
 }
 
 /**
@@ -163,7 +165,17 @@ const FORMAT_RULES_WRITE = `### Định dạng bài (bắt buộc)
 - Title & Subtitle: tiếng Việt rõ nghĩa — CẤM gắn (L2), (L3), L2, cấp insight
 - CẤM viết HERO IMAGE BRIEF / prompt ảnh trong bước này
 - Ưu tiên đoạn văn + bullet list; HẠN CHẾ markdown table (chỉ khi thật sự cần so sánh số liệu ngắn)
-- Không viết meta biên tập ("Insight Gate đạt L2…") vào body bài`;
+- Không viết meta biên tập ("Insight Gate đạt L2…", "(L2 insight)") vào body bài`;
+
+/** Một sợi chuyện xuyên suốt — chống bản xuất bản rời / listicle */
+const NARRATIVE_FLOW_RULES = `### Nhịp đọc (bắt buộc — bản đăng phải cuốn)
+- MỘT luận điểm trung tâm xuyên suốt từ mở bài → kết; mỗi ## phải ĐẨY luận điểm đi một bước, không tóm tắt lại từ đầu
+- CẤM outline blog marketing: "1. Hook", "2. Executive Summary", "3. Khi nào nên", "Decision Framework", đánh số 1–11 kiểu checklist
+- CẤM lặp cùng một ý "khi nào không nên" ở ≥2 mục riêng — gộp một lần trong Recommendations (hoặc một đoạn Deep Analysis), rồi đi tiếp
+- Hook mở đầu phải nối mượt vào Introduction/Context (không dựng xong rồi nhảy sang bullet tóm tắt)
+- Đoạn chuyển: cuối mỗi phần có câu cầu nối sang phần sau ("điểm mù…", "vì vậy…", "trade-off thật…")
+- Giọng engineering: cụ thể (cơ chế, ràng buộc, failure mode) — không giọng slide consulting / % bịa
+- Nhịp câu: xen câu ngắn chốt sau vài câu dài; tránh mọi đoạn đều 3 câu khuôn mẫu`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -228,6 +240,8 @@ Tiếng Việt ~1.200–1.800 từ. Có "khi nào KHÔNG".
 
 ${FORMAT_RULES_WRITE}
 
+${NARRATIVE_FLOW_RULES}
+
 ${articleTpl}`,
 
     "write-a": `## Nhiệm vụ bước 7 WRITING — Phase A (nửa đầu)
@@ -235,25 +249,32 @@ Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY):
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
-- Hook cụ thể — CẤM mở chung chung
+- Hook cụ thể — CẤM mở chung chung; sau hook viết tiếp mạch (không đóng lại bằng bullet tóm tắt)
+- Đặt insight L2/L3 sớm (1–2 câu rõ điều kiện) rồi mới Context / Problem
 - Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện (không gắn nhãn L2 vào title)
 - Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
+- Heading đúng tên Article.md (## Introduction, ## Context…) — CẤM "1. Hook", "2. Executive Summary"
 
 Dừng sau Deep Analysis. KHÔNG Examples / Recommendations / Takeaways / Discussion / References / HERO.
 
 ${FORMAT_RULES_WRITE}
 
+${NARRATIVE_FLOW_RULES}
+
 ${articleTpl}`,
 
     "write-b": `## Nhiệm vụ bước 7 WRITING — Phase B (nửa sau)
-Tiếp tục NỬA SAU theo Article.md + Planning trong CONTEXT:
-- Real-world Examples (≥2): ràng buộc kỹ thuật cụ thể — CẤM "Công ty ABC"
-- Practical Recommendations Cá nhân/Team/Tổ chức: làm gì / khi nào / khi nào KHÔNG / rủi ro
-- Key Takeaways (3) · Discussion Questions (3) · References (chỉ Research Brief)
+Tiếp tục NỬA SAU theo Article.md + Planning trong CONTEXT — nối tiếp nửa đầu (đọc part A trong CONTEXT):
+- Real-world Examples (≥2): ràng buộc kỹ thuật cụ thể — CẤM "Công ty ABC"; mỗi case minh họa luận điểm đã nêu, không case minh họa sơ đồ
+- Practical Recommendations Cá nhân/Team/Tổ chức: làm gì / khi nào / khi nào KHÔNG / rủi ro — chỉ MỘT khối “khi nào KHÔNG” (không tách mục riêng trùng)
+- Key Takeaways (3) · Discussion Questions (3) · References (chỉ Research Brief, URL thật)
+- Câu chuyển từ Deep Analysis → Examples → Recommendations phải liền mạch
 
 KHÔNG viết lại nửa đầu. KHÔNG HERO IMAGE BRIEF. ~600–900 từ.
 
 ${FORMAT_RULES_WRITE}
+
+${NARRATIVE_FLOW_RULES}
 
 ${articleTpl}`,
 
@@ -261,7 +282,7 @@ ${articleTpl}`,
 Tự review bản nháp 12 phần theo tiêu chí — CHƯA Fact-Check Ledger / Bản sạch / Hero.
 
 Phải đạt hết (ghi Pass/Fail từng mục):
-- Cấu trúc đầy đủ (12 phần)
+- Cấu trúc đầy đủ (12 phần Article.md)
 - Không lỗi logic
 - Đủ bằng chứng
 - ≥3 insight + ≥1 trade-off + ≥1 góc phản biện + ≥1 bài học
@@ -269,6 +290,7 @@ Phải đạt hết (ghi Pass/Fail từng mục):
 - Có câu hỏi thảo luận
 - Không quảng bá · Không sao chép
 - Tránh tuyệt đối hóa ("luôn luôn / chắc chắn / tốt nhất…") trừ khi có bằng chứng
+- **Nhịp đọc:** Fail nếu listicle đánh số (Hook/Khi nào nên/Framework…), mục “không nên” lặp, hoặc các phần không nối với nhau
 
 Xuất theo template Review.md. Kết luận: Publish / Minor Revision / Major Revision / Rewrite.
 Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist).
@@ -280,23 +302,32 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 - Mỗi khẳng định Fact/Practice → nguồn đã đọc (URL từ Research) → verdict
 - Số liệu & trích dẫn khớp nguồn
 - Gắn nhãn Opinion / Prediction rõ ràng
+- Số % / survey không có trong Research Brief → FAIL hoặc ghi Opinion
 
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 
 ${factTpl}`,
 
-    "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY (AI-TFES)
+    "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY (AI-TFES) — VIẾT LẠI BẢN ĐĂNG
+Đây là bước QUAN TRỌNG NHẤT cho người đọc. Không copy skeleton nháp/listicle.
+
 Xuất theo thứ tự:
 1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date
-2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** — bài hoàn chỉnh (gỡ nhãn Section; Title/Subtitle KHÔNG (L2); References; \`![alt](HERO_IMAGE)\`)
-   - Hạn chế table; ưu tiên list
-3. Khối riêng **HERO IMAGE BRIEF**:
+2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** rồi bài hoàn chỉnh bên dưới:
+   - Viết LẠI thành bài liền mạch theo heading Article.md (Title → Subtitle → Metadata → Executive Summary → Introduction → Context → Problem Statement → Deep Analysis → Real-world Examples → Practical Recommendations → Key Takeaways → Discussion Questions → References)
+   - Gộp mở đầu mượt: hook → insight sớm → context; CẤM đánh số "1. Hook / 2. …"
+   - Một luận điểm xuyên suốt; cắt mọi mục trùng; “khi nào KHÔNG” chỉ xuất hiện một lần (trong Recommendations)
+   - Title/Subtitle KHÔNG (L2); References chỉ URL từ Research; ngay dưới title: \`![mô tả ngắn chủ đề](HERO_IMAGE)\` — CẤM dòng chữ "alt" trần
+   - Hạn chế table; ưu tiên đoạn văn + list ngắn
+   - ~1.200–1.600 từ, giữ insight sâu, đọc một mạch không “reset” giữa các mục
+3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch):
    - Concept · **Prompt (English):** "...." (tiếng Anh sạch) · Caption + Alt
 4. Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
-Bản sạch ~1.200 từ, giữ insight sâu, “khi nào KHÔNG”, references URL.
-Tuân thủ Publish.md.
+Tuân thủ Publish.md + nhịp đọc bên dưới.
+
+${NARRATIVE_FLOW_RULES}
 
 ${publishTpl}`,
 

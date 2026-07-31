@@ -40,7 +40,28 @@ type ChatOptions = {
   maxTokens?: number;
   /** Override NVIDIA_REASONING_EFFORT cho từng bước (gpt-oss) */
   reasoningEffort?: "low" | "medium" | "high";
+  /**
+   * Số lần thử thêm khi lỗi tạm (429/5xx/rỗng). Timeout NVIDIA không retry trong cùng request
+   * (Vercel maxDuration 300s) — client/cron sẽ chạy lại bước.
+   */
+  retries?: number;
 };
+
+export function isLlmTimeoutError(message: string): boolean {
+  return /timed? ?out|TimeoutError|AbortError|Hobby chỉ cho|Request timed out/i.test(
+    message,
+  );
+}
+
+function isRetriableLlmError(message: string): boolean {
+  return /NVIDIA HTTP (429|502|503|504)|không trả về nội dung|ECONNRESET|fetch failed|curl failed|socket hang up|network/i.test(
+    message,
+  );
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function buildBody(messages: ChatMessage[], options?: ChatOptions) {
   const body: Record<string, unknown> = {
@@ -183,7 +204,7 @@ async function chatViaFetchStream(
       (error.name === "AbortError" || error.name === "TimeoutError");
     if (aborted) {
       throw new Error(
-        `NVIDIA timeout ${VERCEL_CHAT_MS / 1000}s (${MODEL}). Bấm chạy lại bước. Hobby ~60s/request.`,
+        `NVIDIA timeout ${VERCEL_CHAT_MS / 1000}s (${MODEL}). Hệ thống sẽ tự chạy lại bước (hoặc bấm Chạy bước).`,
       );
     }
     throw error;
@@ -239,9 +260,33 @@ async function chatViaOpenAISdk(
 
 /**
  * NVIDIA NIM — mẫu build.nvidia.com (stream: true).
- * Vercel: fetch + hard timeout 45s. Local: curl ưu tiên.
+ * Vercel: fetch + hard timeout. Local: curl ưu tiên.
+ * Retry lỗi tạm (429/5xx/rỗng); timeout → throw để request kế tiếp resume bước.
  */
 export async function chatCompletion(
+  messages: ChatMessage[],
+  options?: ChatOptions,
+): Promise<string> {
+  const retries = options?.retries ?? 2;
+  const chatOpts: ChatOptions = { ...options };
+  delete chatOpts.retries;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await chatCompletionOnce(messages, chatOpts);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (isLlmTimeoutError(message)) throw error;
+      if (!isRetriableLlmError(message) || attempt === retries) throw error;
+      await sleep(900 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function chatCompletionOnce(
   messages: ChatMessage[],
   options?: ChatOptions,
 ): Promise<string> {

@@ -18,6 +18,7 @@ import {
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
 import {
+  assertCleanPublishQuality,
   assertFullDraftQuality,
   assertWritePhaseQuality,
   editorialSelfCheck,
@@ -141,6 +142,7 @@ function finalizePhaseOf(article: {
   knowledgeRecord?: string | null;
   factCheck?: string | null;
   cleanPublish?: string | null;
+  errorMessage?: string | null;
 }): "review" | "fact" | "publish" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
@@ -149,6 +151,13 @@ function finalizePhaseOf(article: {
   if (!reviewDone) return "review";
   if (!fc.trim()) return "fact";
   if (clean.length < 80) return "publish";
+  // Self-check / chất lượng bản sạch trước đó fail → chạy lại Publish Ready
+  if (
+    article.errorMessage &&
+    /Self-check|listicle|Bản sạch|outline|BAR VIẾT|khi nào không nên/i.test(article.errorMessage)
+  ) {
+    return "publish";
+  }
   return "done";
 }
 
@@ -664,15 +673,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 10: Publish Ready — Knowledge Record + Bản sạch + Hero
       if (finPhase === "publish" || finPhase === "done") {
         if (finPhase === "done" && (article.cleanPublish ?? "").trim().length >= 80) {
-          const updated = await prisma.article.update({
-            where: { id: articleId },
-            data: {
-              status: ArticleStatus.PUBLISH_READY,
-              currentStep: null,
-              errorMessage: null,
-            },
-          });
-          return withTimings(updated, { finalizePhase: "skip" });
+          try {
+            assertCleanPublishQuality(article.cleanPublish!);
+            const skipCheck = editorialSelfCheck({
+              researchBrief: article.researchBrief,
+              insightGate: article.insightGate,
+              draft12: stripPipelineMarks(article.draft12),
+              cleanPublish: article.cleanPublish,
+              factCheck: article.factCheck,
+            });
+            if (skipCheck.length === 0) {
+              const updated = await prisma.article.update({
+                where: { id: articleId },
+                data: {
+                  status: ArticleStatus.PUBLISH_READY,
+                  currentStep: null,
+                  errorMessage: null,
+                },
+              });
+              return withTimings(updated, { finalizePhase: "skip" });
+            }
+          } catch {
+            /* Bản sạch cũ không đạt — viết lại bên dưới */
+          }
         }
 
         const llmStarted = Date.now();
@@ -690,6 +713,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.factCheck, 1_500),
                   `Chủ đề: ${topic}`,
                   "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
+                  article.errorMessage?.trim()
+                    ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch, sửa đúng lỗi đó.`
+                    : "",
                 ),
               ),
             },
@@ -713,6 +739,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             "Publish Ready không tạo được Bản sạch (quá ngắn). Chạy lại bước Rà soát hoặc xem tab 12 phần.",
           );
         }
+        assertCleanPublishQuality(cleanPublish);
 
         const selfCheck = editorialSelfCheck({
           researchBrief: article.researchBrief,
@@ -789,7 +816,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
     const isTimeout = /timed? ?out|timeout|Request timed out|Hobby chỉ cho/i.test(raw);
     const isQuality =
-      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT/i.test(raw);
+      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT|listicle|Bản sạch|outline/i.test(
+        raw,
+      );
     // Timeout / chất lượng: giữ Đang soạn để chạy lại bước
     await prisma.article.update({
       where: { id: articleId },
