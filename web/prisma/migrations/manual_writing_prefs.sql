@@ -1,5 +1,7 @@
--- Neon / Postgres: writing prefs (Primary RW compute)
--- Chạy trong SQL Editor nếu prisma db push không kết nối được từ máy local.
+-- =============================================================================
+-- Writing prefs — chạy trên Neon Console → SQL Editor
+-- Chọn compute PRIMARY / Read-Write (không chọn Read Replica / Time Travel)
+-- =============================================================================
 
 ALTER TABLE "Article"
   ADD COLUMN IF NOT EXISTS "targetWordCount" INTEGER,
@@ -10,6 +12,11 @@ ALTER TABLE "AutoWriteConfig"
   ADD COLUMN IF NOT EXISTS "defaultAvoidFormats" TEXT DEFAULT 'table';
 
 UPDATE "AutoWriteConfig"
-SET "defaultTargetWordCount" = COALESCE("defaultTargetWordCount", 1200),
-    "defaultAvoidFormats" = COALESCE("defaultAvoidFormats", 'table')
+SET
+  "defaultTargetWordCount" = COALESCE("defaultTargetWordCount", 1200),
+  "defaultAvoidFormats" = COALESCE(NULLIF(TRIM("defaultAvoidFormats"), ''), 'table')
 WHERE id = 'default';
+
+-- Kiểm tra nhanh:
+-- SELECT "targetWordCount", "avoidFormats" FROM "Article" LIMIT 1;
+-- SELECT "defaultTargetWordCount", "defaultAvoidFormats" FROM "AutoWriteConfig" WHERE id = 'default';
