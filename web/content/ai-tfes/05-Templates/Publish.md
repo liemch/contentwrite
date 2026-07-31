@@ -1,65 +1,195 @@
 # Publish Package — <Title>
 
+> Bước Publish Ready biến **nháp 12 phần (nội bộ)** thành **bài đăng cho mọi người đọc**.
+> Chỉ khối `=== BẢN SẠCH ĐỂ ĐĂNG ===` được copy-paste đi đăng. Mọi mục khác = nhật ký biên tập.
+
+---
+
+## 0) Nguyên tắc xuất bản (đọc trước khi viết bản sạch)
+
+1. **Viết LẠI, không copy skeleton.** Nháp Article.md là nguyên liệu; bản sạch là sản phẩm đọc liền.
+2. **Một luận điểm xuyên suốt** (insight ≥ L2 đã chốt ở Gate) — đặt sớm ở đoạn mở, không chôn cuối bài.
+3. **Giọng engineering:** cụ thể (cơ chế, ràng buộc, failure mode) thắng trừu tượng / slide consulting.
+4. **Trung thực trí tuệ:** có điều kiện áp dụng + phản biện thật + thừa nhận điều chưa biết; số liệu khớp Fact-Check.
+5. **Prefs bài thắng mặc định:** tôn trọng target word count và avoid-formats (table / mermaid / numbered_outline).
+
+### Test nhanh “bài HAY” (self-check trước STATUS)
+- [ ] Senior đọc đoạn mở có **khựng lại** không? (insight không hiển nhiên)
+- [ ] Độc giả biết **làm gì khác đi** sau khi đọc? (So what)
+- [ ] Bỏ hết heading — bài vẫn đọc được một mạch không?
+- [ ] Có chỗ nói rõ **khi nào không nên / chỉ khi / không phù hợp** không?
+
+---
+
 ## Metadata (bắt buộc — nội bộ, KHÔNG dán vào bài đăng)
-- Article ID:
-- Version: 1.0
-- Publish Date:
-- Domain / Category:
-- Tags / Keywords:
-- Author (Human Owner):
-- Reviewer / Approver:
-- Review Status: Approved
-- Reading Time / Difficulty:
-- Target word count (bản sạch):
-- Avoid formats: <table | mermaid | numbered_outline | —>
 
-## 5) Knowledge Record (nội bộ)
-- Title · Category · Domain · Keywords
-- Core Message (insight L2/L3, 1–2 câu)
-- Key Insights (3–5)
-- References (URL đã dùng)
-- Evergreen · Editorial Score · Date
+| Field | Giá trị |
+|-------|---------|
+| Article ID | |
+| Version | 1.0 |
+| Publish Date | YYYY-MM-DD |
+| Domain / Category | |
+| Tags / Keywords | 5–12 từ khóa |
+| Author (Human Owner) | |
+| Reviewer / Approver | |
+| Review Status | Approved / Pending |
+| Reading Time / Difficulty | ~N' · Beginner / Intermediate / Advanced / Leadership |
+| Target word count (bản sạch) | vd. 1200 (±15%) |
+| Avoid formats | table · mermaid · numbered_outline · — |
 
-## 6) === BẢN SẠCH ĐỂ ĐĂNG === (DUY NHẤT để copy-paste đăng)
+---
 
-### Hình thức bài đọc liền (tin / mọi người đọc)
-- `# Title` (<80 ký tự, không giật tít, KHÔNG gắn L2/L3)
-- **Subtitle:** 20–40 từ
-- Ngay dưới title: `![mô tả ngắn chủ đề](HERO_IMAGE)` — CẤM dòng chữ `alt` trần
-- **Đoạn mở:** hook cụ thể + luận điểm sớm (1–2 câu điều kiện)
-- **Thân bài:** liền mạch, một luận điểm xuyên suốt
-- **Kết ngắn** + (tuỳ) 2–3 câu hỏi thảo luận
-- **References:** chỉ URL đã đọc trong Research
+## 5) Knowledge Record (nội bộ — trước bản sạch)
 
-### CẤM trên bản sạch
-- [ ] Heading biên tập Article.md: Introduction · Context · Problem Statement · Deep Analysis · Real-world Examples · Practical Recommendations · Executive Summary · Key Takeaways · Metadata
-- [ ] Outline listicle: `1. Hook` / `2. Khi nào nên` / Decision Framework…
-- [ ] Meta biên tập: `Insight L2:`, “Gate đạt…”, Knowledge Record
-- [ ] Table / Mermaid nếu prefs tránh format tương ứng
-- [ ] Placeholder / TODO / Draft note
+Điền đủ, ngắn, có thể index vào thư viện. **Không** đưa khối này vào bài đăng.
 
-### Checklist nội dung
-- [ ] Đọc một mạch, không “reset” tóm tắt giữa các đoạn
-- [ ] Có điều kiện / phản biện thật (vd. không nên · chỉ khi · không phù hợp)
-- [ ] Độ dài ~ target word count (±15%)
-- [ ] ≥1 ví dụ kỹ thuật cụ thể (không “Công ty ABC”)
-- [ ] Số liệu khớp Fact-Check / Research
+- **Title:** (trùng title bản sạch, không L2)
+- **Category:**
+- **Domain:** engineering | soft-skills
+- **Keywords:**
+- **Core Message:** 1–2 câu = insight L2/L3 đã chốt (“X đúng, NHƯNG chỉ khi Y”)
+- **Key Insights:** (3–5, mỗi ý 1 dòng + nguồn ngắn)
+  1.
+  2.
+  3.
+- **Trade-off chính:** (1 dòng)
+- **Khi nào KHÔNG / giới hạn:** (1 dòng)
+- **References:** URL đã dùng (khớp Research + Fact-Check)
+- **Related / tránh trùng:** bài/kho gần đây (nếu có)
+- **Evergreen:** 1–5 · **Editorial Score:** /100 · **Date:**
 
-## Hình ảnh
-- **Hero:** đường dẫn sau khi gen
-  - Alt · Caption · Nguồn: "Ảnh minh họa (AI)" nếu AI tạo
-- [ ] Không nhúng số liệu giả / người thật / logo vào hero
-- [ ] Không dùng ảnh/biểu đồ có bản quyền
+---
 
-## HERO IMAGE BRIEF (khối riêng — sau bản sạch)
-- Concept:
-- **Prompt (English):** "...."
-- Caption + Alt:
+## 6) === BẢN SẠCH ĐỂ ĐĂNG ===
 
-## Publishing Checklist
-- [ ] Đã qua Editorial Review
-- [ ] Đã qua Fact Verification
-- [ ] Bản sạch đạt dạng đọc liền (không còn heading biên tập)
-- [ ] Người duyệt đã ký (approver + timestamp)
+> Marker bắt buộc đúng dòng: `=== BẢN SẠCH ĐỂ ĐĂNG ===`
+> Ngay bên dưới là **toàn bộ** bài đăng — không log, không bảng điểm Review, không Knowledge Record.
 
-**Dòng cuối pipeline:** `STATUS: Publish Ready — chờ người duyệt`
+### A. Khung bài đọc liền (bắt buộc)
+
+```markdown
+# <Title — <80 ký tự, không giật tít, không (L2)/(L3)>
+
+**Subtitle:** <20–40 từ — giá trị cho người đọc>
+
+![<mô tả ngắn chủ đề bằng tiếng Việt>](HERO_IMAGE)
+
+<Đoạn mở 120–180 từ: hook cụ thể → insight sớm (điều kiện) → vì sao đáng đọc tiếp>
+
+## <Tiêu đề đọc được #1>
+...
+
+## <Tiêu đề đọc được #2>
+...
+
+## <Tiêu đề đọc được #3 — thường là “nên / không nên làm gì”>
+...
+
+<Kết 80–120 từ: hệ quả mở hoặc 1 câu hỏi — KHÔNG tóm tắt lại toàn bài>
+
+### Câu hỏi thảo luận
+1.
+2.
+3.
+
+## References
+1. <Tên — “…” — URL>
+2.
+```
+
+### B. Gợi ý tiêu đề thân bài (ĐỌC ĐƯỢC — chọn/đổi theo góc bài)
+
+Dùng `##` tự nhiên. **CẤM** copy tên section Article.md.
+
+| Thay vì (biên tập) | Dùng kiểu (đăng tin) |
+|--------------------|----------------------|
+| Introduction / Context | Cảnh kỹ sư hay gặp · Bối cảnh thật trên production |
+| Problem Statement | Câu hỏi còn bỏ ngỏ · Điểm mù đội thường bỏ qua |
+| Deep Analysis | Cơ chế đằng sau · Trade-off bị giấu · Điều kiện ẩn |
+| Real-world Examples | Hai tình huống đủ “xương” · Case đúng / case sai |
+| Practical Recommendations | Việc làm được tuần này · Khi nào nên dừng |
+| Executive Summary / Key Takeaways | (gộp vào mở + kết — không tách mục tóm tắt giữa bài) |
+
+### C. Nhịp & nghề viết (BAR VIẾT — bản sạch)
+
+- Insight L2/L3 **sớm** (đoạn mở), không “để dành” đoạn cuối.
+- Xen câu ngắn chốt sau vài câu dài; tránh mọi đoạn khuôn 3 câu.
+- Cụ thể thắng trừu tượng: tên lớp lỗi, bước pipeline, ràng buộc auth/data — không % bịa, không “YC Survey” không có trong Research.
+- Sáo ngữ CẤM: “trong thời đại ngày nay”, “không thể phủ nhận”, “đóng vai trò quan trọng”, “Trong thế giới…”.
+- Mỗi `##` phải **đẩy** luận điểm đi một bước (cầu nối: “điểm mù…”, “vì vậy…”, “trade-off thật…”).
+- Kết: câu hỏi / hệ quả mở — không bullet “tóm lại những gì đã học”.
+
+### D. CẤM trên bản sạch (tick trước khi STATUS)
+
+**Hình thức**
+- [ ] Heading biên tập: Introduction · Context · Problem Statement · Deep Analysis · Real-world Examples · Practical Recommendations · Executive Summary · Key Takeaways · Metadata
+- [ ] Outline listicle: `1. Hook` / `2. Khi nào nên` / Decision Framework / đánh số 1–11 kiểu checklist marketing
+- [ ] Meta: `Insight L2:`, “Gate đạt…”, “theo Domain Profile…”, Knowledge Record
+- [ ] Dòng chữ `alt` trần; `![alt](HERO_IMAGE)` — phải là mô tả thật
+- [ ] Table / Mermaid khi prefs cấm
+- [ ] Placeholder / TODO / Draft note / `STATUS` nằm giữa body
+
+**Nội dung**
+- [ ] Đọc một mạch — không reset tóm tắt giữa các đoạn
+- [ ] Có điều kiện / phản biện (không nên · chỉ khi · không phù hợp · hạn chế khi)
+- [ ] Độ dài ~ target (±15%)
+- [ ] ≥1 ví dụ kỹ thuật cụ thể (không “Công ty ABC/XYZ”)
+- [ ] Mọi số liệu / survey có trong Research hoặc gắn Opinion rõ
+- [ ] References chỉ URL đã đọc — không bịa paper / blog
+
+### E. Checklist chất lượng đăng (Pass hết mới Publish Ready)
+
+| # | Tiêu chí | Pass? |
+|---|----------|:-----:|
+| P1 | Hook kéo được người đọc kỹ thuật | |
+| P2 | Insight ≥ L2 lộ rõ ở mở bài | |
+| P3 | Thân bài liền mạch, tiêu đề đọc được | |
+| P4 | Có “khi nào không / chỉ khi” thật | |
+| P5 | Ví dụ đủ xương (ràng buộc kỹ thuật) | |
+| P6 | Không listicle / không heading biên tập | |
+| P7 | Fact & URL khớp ledger | |
+| P8 | Độ dài & avoid-formats đúng prefs | |
+
+---
+
+## Hình ảnh & HERO IMAGE BRIEF (sau bản sạch — khối riêng)
+
+### Hero đã gen / sẽ gen
+- Đường dẫn:
+- Alt:
+- Caption:
+- Nguồn / tín dụng: Ảnh minh họa (AI) | …
+- [ ] Không số liệu giả / người thật / logo thương hiệu trong ảnh
+- [ ] Không biểu đồ có bản quyền
+
+### HERO IMAGE BRIEF (xuất riêng, không nhét vào body bài)
+
+```text
+HERO IMAGE BRIEF
+Concept: <1 câu — bầu không khí / metafora kỹ thuật, không chữ trên ảnh>
+Prompt (English): "<clean English, no markdown, no Vietnamese, no fake charts/numbers/logos/real people>"
+Caption: <tiếng Việt, 1 câu>
+Alt: <tiếng Việt, mô tả ngắn cho a11y>
+```
+
+---
+
+## Publishing Checklist (người duyệt)
+
+- [ ] Editorial Review đạt (hoặc Minor đã xử lý)
+- [ ] Fact-Check Passed / Minor đã sửa trên bản sạch
+- [ ] Bản sạch = đọc liền (P1–P8)
+- [ ] Hero OK hoặc có placeholder `HERO_IMAGE` hợp lệ
+- [ ] Approver + timestamp
+
+### Distribution (tuỳ chọn ghi chú)
+- [ ] Forum / Blog (Markdown)
+- [ ] Slack / Teams
+- [ ] Confluence / Knowledge Base
+- [ ] PDF Archive
+
+---
+
+**Dòng cuối pipeline (bắt buộc):**
+
+`STATUS: Publish Ready — chờ người duyệt`
