@@ -183,13 +183,41 @@ const NARRATIVE_FLOW_RULES = `### Nhịp đọc (bắt buộc — bản đăng p
 - ≥1 tình huống cụ thể (pipeline/stage/incident hoặc failure mode có thời gian/hậu quả) — không chỉ nguyên tắc trừu tượng
 - Số % / ngưỡng / năm chỉ giữ nếu có trong Research/Fact CONTEXT; không có → viết định tính ("thường", "khi retry dày", "khi overhead governance lấn") thay vì bịa 50%/15%/2025`;
 
+/** Giọng tin tức / blog kỹ thuật — bản sạch phải đọc như bài đăng, không whitepaper */
+const BLOG_NEWS_VOICE = `### Giọng BLOG / TIN TỨC kỹ thuật (bắt buộc trên bản sạch)
+Viết như bài trên blog kỹ thuật hoặc mục tech news nội bộ — người đọc lướt điện thoại, không như tài liệu nội bộ / slide / paper.
+
+Làm:
+- Mở bằng **cảnh hoặc nghịch lý** (1–3 câu) rồi mới nêu luận điểm — độc giả phải muốn đọc tiếp
+- Câu chủ động, gần khẩu ngữ nghề (“đội phải…”, “lúc đó…”, “vấn đề thật là…”) nhưng vẫn chính xác kỹ thuật
+- Mỗi ## ≈ một “màn” trong bài báo: có xung đột nhỏ → giải thích → hệ quả
+- Kết bằng hệ quả hoặc câu hỏi mở — như phóng viên chốt bài, không tóm tắt 4 gạch
+
+Tránh / CẤM trên bản sạch:
+- Giọng giáo trình: “Trong môi trường X ngày càng phức tạp, Y được nhắc đến như…”
+- “Khám phá các điều kiện…”, “Nhận diện rủi ro cần cân nhắc” kiểu phụ đề brochure
+- “Cần áp dụng các biện pháp sau”, “Khuyến nghị thực tiễn” + bullet dài
+- Đoạn toàn định nghĩa / liệt kê nguyên tắc không có người hoặc tình huống
+- Thuật ngữ dày đặc không có câu dịch ý cho người đọc nhanh`;
+
+/** Story arc cho bản đăng (thay Story Flow mơ hồ) */
+const STORY_ARC_CLEAN = `### Story arc bản đăng (6 nhịp — không dùng tên này làm heading)
+1. **Cảnh mở** — tình huống cụ thể hoặc nghịch lý
+2. **Tension** — điều kiện ẩn / “X chỉ đúng khi Y”
+3. **Cơ chế** — vì sao (1–2 ý sâu, có hình ảnh)
+4. **Mini-case** — trước/sau hoặc failure mode
+5. **Guardrail** — khi nào KHÔNG (gộp một chỗ)
+6. **Mở** — hệ quả / câu hỏi (không tóm tắt lại bài)`;
+
 /** Quy tắc polish “đáng đọc” — bổ sung NARRATIVE */
 const READER_POLISH_RULES = `### Polish đáng đọc (bắt buộc)
-- Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title
-- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện
+- Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title (phụ đề nghe như câu lead báo, không brochure)
+- Viết lại đoạn mở nếu còn giọng giáo trình / “ngày càng phức tạp… được nhắc đến như…”
+- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện, có chủ ngữ (đội / lead / bạn)
 - Nếu ≥4 con số % cụ thể mà CONTEXT Research không có → bớt số, giữ luận điểm điều kiện
 - Thêm/giữ một mini-case (trước/sau: mất giờ → mất phút, hoặc tương đương) gần phần đầu hoặc giữa bài
-- Sửa ký tự lỗi encoding (�) nếu còn`;
+- Sửa ký tự lỗi encoding nếu còn
+- Đọc lại to: nếu nghe như tài liệu nội bộ hơn blog → viết lại đoạn đó ngắn và sống hơn`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -247,7 +275,7 @@ Xuất checklist (≤600 từ):
 - Objective · Audience · 1 Core Message (insight L2/L3)
 - 3–5 Key Insights (mỗi ý + nguồn ngắn từ Research)
 - Ví dụ dự kiến (≥2)
-- Story Flow (3–6 gạch đầu dòng)
+- Story Flow theo arc: Cảnh mở → Tension/điều kiện ẩn → Cơ chế → Mini-case → Guardrail → Mở (3–6 gạch, không đặt tên arc làm heading bài)
 - Khuyến nghị 3 cấp: Cá nhân / Team / Tổ chức (làm gì / khi nào / khi nào KHÔNG)
 - Discussion Questions (3)
 
@@ -265,6 +293,8 @@ ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
 
+${BLOG_NEWS_VOICE}
+
 ${articleTpl}`,
 
     "write-a": `## Nhiệm vụ bước 7 WRITING — Phase A (nửa đầu)
@@ -277,6 +307,7 @@ Yêu cầu độ sâu:
 - Deep Analysis ≥ 350–500 từ: nhiều góc, trade-off có điều kiện (không gắn nhãn L2 vào title)
 - Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
 - Heading đúng tên Article.md (## Introduction, ## Context…) — CẤM "1. Hook", "2. Executive Summary"
+- Giọng nửa đầu cũng phải sống (cảnh + người/đội) — đừng viết như abstract paper
 
 Dừng sau Deep Analysis. KHÔNG Examples / Recommendations / Takeaways / Discussion / References / HERO.
 
@@ -284,6 +315,8 @@ ${prefs}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
+
+${BLOG_NEWS_VOICE}
 
 ${articleTpl}`,
 
@@ -300,6 +333,8 @@ ${prefs}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
+
+${BLOG_NEWS_VOICE}
 
 ${articleTpl}`,
 
@@ -354,13 +389,19 @@ ${prefs}
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
 CẤM dòng gạch ngang markdown \`---\` / \`***\` giữa các đoạn trong bản sạch (dùng ## hoặc đoạn nối).
+Bản sạch = bài blog/tin tức kỹ thuật — áp dụng đủ Story arc + giọng blog bên dưới.
 
 ${NARRATIVE_FLOW_RULES}
+
+${STORY_ARC_CLEAN}
+
+${BLOG_NEWS_VOICE}
 
 ${publishTpl}`,
 
     "finalize-polish": `## Nhiệm vụ bước 10b: POLISH BẢN SẠCH (đăng tin)
 Biên tập LẠI bản sạch đã có thành bản sẵn sàng đăng — KHÔNG viết lại luận điểm, KHÔNG bịa số liệu / nguồn mới.
+Ưu tiên: đọc như blog/tin tức kỹ thuật, không khô như tài liệu nội bộ.
 
 Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge Record, không HERO IMAGE BRIEF, không STATUS.
 
@@ -376,6 +417,10 @@ Sửa bắt buộc:
 
 ${prefs}
 ${NARRATIVE_FLOW_RULES}
+
+${BLOG_NEWS_VOICE}
+
+${STORY_ARC_CLEAN}
 
 ${READER_POLISH_RULES}`,
 
@@ -404,15 +449,16 @@ Với MỖI vai (≤4 dòng/vai):
 - **Còn hỏi gì:** 1 câu hoặc "ổn"
 
 Rồi chấm nhanh (Pass/Fail từng mục):
-- Hook kéo trong ~15 giây?
-- Có ≥1 ví dụ đủ cụ thể để hình dung?
+- Hook kéo trong ~15 giây? (cảnh/nghịch lý — không mở giáo trình)
+- Đọc như blog/tin tức kỹ thuật hay như tài liệu nội bộ khô?
+- Có ≥1 ví dụ/mini-case đủ cụ thể để hình dung?
 - Có chỗ lặp / reset luận điểm?
 - Senior/Lead có thấy insight không hiển nhiên?
 
 Cuối cùng đúng một dòng:
-\`KẾT LUẬN: ĐẠT\` — chỉ khi ≥2/3 vai Không bỏ bài VÀ không Fail nặng hook/lặp
+\`KẾT LUẬN: ĐẠT\` — chỉ khi ≥2/3 vai Không bỏ bài VÀ không Fail nặng hook/khô/lặp
 hoặc
-\`KẾT LUẬN: CHƯA ĐẠT\` + 3 gạch đầu dòng sửa ngắn (cụ thể, làm được ở polish)
+\`KẾT LUẬN: CHƯA ĐẠT\` + 3 gạch đầu dòng sửa ngắn (cụ thể, làm được ở polish — ưu tiên sống hóa đoạn mở / bỏ handbook)
 
 Xuất ngắn (≤450 từ). Không viết lại bài. Không Knowledge Record / Hero.`,
 

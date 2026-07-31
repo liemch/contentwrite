@@ -33,7 +33,9 @@ const LISTICLE_OUTLINE =
 const BARE_ALT_LINE = /(?:^|\n)\s*alt\s*(?:\n|$)/i;
 const BARE_SUBTITLE_LABEL = /(?:^|\n)\s*\*{0,2}Subtitle\*{0,2}\s*:?\s*(?:\n|$)/i;
 const HANDBOOK_VOICE =
-  /Cần áp dụng các biện pháp sau|Khuyến nghị thực tiễn\s*\n+(?:\s*[-*+]|\s*\d+\.)/i;
+  /Cần áp dụng các biện pháp sau|Khuyến nghị thực tiễn\s*\n+(?:\s*[-*+]|\s*\d+\.)|được nhắc đến như một giải pháp|Khám phá các điều kiện|ngày càng phức tạp,\s*[“"]/i;
+const DRY_OPENER =
+  /^(?:#{1,3}[^\n]+\n+(?:\*[^\n]+\*\n+)?)?(?:Trong môi trường|Trong bối cảnh|Trong những năm|Không thể phủ nhận|Ngày nay,)/im;
 const CONCRETE_SCENE =
   /(?:stage\s*\d|pipeline|snapshot|rollback|retry|incident|mất\s+(?:hàng\s+)?giờ|xuống\s+phút|failure\s*mode|node\s+(?:nào|gây)|họp\b|1:1|code\s*review|sprint|đồng nghiệp|stakeholder|hội thoại|ví dụ[:：])/i;
 
@@ -172,7 +174,14 @@ export function assertCleanPublishQuality(
   }
   if (HANDBOOK_VOICE.test(clean)) {
     throw new Error(
-      "Bản sạch còn giọng handbook (“Cần áp dụng các biện pháp sau” / khuyến nghị checklist) — viết lại thành đoạn có tình huống.",
+      "Bản sạch còn giọng handbook/brochure — viết lại như blog/tin tức (cảnh mở + người/đội, không “ngày càng phức tạp… được nhắc đến như”).",
+    );
+  }
+  // Chỉ soi ~600 ký tự đầu body (sau title/phụ đề)
+  const openSample = clean.replace(/^#[^\n]+\n+/, "").replace(/^\*[^\n]+\*\n+/, "").slice(0, 600);
+  if (DRY_OPENER.test(clean) || /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample)) {
+    throw new Error(
+      "Đoạn mở còn khô/giáo trình — mở bằng cảnh hoặc nghịch lý như bài blog/tin tức.",
     );
   }
   if (countPercentClaims(clean) >= 6) {
