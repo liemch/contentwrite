@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
 import { AutoWriteWatcher } from "@/components/auto-write-watcher";
 import { PipelineQueue } from "@/components/pipeline-queue";
+import { editorialWhere, isAdmin } from "@/lib/access";
+import { getSession } from "@/lib/auth";
 import { getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { isDue } from "@/lib/auto-write/schedule";
 import { prisma } from "@/lib/db";
@@ -12,8 +15,12 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   noStore();
+  const session = await getSession();
+  if (!session) redirect("/login");
+
   const [articles, autoConfig] = await Promise.all([
     prisma.article.findMany({
+      where: editorialWhere(session),
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -38,20 +45,27 @@ export default async function DashboardPage() {
   const review = articles.filter((a) => a.status === "PUBLISH_READY");
   const published = articles.filter((a) => a.status === "PUBLISHED" || a.status === "APPROVED");
   const featured = published[0];
-  const autoDue = autoConfig.enabled && isDue(autoConfig.nextRunAt);
+  const admin = isAdmin(session);
+  const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
 
   return (
     <AppShell
       title="Biên tập"
-      subtitle="Research → Insight ≥ L2 → Viết → Duyệt. Chi tiết 10 bước xem trên từng bài."
+      subtitle={
+        admin
+          ? "Research → Insight ≥ L2 → Viết → Duyệt. Chi tiết 10 bước xem trên từng bài."
+          : "Bài của bạn — Research → Insight ≥ L2 → Viết → tự Approve khi sẵn sàng."
+      }
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/settings"
-            className="inline-flex items-center justify-center rounded-full border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--ink)]"
-          >
-            Cài đặt{autoConfig.enabled ? " · Auto ON" : ""}
-          </Link>
+          {admin && (
+            <Link
+              href="/settings"
+              className="inline-flex items-center justify-center rounded-full border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--ink)]"
+            >
+              Cài đặt{autoConfig.enabled ? " · Auto ON" : ""}
+            </Link>
+          )}
           <Link
             href="/articles/new"
             className="inline-flex items-center justify-center rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--accent-hover)]"
@@ -61,7 +75,7 @@ export default async function DashboardPage() {
         </div>
       }
     >
-      <AutoWriteWatcher due={autoDue} />
+      {admin && <AutoWriteWatcher due={autoDue} />}
 
       <section className="mb-8 grid gap-3 sm:grid-cols-4">
         {[

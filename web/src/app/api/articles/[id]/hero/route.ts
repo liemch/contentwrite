@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { assertCanAccessArticle } from "@/lib/access";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   generateHeroImage,
@@ -10,31 +11,29 @@ import {
 type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: NextRequest, { params }: Params) {
-  if (!(await verifySession())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id } = await params;
-  const body = (await request.json()) as { model?: string };
-  const model = body.model === "qwen" ? "qwen" : body.model === "flux" ? "flux" : null;
-
-  if (!model) {
-    return NextResponse.json({ error: "model phải là flux hoặc qwen" }, { status: 400 });
-  }
-
-  const article = await prisma.article.findUnique({ where: { id } });
-  if (!article) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  if (!article.heroBrief && !article.cleanPublish && !article.topic) {
-    return NextResponse.json(
-      { error: "Chưa có Hero Brief / chủ đề để gen ảnh. Chạy Finalize trước." },
-      { status: 400 },
-    );
-  }
-
   try {
+    const user = await requireUser();
+    const { id } = await params;
+    const body = (await request.json()) as { model?: string };
+    const model = body.model === "qwen" ? "qwen" : body.model === "flux" ? "flux" : null;
+
+    if (!model) {
+      return NextResponse.json({ error: "model phải là flux hoặc qwen" }, { status: 400 });
+    }
+
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    assertCanAccessArticle(user, article);
+
+    if (!article.heroBrief && !article.cleanPublish && !article.topic) {
+      return NextResponse.json(
+        { error: "Chưa có Hero Brief / chủ đề để gen ảnh. Chạy Finalize trước." },
+        { status: 400 },
+      );
+    }
+
     const result = await generateHeroImage({
       articleId: id,
       model: model as HeroImageModel,
@@ -62,6 +61,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ article: updated, hero: result });
   } catch (error) {
+    const authRes = authErrorResponse(error);
+    if (authRes) return authRes;
     const message = error instanceof Error ? error.message : "Lỗi gen ảnh";
     return NextResponse.json({ error: message }, { status: 400 });
   }

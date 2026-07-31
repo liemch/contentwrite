@@ -45,6 +45,7 @@ export function serializeConfig(row: Awaited<ReturnType<typeof getAutoWriteConfi
     maxPendingReview: row.maxPendingReview,
     defaultTargetWordCount: row.defaultTargetWordCount ?? 1200,
     defaultAvoidFormats: row.defaultAvoidFormats ?? "table",
+    ownerUserId: row.ownerUserId ?? null,
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     nextRunAt: row.nextRunAt?.toISOString() ?? null,
     lastError: row.lastError,
@@ -67,6 +68,7 @@ export type UpdateAutoWriteInput = Partial<{
   maxPendingReview: number;
   defaultTargetWordCount: number;
   defaultAvoidFormats: string;
+  ownerUserId: string | null;
 }>;
 
 export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
@@ -113,6 +115,8 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
         input.defaultAvoidFormats !== undefined
           ? input.defaultAvoidFormats
           : current.defaultAvoidFormats,
+      ownerUserId:
+        input.ownerUserId !== undefined ? input.ownerUserId : current.ownerUserId,
       nextRunAt,
       ...(enabled === false ? {} : { lastError: null }),
     },
@@ -355,6 +359,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         currentStep: WorkflowStep.RESEARCH,
         targetWordCount: config.defaultTargetWordCount ?? 1200,
         avoidFormats: config.defaultAvoidFormats ?? "table",
+        createdById: config.ownerUserId ?? undefined,
       },
     });
   } else {

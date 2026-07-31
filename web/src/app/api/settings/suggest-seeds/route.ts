@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { suggestTrendSeedTopics, type SeedDomain } from "@/lib/auto-write/suggest-seeds";
 
 export async function POST(request: NextRequest) {
-  if (!(await verifySession())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = (await request.json()) as {
-    domain?: string;
-    existingSeeds?: string;
-  };
-
-  const domain: SeedDomain =
-    body.domain === "soft-skills" ? "soft-skills" : "engineering";
-
   try {
+    await requireAdmin();
+    const body = (await request.json()) as {
+      domain?: string;
+      existingSeeds?: string;
+    };
+
+    const domain: SeedDomain =
+      body.domain === "soft-skills" ? "soft-skills" : "engineering";
+
     const result = await suggestTrendSeedTopics({
       domain,
       existingSeeds: body.existingSeeds,
@@ -28,6 +25,8 @@ export async function POST(request: NextRequest) {
       llmMs: result.llmMs,
     });
   } catch (error) {
+    const authRes = authErrorResponse(error);
+    if (authRes) return authRes;
     const message = error instanceof Error ? error.message : "Lỗi gợi ý seed";
     return NextResponse.json({ error: message }, { status: 400 });
   }

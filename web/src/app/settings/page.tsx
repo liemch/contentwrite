@@ -1,7 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { UsersAdminPanel } from "@/components/users-admin-panel";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
@@ -28,12 +30,14 @@ function formatWhen(iso: string | null) {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [config, setConfig] = useState<AutoWriteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [adminUsers, setAdminUsers] = useState<{ id: string; email: string }[]>([]);
 
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState<{
@@ -51,7 +55,21 @@ export default function SettingsPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/settings/auto-write");
+    const meRes = await fetch("/api/auth/me");
+    if (!meRes.ok) {
+      router.replace("/login");
+      return;
+    }
+    const me = (await meRes.json()) as { user?: { role?: string } };
+    if (me.user?.role !== "ADMIN") {
+      router.replace("/dashboard");
+      return;
+    }
+
+    const [res, usersRes] = await Promise.all([
+      fetch("/api/settings/auto-write"),
+      fetch("/api/users"),
+    ]);
     setLoading(false);
     if (!res.ok) {
       setError("Không tải được cấu hình");
@@ -59,6 +77,15 @@ export default function SettingsPage() {
     }
     const data = (await res.json()) as { config: AutoWriteSettings };
     setConfig(data.config);
+
+    if (usersRes.ok) {
+      const ud = (await usersRes.json()) as {
+        users: { id: string; email: string; role: string; active: boolean }[];
+      };
+      setAdminUsers(
+        ud.users.filter((u) => u.role === "ADMIN" && u.active).map((u) => ({ id: u.id, email: u.email })),
+      );
+    }
   }
 
   useEffect(() => {
@@ -269,6 +296,7 @@ export default function SettingsPage() {
         maxPendingReview: config.maxPendingReview,
         defaultTargetWordCount: config.defaultTargetWordCount,
         defaultAvoidFormats: config.defaultAvoidFormats,
+        ownerUserId: config.ownerUserId,
       }),
     });
     setSaving(false);
@@ -365,10 +393,14 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Cài đặt"
-      subtitle="Auto-write, seed topics theo miền, và kiểm tra API — không cần sửa file Domain Profile."
+      subtitle="Users, hạn mức bài/ngày, auto-write và kiểm tra API."
       backHref="/dashboard"
       backLabel="Biên tập"
     >
+      <div className="mb-6">
+        <UsersAdminPanel />
+      </div>
+
       {loading || !config ? (
         <div className="h-64 animate-pulse rounded-2xl bg-[var(--surface-muted)]" />
       ) : (
@@ -396,6 +428,30 @@ export default function SettingsPage() {
                   }`}
                 />
               </button>
+            </div>
+
+            <div>
+              <Label htmlFor="ownerUserId">Owner bài auto-write</Label>
+              <Select
+                id="ownerUserId"
+                value={config.ownerUserId ?? ""}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    ownerUserId: e.target.value || null,
+                  })
+                }
+              >
+                <option value="">— Chưa chọn —</option>
+                {adminUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.email}
+                  </option>
+                ))}
+              </Select>
+              <FieldHint>
+                Bài auto gắn createdById của admin này (không trừ hạn mức editor).
+              </FieldHint>
             </div>
 
             <div>

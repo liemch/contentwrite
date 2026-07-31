@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { assertCanAccessArticle } from "@/lib/access";
+import { authErrorResponse, requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import {
   approveArticle,
   publishArticle,
@@ -10,48 +12,53 @@ import {
 type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: NextRequest, { params }: Params) {
-  if (!(await verifySession())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id } = await params;
-  const body = (await request.json()) as {
-    action?: "run-step" | "reset" | "approve" | "publish";
-    notes?: string;
-    allowWithoutHero?: boolean;
-  };
-
   try {
+    const user = await requireUser();
+    const { id } = await params;
+    const article = await prisma.article.findUnique({ where: { id } });
+    if (!article) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    assertCanAccessArticle(user, article);
+
+    const body = (await request.json()) as {
+      action?: "run-step" | "reset" | "approve" | "publish";
+      notes?: string;
+      allowWithoutHero?: boolean;
+    };
+
     switch (body.action) {
       case "run-step": {
-        const article = await runWorkflowStep(id);
+        const next = await runWorkflowStep(id);
         const timings =
-          article && typeof article === "object" && "_timings" in article
-            ? (article as { _timings?: unknown })._timings
+          next && typeof next === "object" && "_timings" in next
+            ? (next as { _timings?: unknown })._timings
             : undefined;
-        if (timings && article && typeof article === "object") {
-          delete (article as { _timings?: unknown })._timings;
+        if (timings && next && typeof next === "object") {
+          delete (next as { _timings?: unknown })._timings;
         }
-        return NextResponse.json({ article, timings });
+        return NextResponse.json({ article: next, timings });
       }
       case "reset": {
-        const article = await resetWorkflow(id);
-        return NextResponse.json({ article });
+        const next = await resetWorkflow(id);
+        return NextResponse.json({ article: next });
       }
       case "approve": {
-        const article = await approveArticle(id, body.notes, {
+        const next = await approveArticle(id, body.notes, {
           allowWithoutHero: Boolean(body.allowWithoutHero),
         });
-        return NextResponse.json({ article });
+        return NextResponse.json({ article: next });
       }
       case "publish": {
-        const article = await publishArticle(id);
-        return NextResponse.json({ article });
+        const next = await publishArticle(id);
+        return NextResponse.json({ article: next });
       }
       default:
         return NextResponse.json({ error: "action không hợp lệ" }, { status: 400 });
     }
   } catch (error) {
+    const authRes = authErrorResponse(error);
+    if (authRes) return authRes;
     const message = error instanceof Error ? error.message : "Lỗi không xác định";
     return NextResponse.json({ error: message }, { status: 400 });
   }

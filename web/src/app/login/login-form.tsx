@@ -8,6 +8,7 @@ import { Input, Label } from "@/components/ui/input";
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,13 +21,14 @@ export default function LoginForm() {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     });
 
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
     setLoading(false);
 
     if (!res.ok) {
-      setError("Mật khẩu không đúng");
+      setError(data.error || "Đăng nhập thất bại");
       return;
     }
 
@@ -73,14 +75,27 @@ export default function LoginForm() {
             style={{ animationDelay: "70ms" }}
           >
             <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập editorial</p>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">Một admin · mật khẩu nội bộ</p>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">Email tài khoản do admin cấp</p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ban@congty.com"
+                  required
+                />
+              </div>
               <div>
                 <Label htmlFor="password">Mật khẩu</Label>
                 <Input
                   id="password"
                   type="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"

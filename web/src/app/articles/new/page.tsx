@@ -28,6 +28,9 @@ export default function NewArticlePage() {
   const [avoidFlags, setAvoidFlags] = useState<AvoidFormatFlag[]>(["table"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [quota, setQuota] = useState<{ limit: number; used: number; remaining: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     fetch("/api/settings/auto-write")
@@ -40,6 +43,13 @@ export default function NewArticlePage() {
       .catch(() => {
         /* giữ default */
       });
+
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { quota?: { limit: number; used: number; remaining: number } } | null) => {
+        if (data?.quota) setQuota(data.quota);
+      })
+      .catch(() => {});
   }, []);
 
   function toggleAvoid(flag: AvoidFormatFlag) {
@@ -64,17 +74,28 @@ export default function NewArticlePage() {
       }),
     });
 
+    const data = (await res.json().catch(() => ({}))) as {
+      article?: { id: string };
+      error?: string;
+      quota?: { limit: number; used: number; remaining: number };
+    };
     setLoading(false);
 
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
       setError(data.error || "Không tạo được bài viết");
+      if (data.quota) setQuota(data.quota);
       return;
     }
 
-    const data = (await res.json()) as { article: { id: string } };
+    if (data.quota) setQuota(data.quota);
+    if (!data.article?.id) {
+      setError("API không trả về bài viết");
+      return;
+    }
     router.push(`/articles/${data.article.id}`);
   }
+
+  const quotaBlocked = quota != null && quota.remaining <= 0;
 
   return (
     <AppShell
@@ -83,6 +104,19 @@ export default function NewArticlePage() {
       backHref="/dashboard"
       backLabel="Biên tập"
     >
+      {quota && (
+        <div className="mb-5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink-muted)]">
+          Hôm nay còn{" "}
+          <span className="font-semibold text-[var(--ink)]">
+            {quota.remaining}/{quota.limit}
+          </span>{" "}
+          bài (đã tạo {quota.used}).
+          {quotaBlocked && (
+            <span className="ml-1 text-[var(--danger)]">Đã hết hạn mức — liên hệ admin.</span>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">
           <div>
@@ -150,7 +184,7 @@ export default function NewArticlePage() {
             </div>
           )}
 
-          <Button type="submit" disabled={loading} className="rounded-full">
+          <Button type="submit" disabled={loading || quotaBlocked} className="rounded-full">
             {loading ? "Đang tạo..." : "Tạo & mở chu trình viết"}
           </Button>
         </form>

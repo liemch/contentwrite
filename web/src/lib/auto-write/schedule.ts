@@ -17,6 +17,8 @@ export type AutoWriteSettings = {
   defaultTargetWordCount: number;
   /** CSV: table, mermaid, numbered_outline */
   defaultAvoidFormats: string;
+  /** Admin sở hữu bài auto-write */
+  ownerUserId: string | null;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastError: string | null;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { tickAutoWrite } from "@/lib/auto-write/runner";
 
 /**
@@ -7,14 +7,13 @@ import { tickAutoWrite } from "@/lib/auto-write/runner";
  * UI “Chạy ngay” nên gọi lặp đến PUBLISH_READY.
  */
 export async function POST() {
-  if (!(await verifySession())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
+    await requireAdmin();
     const result = await tickAutoWrite({ force: true });
     return NextResponse.json(result);
   } catch (error) {
+    const authRes = authErrorResponse(error);
+    if (authRes) return authRes;
     const message = error instanceof Error ? error.message : "Lỗi auto-write";
     return NextResponse.json({ error: message }, { status: 500 });
   }
