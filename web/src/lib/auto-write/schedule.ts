@@ -13,6 +13,10 @@ export type AutoWriteSettings = {
   seedTopicsEngineering: string;
   seedTopicsSoftSkills: string;
   maxPendingReview: number;
+  /** Mặc định số từ bản sạch */
+  defaultTargetWordCount: number;
+  /** CSV: table, mermaid, numbered_outline */
+  defaultAvoidFormats: string;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastError: string | null;

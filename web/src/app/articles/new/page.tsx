@@ -1,17 +1,52 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select } from "@/components/ui/input";
+import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
+import {
+  AVOID_FORMAT_FLAGS,
+  type AvoidFormatFlag,
+  DEFAULT_TARGET_WORD_COUNT,
+  parseAvoidFormats,
+  serializeAvoidFormats,
+} from "@/lib/tfes/writing-prefs";
+
+const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
+  table: "Table (bảng markdown)",
+  mermaid: "Mermaid / sơ đồ code",
+  numbered_outline: "Outline listicle đánh số (1. Hook…)",
+};
 
 export default function NewArticlePage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [domain, setDomain] = useState("engineering");
+  const [targetWordCount, setTargetWordCount] = useState(DEFAULT_TARGET_WORD_COUNT);
+  const [avoidFlags, setAvoidFlags] = useState<AvoidFormatFlag[]>(["table"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/settings/auto-write")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { config?: AutoWriteSettings } | null) => {
+        if (!data?.config) return;
+        setTargetWordCount(data.config.defaultTargetWordCount || DEFAULT_TARGET_WORD_COUNT);
+        setAvoidFlags(parseAvoidFormats(data.config.defaultAvoidFormats || "table"));
+      })
+      .catch(() => {
+        /* giữ default */
+      });
+  }, []);
+
+  function toggleAvoid(flag: AvoidFormatFlag) {
+    setAvoidFlags((prev) =>
+      prev.includes(flag) ? prev.filter((f) => f !== flag) : [...prev, flag],
+    );
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -21,7 +56,12 @@ export default function NewArticlePage() {
     const res = await fetch("/api/articles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, domain }),
+      body: JSON.stringify({
+        topic,
+        domain,
+        targetWordCount,
+        avoidFormats: serializeAvoidFormats(avoidFlags),
+      }),
     });
 
     setLoading(false);
@@ -67,6 +107,43 @@ export default function NewArticlePage() {
             </FieldHint>
           </div>
 
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)]/40 p-4 space-y-4">
+            <p className="text-sm font-semibold text-[var(--ink)]">Cấu hình bài viết</p>
+            <div>
+              <Label htmlFor="words">Số từ gợi ý (bản sạch)</Label>
+              <Input
+                id="words"
+                type="number"
+                min={400}
+                max={4000}
+                step={50}
+                value={targetWordCount}
+                onChange={(e) => setTargetWordCount(Number(e.target.value) || DEFAULT_TARGET_WORD_COUNT)}
+              />
+              <FieldHint>Bản đăng đọc liền nhắm khoảng số từ này (±15%). Prefill từ Settings.</FieldHint>
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format</p>
+              <ul className="space-y-2">
+                {AVOID_FORMAT_FLAGS.map((flag) => (
+                  <li key={flag} className="flex items-start gap-2 text-sm text-[var(--ink-muted)]">
+                    <input
+                      id={`avoid-${flag}`}
+                      type="checkbox"
+                      className="mt-1"
+                      checked={avoidFlags.includes(flag)}
+                      onChange={() => toggleAvoid(flag)}
+                    />
+                    <label htmlFor={`avoid-${flag}`} className="cursor-pointer">
+                      {AVOID_LABELS[flag]}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <FieldHint>Áp vào bước Viết + Bản sạch. Nháp 12 phần vẫn theo Article.md nội bộ.</FieldHint>
+            </div>
+          </div>
+
           {error && (
             <div className="rounded-xl border border-red-200 bg-[var(--danger-soft)] px-3.5 py-2.5 text-sm text-[var(--danger)]">
               {error}
@@ -84,21 +161,24 @@ export default function NewArticlePage() {
               Workflow
             </p>
             <ol className="mt-4 space-y-3">
-              {["Research + nguồn", "Insight Gate ≥ L2", "Viết 12 phần", "Fact-check & bản sạch"].map(
-                (step, i) => (
-                  <li key={step} className="flex items-center gap-3 text-sm text-[var(--ink-muted)]">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent-soft)] text-xs font-bold text-[var(--accent)]">
-                      {i + 1}
-                    </span>
-                    {step}
-                  </li>
-                ),
-              )}
+              {[
+                "Research + nguồn",
+                "Insight Gate ≥ L2",
+                "Viết 12 phần (nội bộ)",
+                "Bản sạch đọc liền để đăng",
+              ].map((step, i) => (
+                <li key={step} className="flex items-center gap-3 text-sm text-[var(--ink-muted)]">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent-soft)] text-xs font-bold text-[var(--accent)]">
+                    {i + 1}
+                  </span>
+                  {step}
+                </li>
+              ))}
             </ol>
           </div>
           <div className="surface-soft p-5 text-sm leading-relaxed text-[var(--ink-muted)]">
-            Sau khi <strong className="text-[var(--ink)]">Approve / Publish</strong>, bài vào{" "}
-            <strong className="text-[var(--ink)]">Thư viện</strong> để đọc lại gọn gàng.
+            Bản sạch = bài đăng cho mọi người đọc (mở → thân → kết), không heading biên tập. Đổi mặc định
+            số từ / tránh Table tại <strong className="text-[var(--ink)]">Settings</strong>.
           </div>
         </aside>
       </div>

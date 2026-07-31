@@ -22,6 +22,8 @@ type Article = {
   status: string;
   currentStep: string | null;
   errorMessage: string | null;
+  targetWordCount?: number | null;
+  avoidFormats?: string | null;
   researchBrief: string | null;
   insightGate: string | null;
   draft12: string | null;
@@ -37,7 +39,7 @@ type Article = {
 };
 
 const TABS = [
-  { key: "clean", label: "Bản sạch", desc: "Copy-paste để đăng" },
+  { key: "clean", label: "Bản sạch", desc: "Bài đọc liền để đăng" },
   { key: "research", label: "Nghiên cứu", desc: "Nguồn & trade-off" },
   { key: "insight", label: "Cổng Insight", desc: "Gate → Decision → Planning" },
   { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
@@ -505,6 +507,26 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     >
       <section className="mb-5">
         <PipelineSteps article={article} running={running} />
+        {(article.targetWordCount || article.avoidFormats) && (
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+            {article.targetWordCount ? (
+              <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]">
+                ~{article.targetWordCount} từ (bản sạch)
+              </span>
+            ) : null}
+            {(article.avoidFormats || "")
+              .split(/[,;\s]+/)
+              .filter(Boolean)
+              .map((f) => (
+                <span
+                  key={f}
+                  className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
+                >
+                  tránh {f}
+                </span>
+              ))}
+          </div>
+        )}
       </section>
 
       <PipelineRunPanel

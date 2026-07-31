@@ -34,12 +34,30 @@ import {
   sanitizeEditorialBody,
   stripInsightLevelLabels,
 } from "@/lib/publish-content";
+import {
+  formatWritingPrefsPrompt,
+  resolveWritingPrefs,
+  type WritingPrefs,
+} from "@/lib/tfes/writing-prefs";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
 function isPlaceholderTopic(topic: string | null | undefined): boolean {
   const t = (topic ?? "").trim();
   if (!t) return true;
   return /seed_topics|domain profile|Seeding Mode|tự chọn theo|ưu tiên seed/i.test(t);
+}
+
+async function writingPrefsForArticle(article: {
+  targetWordCount?: number | null;
+  avoidFormats?: string | null;
+}): Promise<WritingPrefs> {
+  const config = await getAutoWriteConfig();
+  return resolveWritingPrefs({
+    targetWordCount: article.targetWordCount,
+    avoidFormats: article.avoidFormats,
+    defaultTargetWordCount: config.defaultTargetWordCount,
+    defaultAvoidFormats: config.defaultAvoidFormats,
+  });
 }
 
 export const STEP_ORDER: WorkflowStep[] = [
@@ -492,6 +510,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
     if (step === WorkflowStep.WRITE) {
       const draft = article.draft12 ?? "";
+      const prefs = await writingPrefsForArticle(article);
+      const prefsBlock = formatWritingPrefsPrompt(prefs);
 
       // Phase A: chưa có nháp
       if (!draft.trim()) {
@@ -508,6 +528,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.insightGate, 2_000),
                   `Chủ đề: ${topic}`,
                 ),
+                prefsBlock,
               ),
             },
           ],
@@ -551,6 +572,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(partA, 5_000),
                   `Chủ đề: ${topic}`,
                 ),
+                prefsBlock,
               ),
             },
           ],
@@ -672,15 +694,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Bước 10: Publish Ready — Knowledge Record + Bản sạch + Hero
       if (finPhase === "publish" || finPhase === "done") {
+        const prefs = await writingPrefsForArticle(article);
+        const prefsBlock = formatWritingPrefsPrompt(prefs);
+
         if (finPhase === "done" && (article.cleanPublish ?? "").trim().length >= 80) {
           try {
-            assertCleanPublishQuality(article.cleanPublish!);
+            assertCleanPublishQuality(article.cleanPublish!, prefs);
             const skipCheck = editorialSelfCheck({
               researchBrief: article.researchBrief,
               insightGate: article.insightGate,
               draft12: stripPipelineMarks(article.draft12),
               cleanPublish: article.cleanPublish,
               factCheck: article.factCheck,
+              writingPrefs: prefs,
             });
             if (skipCheck.length === 0) {
               const updated = await prisma.article.update({
@@ -714,9 +740,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                   "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
                   article.errorMessage?.trim()
-                    ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch, sửa đúng lỗi đó.`
+                    ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
                     : "",
                 ),
+                prefsBlock,
               ),
             },
           ],
@@ -739,7 +766,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             "Publish Ready không tạo được Bản sạch (quá ngắn). Chạy lại bước Rà soát hoặc xem tab 12 phần.",
           );
         }
-        assertCleanPublishQuality(cleanPublish);
+        assertCleanPublishQuality(cleanPublish, prefs);
 
         const selfCheck = editorialSelfCheck({
           researchBrief: article.researchBrief,
@@ -747,6 +774,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           draft12: draftClean,
           cleanPublish,
           factCheck: article.factCheck,
+          writingPrefs: prefs,
         });
 
         const knowledgeRecord =

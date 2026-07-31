@@ -5,6 +5,18 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
+import {
+  AVOID_FORMAT_FLAGS,
+  type AvoidFormatFlag,
+  parseAvoidFormats,
+  serializeAvoidFormats,
+} from "@/lib/tfes/writing-prefs";
+
+const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
+  table: "Table (bảng markdown)",
+  mermaid: "Mermaid / sơ đồ code",
+  numbered_outline: "Outline listicle đánh số",
+};
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -255,6 +267,8 @@ export default function SettingsPage() {
         seedTopicsEngineering: config.seedTopicsEngineering,
         seedTopicsSoftSkills: config.seedTopicsSoftSkills,
         maxPendingReview: config.maxPendingReview,
+        defaultTargetWordCount: config.defaultTargetWordCount,
+        defaultAvoidFormats: config.defaultAvoidFormats,
       }),
     });
     setSaving(false);
@@ -466,6 +480,64 @@ export default function SettingsPage() {
               <FieldHint>
                 Nếu đã đủ số bài PUBLISH_READY, auto sẽ bỏ qua lần chạy (không spam hàng chờ).
               </FieldHint>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)]/60 p-4 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-[var(--ink)]">Mặc định bài viết</p>
+                <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                  Prefill form Tạo bài mới và copy vào bài auto-write. Bản sạch = bài đọc liền (không
+                  heading biên tập).
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="defaultTargetWordCount">Số từ gợi ý (bản sạch)</Label>
+                <Input
+                  id="defaultTargetWordCount"
+                  type="number"
+                  min={400}
+                  max={4000}
+                  step={50}
+                  value={config.defaultTargetWordCount ?? 1200}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      defaultTargetWordCount: Number(e.target.value) || 1200,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format (mặc định)</p>
+                <ul className="space-y-2">
+                  {AVOID_FORMAT_FLAGS.map((flag) => {
+                    const selected = parseAvoidFormats(config.defaultAvoidFormats).includes(flag);
+                    return (
+                      <li key={flag} className="flex items-start gap-2 text-sm text-[var(--ink-muted)]">
+                        <input
+                          id={`default-avoid-${flag}`}
+                          type="checkbox"
+                          className="mt-1"
+                          checked={selected}
+                          onChange={() => {
+                            const cur = parseAvoidFormats(config.defaultAvoidFormats);
+                            const next = selected
+                              ? cur.filter((f) => f !== flag)
+                              : [...cur, flag];
+                            setConfig({
+                              ...config,
+                              defaultAvoidFormats: serializeAvoidFormats(next),
+                            });
+                          }}
+                        />
+                        <label htmlFor={`default-avoid-${flag}`} className="cursor-pointer">
+                          {AVOID_LABELS[flag]}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </div>
 
             <div className="flex items-start gap-3">

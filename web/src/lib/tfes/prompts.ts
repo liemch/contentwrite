@@ -183,12 +183,20 @@ function templateBlock(title: string, relativePath: string): string {
 
 /**
  * User prompt từng bước — nhúng template thư viện AI-TFES.
+ * @param writingPrefsBlock — block WRITING PREFS (số từ / tránh format) từ article + Settings
  */
-export function buildPipelinePrompt(step: PipelineStep, context: string): string {
+export function buildPipelinePrompt(
+  step: PipelineStep,
+  context: string,
+  writingPrefsBlock?: string,
+): string {
   const articleTpl = templateBlock("Article.md (12 phần)", "05-Templates/Article.md");
   const factTpl = templateBlock("FactCheck.md", "05-Templates/FactCheck.md");
   const publishTpl = templateBlock("Publish.md (checklist)", "05-Templates/Publish.md");
   const reviewTpl = templateBlock("Review.md", "05-Templates/Review.md");
+  const prefs = writingPrefsBlock?.trim()
+    ? `\n${writingPrefsBlock.trim()}\n`
+    : "";
 
   const instructions: Record<PipelineStep, string> = {
     insight: `## Nhiệm vụ Insight (full — legacy)
@@ -235,9 +243,10 @@ Không viết lại Decision / Gate.`,
 Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.`,
 
     write: `## Nhiệm vụ bước 7: WRITING (AI-TFES)
-Insight ≥ L2 + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md.
-Tiếng Việt ~1.200–1.800 từ. Có "khi nào KHÔNG".
+Insight ≥ L2 + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md (bản làm việc nội bộ).
+Có "khi nào KHÔNG". Độ dài theo WRITING PREFS.
 
+${prefs}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -245,7 +254,7 @@ ${NARRATIVE_FLOW_RULES}
 ${articleTpl}`,
 
     "write-a": `## Nhiệm vụ bước 7 WRITING — Phase A (nửa đầu)
-Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY):
+Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY) — bản làm việc nội bộ:
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
@@ -257,6 +266,7 @@ Yêu cầu độ sâu:
 
 Dừng sau Deep Analysis. KHÔNG Examples / Recommendations / Takeaways / Discussion / References / HERO.
 
+${prefs}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -270,8 +280,9 @@ Tiếp tục NỬA SAU theo Article.md + Planning trong CONTEXT — nối tiếp
 - Key Takeaways (3) · Discussion Questions (3) · References (chỉ Research Brief, URL thật)
 - Câu chuyển từ Deep Analysis → Examples → Recommendations phải liền mạch
 
-KHÔNG viết lại nửa đầu. KHÔNG HERO IMAGE BRIEF. ~600–900 từ.
+KHÔNG viết lại nửa đầu. KHÔNG HERO IMAGE BRIEF.
 
+${prefs}
 ${FORMAT_RULES_WRITE}
 
 ${NARRATIVE_FLOW_RULES}
@@ -308,24 +319,25 @@ Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bư�
 
 ${factTpl}`,
 
-    "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY (AI-TFES) — VIẾT LẠI BẢN ĐĂNG
-Đây là bước QUAN TRỌNG NHẤT cho người đọc. Không copy skeleton nháp/listicle.
+    "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY — BẢN ĐỌC LIỀN (đăng tin)
+Viết LẠI từ nháp 12 phần thành bài hoàn chỉnh cho mọi người đọc. Không copy skeleton Article.md / listicle.
 
 Xuất theo thứ tự:
-1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date
-2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** rồi bài hoàn chỉnh bên dưới:
-   - Viết LẠI thành bài liền mạch theo heading Article.md (Title → Subtitle → Metadata → Executive Summary → Introduction → Context → Problem Statement → Deep Analysis → Real-world Examples → Practical Recommendations → Key Takeaways → Discussion Questions → References)
-   - Gộp mở đầu mượt: hook → insight sớm → context; CẤM đánh số "1. Hook / 2. …"
-   - Một luận điểm xuyên suốt; cắt mọi mục trùng; “khi nào KHÔNG” chỉ xuất hiện một lần (trong Recommendations)
-   - Title/Subtitle KHÔNG (L2); References chỉ URL từ Research; ngay dưới title: \`![mô tả ngắn chủ đề](HERO_IMAGE)\` — CẤM dòng chữ "alt" trần
-   - Hạn chế table; ưu tiên đoạn văn + list ngắn
-   - ~1.200–1.600 từ, giữ insight sâu, đọc một mạch không “reset” giữa các mục
+1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date (metadata nội bộ — KHÔNG nằm trong bản sạch)
+2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** rồi bài đăng bên dưới:
+${prefs}
+### BẢN SẠCH = BÀI ĐỌC LIỀN
+- CẤM heading biên tập: Introduction, Context, Problem Statement, Deep Analysis, Real-world Examples, Practical Recommendations, Executive Summary, Key Takeaways, Metadata
+- Cấu trúc: \`# Title\` → Subtitle → \`![mô tả ngắn](HERO_IMAGE)\` → đoạn mở (hook + luận điểm sớm) → thân bài liền mạch → kết ngắn → (tuỳ) câu hỏi thảo luận → References
+- \`##\` chỉ dùng tiêu đề ĐỌC ĐƯỢC (vd. “Ba rủi ro cần nhìn thẳng”) — không dùng tên section Article.md
+- Một luận điểm xuyên suốt; không meta “Insight L2”; không Knowledge Record trong body
+- Title/Subtitle tiếng Việt, KHÔNG (L2); CẤM dòng "alt" trần
+- References chỉ URL từ Research; độ dài theo WRITING PREFS
 3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch):
    - Concept · **Prompt (English):** "...." (tiếng Anh sạch) · Caption + Alt
 4. Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
-Tuân thủ Publish.md + nhịp đọc bên dưới.
 
 ${NARRATIVE_FLOW_RULES}
 

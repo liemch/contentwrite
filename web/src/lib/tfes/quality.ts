@@ -1,5 +1,12 @@
 /** Kiểm tra chất lượng theo AI-TFES Self-check / Quality Gates (máy, không tin model tự khai). */
 
+import {
+  EDITORIAL_HEADING_RE,
+  hasAvoid,
+  hasMarkdownTable,
+  type WritingPrefs,
+} from "@/lib/tfes/writing-prefs";
+
 export function countWords(text: string | null | undefined): number {
   const t = (text ?? "").trim();
   if (!t) return 0;
@@ -35,20 +42,13 @@ function countWhenNotBlocks(text: string): number {
     text.match(/^#{1,3}\s+[^\n]*(khi nào\s+không|không nên dùng|when not to)[^\n]*$/gim) ??
     [];
   const labeled =
-    text.match(
-      /(?:^|\n)\s*(?:\*\*)?Khi nào không nên(?:\*\*)?\s*[:：]/gi,
-    ) ?? [];
+    text.match(/(?:^|\n)\s*(?:\*\*)?Khi nào không nên(?:\*\*)?\s*[:：]/gi) ?? [];
   const numberedWhenNot =
-    text.match(
-      /(?:^|\n)\s*\d+\.\s*Khi nào (?:không|KHÔNG)[^\n]{0,80}/g,
-    ) ?? [];
+    text.match(/(?:^|\n)\s*\d+\.\s*Khi nào (?:không|KHÔNG)[^\n]{0,80}/g) ?? [];
   return heading.length + labeled.length + numberedWhenNot.length;
 }
 
-export function assertWritePhaseQuality(
-  draft: string,
-  phase: "a" | "b",
-): void {
+export function assertWritePhaseQuality(draft: string, phase: "a" | "b"): void {
   const words = countWords(draft);
   if (phase === "a" && words < 450) {
     throw new Error(
@@ -104,28 +104,49 @@ export function assertFullDraftQuality(draft: string): void {
   }
 }
 
-/** Bản sạch Publish Ready — bắt nhịp đọc trước khi PUBLISH_READY */
-export function assertCleanPublishQuality(clean: string): void {
+/** Bản sạch Publish Ready — bài đọc liền trước khi PUBLISH_READY */
+export function assertCleanPublishQuality(
+  clean: string,
+  prefs?: WritingPrefs | null,
+): void {
   const words = countWords(clean);
-  if (words < 700) {
+  const target = prefs?.targetWordCount ?? 1200;
+  const minWords = Math.max(500, Math.round(target * 0.75));
+  const maxWords = Math.round(target * 1.35);
+
+  if (words < minWords) {
     throw new Error(
-      `Bản sạch quá ngắn (${words} từ). Publish Ready phải viết lại bài liền mạch ~1.200 từ.`,
+      `Bản sạch quá ngắn (${words} từ, cần ≥${minWords} theo target ~${target}). Viết lại bài đọc liền.`,
+    );
+  }
+  if (words > maxWords + 200) {
+    throw new Error(
+      `Bản sạch quá dài (${words} từ, target ~${target}, trần ~${maxWords}). Rút gọn bản đăng.`,
+    );
+  }
+  if (EDITORIAL_HEADING_RE.test(clean)) {
+    throw new Error(
+      "Bản sạch còn heading biên tập (Introduction/Context/Deep Analysis…). Viết lại dạng tin đọc liền.",
     );
   }
   if (LISTICLE_OUTLINE.test(clean)) {
     throw new Error(
-      "Bản sạch còn outline listicle — bước Publish phải viết lại một mạch theo Article.md (không copy checklist).",
+      "Bản sạch còn outline listicle — viết lại bài đọc liền (không checklist).",
     );
+  }
+  if (prefs && hasAvoid(prefs, "table") && hasMarkdownTable(clean)) {
+    throw new Error("Bản sạch còn markdown table — prefs yêu cầu tránh Table; dùng đoạn/bullet.");
+  }
+  if (prefs && hasAvoid(prefs, "mermaid") && /```\s*mermaid/i.test(clean)) {
+    throw new Error("Bản sạch còn Mermaid — prefs yêu cầu tránh.");
   }
   if (countWhenNotBlocks(clean) >= 3) {
     throw new Error(
-      "Bản sạch có ≥3 khối “khi nào không nên” — gộp một lần trong Recommendations.",
+      "Bản sạch có ≥3 khối “khi nào không nên” — gộp một lần rồi viết tiếp.",
     );
   }
   if (BARE_ALT_LINE.test(clean)) {
-    throw new Error(
-      'Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).',
-    );
+    throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).');
   }
   if (!WHEN_NOT.test(clean)) {
     throw new Error('Bản sạch thiếu “khi nào KHÔNG nên”.');
@@ -142,17 +163,20 @@ export function editorialSelfCheck(input: {
   draft12?: string | null;
   cleanPublish?: string | null;
   factCheck?: string | null;
+  writingPrefs?: WritingPrefs | null;
 }): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const draft = input.draft12 ?? "";
   const clean = input.cleanPublish ?? "";
+  const prefs = input.writingPrefs;
   const body = `${draft}\n${clean}`;
   const words = Math.max(countWords(draft), countWords(clean));
+  const target = prefs?.targetWordCount ?? 1200;
 
   if (words < 800) {
     issues.push({
       code: "LENGTH",
-      message: `Độ dài chưa đủ (~${words} từ; mục tiêu ≥1.200 từ bản làm việc).`,
+      message: `Độ dài chưa đủ (~${words} từ; mục tiêu ≥${Math.round(target * 0.75)}).`,
     });
   }
 
@@ -193,10 +217,33 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (LISTICLE_OUTLINE.test(body)) {
+  // Listicle trên nháp vẫn bắt; trên bản sạch luôn bắt
+  if (LISTICLE_OUTLINE.test(draft) || LISTICLE_OUTLINE.test(clean)) {
     issues.push({
       code: "LISTICLE",
       message: "Còn outline listicle (Hook/Khi nào nên/Framework…) — bản đăng phải liền mạch.",
+    });
+  }
+
+  if (clean.trim() && EDITORIAL_HEADING_RE.test(clean)) {
+    issues.push({
+      code: "EDITORIAL_HEADINGS",
+      message:
+        "Bản sạch còn heading biên tập (Introduction/Context/…) — cần dạng tin đọc liền.",
+    });
+  }
+
+  if (prefs && hasAvoid(prefs, "table") && hasMarkdownTable(clean || draft)) {
+    issues.push({
+      code: "AVOID_TABLE",
+      message: "Còn markdown table trong khi prefs tránh Table.",
+    });
+  }
+
+  if (prefs && hasAvoid(prefs, "mermaid") && /```\s*mermaid/i.test(clean || draft)) {
+    issues.push({
+      code: "AVOID_MERMAID",
+      message: "Còn Mermaid trong khi prefs tránh.",
     });
   }
 
@@ -220,10 +267,10 @@ export function editorialSelfCheck(input: {
   }
 
   const cleanWords = countWords(clean);
-  if (cleanWords > 0 && cleanWords < 500) {
+  if (cleanWords > 0 && cleanWords < Math.max(400, Math.round(target * 0.5))) {
     issues.push({
       code: "CLEAN_SHORT",
-      message: `Bản sạch quá ngắn (${cleanWords} từ).`,
+      message: `Bản sạch quá ngắn (${cleanWords} từ; target ~${target}).`,
     });
   }
 

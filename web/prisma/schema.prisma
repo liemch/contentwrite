@@ -50,6 +50,11 @@ model Article {
   approvedAt      DateTime?
   publishedAt     DateTime?
 
+  /// Gợi ý độ dài bản sạch (từ) — null = dùng default Settings
+  targetWordCount Int?
+  /// CSV flags: table, mermaid, numbered_outline
+  avoidFormats    String?
+
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 }
@@ -84,6 +89,10 @@ model AutoWriteConfig {
   seedTopicsEngineering String? @db.Text
   seedTopicsSoftSkills  String? @db.Text
   maxPendingReview Int       @default(3)
+  /// Mặc định số từ bản sạch khi tạo bài / auto-write
+  defaultTargetWordCount Int  @default(1200)
+  /// Mặc định tránh format (CSV): table, mermaid, numbered_outline
+  defaultAvoidFormats String? @default("table")
   lastRunAt        DateTime?
   nextRunAt        DateTime?
   lastError        String?   @db.Text

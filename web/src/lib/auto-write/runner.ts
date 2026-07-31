@@ -43,6 +43,8 @@ export function serializeConfig(row: Awaited<ReturnType<typeof getAutoWriteConfi
     seedTopicsEngineering: row.seedTopicsEngineering ?? "",
     seedTopicsSoftSkills: row.seedTopicsSoftSkills ?? "",
     maxPendingReview: row.maxPendingReview,
+    defaultTargetWordCount: row.defaultTargetWordCount ?? 1200,
+    defaultAvoidFormats: row.defaultAvoidFormats ?? "table",
     lastRunAt: row.lastRunAt?.toISOString() ?? null,
     nextRunAt: row.nextRunAt?.toISOString() ?? null,
     lastError: row.lastError,
@@ -63,6 +65,8 @@ export type UpdateAutoWriteInput = Partial<{
   seedTopicsEngineering: string;
   seedTopicsSoftSkills: string;
   maxPendingReview: number;
+  defaultTargetWordCount: number;
+  defaultAvoidFormats: string;
 }>;
 
 export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
@@ -101,6 +105,14 @@ export async function updateAutoWriteConfig(input: UpdateAutoWriteInput) {
           ? input.seedTopicsSoftSkills
           : current.seedTopicsSoftSkills,
       maxPendingReview: Math.max(1, Math.min(20, input.maxPendingReview ?? current.maxPendingReview)),
+      defaultTargetWordCount: Math.max(
+        400,
+        Math.min(4000, input.defaultTargetWordCount ?? current.defaultTargetWordCount ?? 1200),
+      ),
+      defaultAvoidFormats:
+        input.defaultAvoidFormats !== undefined
+          ? input.defaultAvoidFormats
+          : current.defaultAvoidFormats,
       nextRunAt,
       ...(enabled === false ? {} : { lastError: null }),
     },
@@ -341,6 +353,8 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         source: "auto",
         status: ArticleStatus.DRAFT,
         currentStep: WorkflowStep.RESEARCH,
+        targetWordCount: config.defaultTargetWordCount ?? 1200,
+        avoidFormats: config.defaultAvoidFormats ?? "table",
       },
     });
   } else {
