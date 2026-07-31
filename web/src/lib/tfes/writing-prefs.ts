@@ -73,11 +73,12 @@ export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
     avoidLines.push("- Không ràng buộc format đặc biệt ngoài BAR VIẾT");
   }
 
-  const min = Math.round(prefs.targetWordCount * 0.85);
-  const max = Math.round(prefs.targetWordCount * 1.15);
+  const min = Math.round(prefs.targetWordCount * 0.7);
+  const max = Math.round(prefs.targetWordCount * 1.6);
 
   return `### WRITING PREFS (bắt buộc tuân thủ)
-- Độ dài bản sạch (và tổng bài khi gộp): ~${prefs.targetWordCount} từ (khoảng ${min}–${max})
+- Độ dài bản sạch (và tổng bài khi gộp): ~${prefs.targetWordCount} từ (khoảng ${min}–${max}; máy chấm sàn ≥${Math.max(450, min)})
+- Xuất đủ bài — CẤM rút còn synopsis / tóm tắt ngắn hơn sàn
 ${avoidLines.join("\n")}`;
 }
 

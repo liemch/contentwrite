@@ -9,8 +9,10 @@ export const INSIGHT_GATE_MARK = "<!--TFES_INSIGHT_GATE-->";
 export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 /** Planning xong (bước 6) → được sang Writing */
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
-/** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm */
+/** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm (giữ sau Publish để Polish đọc) */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
+/** Heading giữ excerpt Review trong knowledgeRecord sau khi có Knowledge Record thật */
+export const PRIOR_REVIEW_HEADING = "## Editorial Review (pipeline)";
 /** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng Reader Sim */
 export const CLEAN_POLISH_MARK = "<!--TFES_CLEAN_POLISHED-->";
 /** Reader Simulation xong (10c) — mới PUBLISH_READY */
@@ -145,4 +147,44 @@ export function clipText(text: string | null | undefined, maxChars: number): str
   const t = (text ?? "").trim();
   if (t.length <= maxChars) return t;
   return `${t.slice(0, maxChars)}\n\n[…đã cắt ${t.length - maxChars} ký tự để tránh timeout]`;
+}
+
+/**
+ * Lấy góp ý Review từ knowledgeRecord:
+ * - Sau bước 8: toàn bộ review + REVIEW_DONE_MARK
+ * - Sau Publish: section "## Editorial Review (pipeline)"
+ */
+export function extractEditorialReview(
+  knowledgeRecord: string | null | undefined,
+): string {
+  const raw = knowledgeRecord ?? "";
+  if (!raw.trim()) return "";
+
+  const preserved = raw.match(
+    /##\s*Editorial Review \(pipeline\)\s*([\s\S]*?)(?=\n##\s*Reader Simulation|\n<!--TFES_READER_SIM|\n<!--TFES_REVIEW_DONE-->|$)/i,
+  );
+  if (preserved?.[1]?.trim()) return preserved[1].trim();
+
+  if (raw.includes(REVIEW_DONE_MARK)) {
+    return stripPipelineMarks(raw)
+      .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
+      .replace(/\n+##\s*Editorial Review \(pipeline\)[\s\S]*$/i, "")
+      .trim();
+  }
+  return "";
+}
+
+/** Ghép Knowledge Record mới với excerpt Review (để bước Polish / Reader Sim vẫn đọc được). */
+export function mergeKnowledgeWithPriorReview(
+  knowledgeRecord: string | null | undefined,
+  priorReview: string | null | undefined,
+): string {
+  const base = stripPipelineMarks(knowledgeRecord)
+    .replace(/\n+##\s*Editorial Review \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i, "")
+    .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
+    .trim();
+  const rev = (priorReview ?? "").trim();
+  if (!rev) return base;
+  const clipped = rev.length > 2_800 ? `${rev.slice(0, 2_800)}\n…` : rev;
+  return `${base}\n\n${PRIOR_REVIEW_HEADING}\n${clipped}\n\n${REVIEW_DONE_MARK}`.trim();
 }

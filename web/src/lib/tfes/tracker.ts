@@ -40,43 +40,32 @@ type ArticleLike = {
 const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";
 
 /**
- * Index bước tracker đang active (0-based).
- * Các bước gộp tick: Memory+Research search; Verify+Synth một LLM; Writing 2 nửa…
+ * Sàn tiến độ theo currentStep trên DB.
+ * Tránh UI kẹt bước Memory khi artifact (brief) trống/lệch nhưng bước đã sang INSIGHT/WRITE/FINALIZE.
  */
-export function resolveTrackerIndex(article: ArticleLike): number {
-  const status = article.status ?? "";
-  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") {
-    return TFES_TRACKER_STEPS.length;
+function floorFromCurrentStep(currentStep: string | null | undefined): number {
+  switch (currentStep) {
+    case "INSIGHT":
+      return 4;
+    case "WRITE":
+      return 7;
+    case "FINALIZE":
+      return 8;
+    default:
+      return 0;
   }
+}
 
-  const brief = article.researchBrief ?? "";
-  const insight = article.insightGate ?? "";
+function finalizeArtifactsIndex(article: {
+  draft12?: string | null;
+  factCheck?: string | null;
+  knowledgeRecord?: string | null;
+  cleanPublish?: string | null;
+}): number {
   const draft = article.draft12 ?? "";
   const fact = article.factCheck ?? "";
   const knowledge = article.knowledgeRecord ?? "";
   const clean = (article.cleanPublish ?? "").trim();
-
-  if (!brief.trim()) {
-    // Gate fail → research lại: brief đã clear
-    if (gateRetryCount(insight) > 0) return 1; // Research lại
-    return 0; // Memory
-  }
-  if (brief.includes(SEARCH_MARK)) return 2; // Verify+Synth
-
-  if (!insight.trim()) return 4; // Gate
-
-  if (insight.includes(INSIGHT_DONE_MARK)) {
-    // sang Writing / Finalize
-  } else if (insight.includes(INSIGHT_DECISION_MARK)) {
-    return 6; // Planning
-  } else if (insight.includes(INSIGHT_GATE_MARK)) {
-    if (status === "FAILED") return 4;
-    return 5; // Decision
-  } else if (gateRetryCount(insight) > 0) {
-    return 4; // chờ Gate mới sau research lại
-  } else if (insight.trim()) {
-    return status === "FAILED" ? 4 : 5;
-  }
 
   if (!draft.trim()) return 7;
   if (draft.includes(WRITE_HALF_MARK) && !draft.includes(WRITE_DONE_MARK)) return 7;
@@ -91,6 +80,50 @@ export function resolveTrackerIndex(article: ArticleLike): number {
   return TFES_TRACKER_STEPS.length;
 }
 
+/**
+ * Index bước tracker đang active (0-based).
+ * Artifact-first, rồi max với currentStep floor — không tụt lùi về bước 1 oan.
+ */
+export function resolveTrackerIndex(article: ArticleLike): number {
+  const status = article.status ?? "";
+  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") {
+    return TFES_TRACKER_STEPS.length;
+  }
+
+  const brief = article.researchBrief ?? "";
+  const insight = article.insightGate ?? "";
+  const floor = floorFromCurrentStep(article.currentStep);
+
+  let byArtifacts: number;
+
+  if (!brief.trim()) {
+    // Memory gộp tick Research — highlight Research (không kẹt “Memory” mãi)
+    byArtifacts = 1;
+  } else if (brief.includes(SEARCH_MARK)) {
+    byArtifacts = 2; // Verification (+ Synthesis cùng phase LLM)
+  } else if (!insight.trim()) {
+    byArtifacts = 4; // Gate
+  } else if (insight.includes(INSIGHT_DONE_MARK)) {
+    byArtifacts = finalizeArtifactsIndex(article);
+  } else if (insight.includes(INSIGHT_DECISION_MARK)) {
+    byArtifacts = 6; // Planning
+  } else if (insight.includes(INSIGHT_GATE_MARK)) {
+    byArtifacts = status === "FAILED" ? 4 : 5; // Decision
+  } else if (gateRetryCount(insight) > 0) {
+    byArtifacts = 4;
+  } else {
+    byArtifacts = status === "FAILED" ? 4 : 5;
+  }
+
+  // Draft đã xong nhưng insight mark lệch — vẫn đẩy Finalize
+  const draft = article.draft12 ?? "";
+  if (draft.includes(WRITE_DONE_MARK)) {
+    byArtifacts = Math.max(byArtifacts, finalizeArtifactsIndex(article));
+  }
+
+  return Math.max(byArtifacts, floor);
+}
+
 /** Nhãn micro-step cho subtitle / CTA (tiếng Việt) */
 export function resolveMicroStepLabel(article: ArticleLike): string {
   const status = article.status ?? "";
@@ -102,13 +135,22 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
     const step = TFES_TRACKER_STEPS[Math.min(idx, TFES_TRACKER_STEPS.length - 1)];
     return `Lỗi tại: ${step.label}`;
   }
+
   const idx = resolveTrackerIndex(article);
   if (idx >= TFES_TRACKER_STEPS.length) return "Chờ duyệt / đã xong";
-  const step = TFES_TRACKER_STEPS[idx];
-  const retries = gateRetryCount(article.insightGate);
-  const retryNote = retries > 0 && idx <= 4 ? ` · sau Gate fail lần ${retries}` : "";
+
+  const brief = article.researchBrief ?? "";
   const clean = article.cleanPublish ?? "";
   const knowledge = article.knowledgeRecord ?? "";
+  const retries = gateRetryCount(article.insightGate);
+  const retryNote = retries > 0 && idx <= 4 ? ` · sau Gate fail lần ${retries}` : "";
+
+  if (idx <= 1 && !brief.trim()) {
+    return `1–2 · Memory + Research${retryNote}`;
+  }
+  if (brief.includes(SEARCH_MARK)) {
+    return "3–4 · Verification + Synthesis";
+  }
   if (idx === 10 && clean.trim().length >= 80) {
     if (!clean.includes("<!--TFES_CLEAN_POLISHED-->")) {
       return "10b · Polish bản sạch";
@@ -117,6 +159,8 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
       return "10c · Reader Simulation";
     }
   }
+
+  const step = TFES_TRACKER_STEPS[idx];
   return `${step.label}${retryNote}`;
 }
 

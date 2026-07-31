@@ -363,6 +363,7 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 - Số liệu & trích dẫn khớp nguồn
 - Gắn nhãn Opinion / Prediction rõ ràng
 - Số % / survey không có trong Research Brief → FAIL hoặc ghi Opinion
+- Nếu CONTEXT có **Editorial Review** — ưu tiên kiểm tra đúng các Fail / Minor–Major Revision đã nêu (số liệu, tuyệt đối hóa, thiếu bằng chứng)
 
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 
@@ -370,6 +371,7 @@ ${factTpl}`,
 
     "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY — BẢN ĐỌC LIỀN (đăng tin)
 Viết LẠI từ nháp 12 phần thành bài hoàn chỉnh cho mọi người đọc. Không copy skeleton Article.md / listicle.
+**Pipeline bổ trợ:** nếu CONTEXT có Editorial Review và/hoặc Fact-Check Ledger — bản sạch PHẢI xử lý các điểm Fail / Minor–Major (logic, bằng chứng, nhịp đọc, tuyệt đối hóa, số liệu FAIL). Không bỏ qua checklist rồi copy nháp.
 
 Xuất theo thứ tự:
 1. **"5) Knowledge Record"** — Title, Category, Domain, Keywords, Core Message, Key Insights, References, Evergreen, Editorial Score, Date (metadata nội bộ — KHÔNG nằm trong bản sạch)
@@ -402,6 +404,7 @@ ${publishTpl}`,
     "finalize-polish": `## Nhiệm vụ bước 10b: POLISH BẢN SẠCH (đăng tin)
 Biên tập LẠI bản sạch đã có thành bản sẵn sàng đăng — KHÔNG viết lại luận điểm, KHÔNG bịa số liệu / nguồn mới.
 Ưu tiên: đọc như blog/tin tức kỹ thuật, không khô như tài liệu nội bộ.
+**Pipeline bổ trợ:** áp dụng nốt góp ý còn sót từ Editorial Review + Fact-Check (+ Reader Sim nếu có) trong CONTEXT.
 
 Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge Record, không HERO IMAGE BRIEF, không STATUS.
 
@@ -413,7 +416,9 @@ Sửa bắt buộc:
 - References: chỉ giữ URL có trong CONTEXT; bỏ link rỗng / bịa
 - Giữ \`![mô tả](HERO_IMAGE)\` ngay sau phụ đề in nghiêng (nếu đã có)
 - Độ dài / tránh format theo WRITING PREFS (nếu có)
+- Số liệu Fact FAIL / Opinion trong Ledger — chỉnh wording cho khớp (không bịa nguồn mới)
 - Nếu CONTEXT có phản hồi Reader Simulation — ưu tiên sửa đúng các điểm đó (hook / lặp / ví dụ / insight)
+- Nếu CONTEXT còn Fail từ Review — sửa đúng chỗ đó trên bản đăng
 
 ${prefs}
 ${NARRATIVE_FLOW_RULES}

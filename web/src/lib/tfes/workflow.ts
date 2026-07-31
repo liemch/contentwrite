@@ -7,10 +7,12 @@ import {
   appendContext,
   CLEAN_POLISH_MARK,
   clipText,
+  extractEditorialReview,
   gateRetryCount,
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
+  mergeKnowledgeWithPriorReview,
   parseFullOutput,
   READER_SIM_DONE_MARK,
   READER_SIM_RETRY_RE,
@@ -24,6 +26,8 @@ import {
 } from "@/lib/tfes/parser";
 import {
   assertCleanPublishQuality,
+  cleanWordBounds,
+  countWords,
   assertFullDraftQuality,
   assertWritePhaseQuality,
   editorialSelfCheck,
@@ -187,6 +191,33 @@ function stripReaderSimSection(kr: string): string {
     .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
     .replace(READER_SIM_RETRY_RE, "")
     .trim();
+}
+
+/** Block CONTEXT: góp ý bước trước — Fact / Publish / Polish phải đọc */
+function priorPipelineSupportBlock(article: {
+  knowledgeRecord?: string | null;
+  factCheck?: string | null;
+  errorMessage?: string | null;
+  includeFact?: boolean;
+}): string {
+  const parts: string[] = [];
+  const review = extractEditorialReview(article.knowledgeRecord);
+  if (review.trim()) {
+    parts.push(
+      `### Editorial Review (bước 8) — BẮT BUỘC xử lý các Fail / Minor–Major dưới đây\n${clipText(review, 2_400)}`,
+    );
+  }
+  if (article.includeFact !== false && (article.factCheck ?? "").trim()) {
+    parts.push(
+      `### Fact-Check Ledger (bước 9) — chỉnh số liệu / wording khớp verdict\n${clipText(article.factCheck, 1_600)}`,
+    );
+  }
+  if (article.errorMessage?.trim() && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
+    parts.push(
+      `### Reader Simulation — sửa đúng các điểm này\n${clipText(article.errorMessage, 700)}`,
+    );
+  }
+  return parts.join("\n\n");
 }
 
 function finalizePhaseOf(article: {
@@ -698,6 +729,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 9: Fact Check
       if (finPhase === "fact") {
         const llmStarted = Date.now();
+        const support = priorPipelineSupportBlock({
+          knowledgeRecord: article.knowledgeRecord,
+          includeFact: false,
+        });
         const finalizeA = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
@@ -709,6 +744,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.researchBrief, 2_500),
                   clipText(article.insightGate, 1_000),
                   clipText(stripPipelineMarks(article.draft12), 6_000),
+                  support,
                   `Chủ đề: ${topic}`,
                 ),
               ),
@@ -738,7 +774,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (finPhase === "polish") {
         const prefs = await writingPrefsForArticle(article);
         const prefsBlock = formatWritingPrefsPrompt(prefs);
+        const { minWords } = cleanWordBounds(prefs);
         const rawClean = stripPipelineMarks(article.cleanPublish);
+        const fallbackClean = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
+        const support = priorPipelineSupportBlock(article);
         const llmStarted = Date.now();
         const polishedRaw = await chatCompletion(
           [
@@ -748,27 +787,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               content: buildPipelinePrompt(
                 "finalize-polish",
                 appendContext(
-                  clipText(rawClean, 8_000),
+                  clipText(rawClean, 18_000),
                   clipText(article.researchBrief, 2_000),
-                  clipText(article.factCheck, 1_200),
+                  support,
                   `Chủ đề: ${topic}`,
                   "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
-                  article.errorMessage?.trim() && /Reader Sim chưa đạt/i.test(article.errorMessage)
-                    ? `Phản hồi Reader Simulation cần sửa:\n${article.errorMessage.slice(0, 700)}`
-                    : "",
+                  `Giữ đủ độ dài (~${prefs.targetWordCount} từ); KHÔNG rút thành tóm tắt / synopsis.`,
                 ),
                 prefsBlock,
               ),
             },
           ],
-          { maxTokens: 4000 },
+          { maxTokens: 10_000 },
         );
 
         let polished = toReaderCleanPublish(
           sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
         );
-        if (polished.length < 80) {
-          polished = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
+        // Polish bị cắt token / rút quá ngắn → giữ bản sạch trước đó nếu còn đủ từ
+        if (
+          polished.length < 80 ||
+          (countWords(polished) < minWords && countWords(fallbackClean) >= minWords)
+        ) {
+          polished = fallbackClean;
         }
         if (polished.length < 80) {
           throw new Error("Polish bản sạch thất bại (quá ngắn). Chạy lại Publish Ready.");
@@ -971,6 +1012,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const draftClean = stripPipelineMarks(article.draft12);
+        const priorReview = extractEditorialReview(article.knowledgeRecord);
+        const support = priorPipelineSupportBlock(article);
         const finalizeB = await chatCompletion(
           [
             { role: "system", content: getSystemPrompt(article.domain) },
@@ -980,10 +1023,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "finalize-b",
                 appendContext(
                   clipText(article.insightGate, 1_000),
-                  clipText(draftClean, 7_000),
-                  clipText(article.factCheck, 1_500),
+                  clipText(draftClean, 12_000),
+                  support,
                   `Chủ đề: ${topic}`,
                   "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
+                  `Độ dài bản sạch ~${prefs.targetWordCount} từ (đủ bài đọc liền — không viết synopsis ngắn).`,
                   article.errorMessage?.trim()
                     ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
                     : "",
@@ -992,7 +1036,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 4000 },
+          { maxTokens: 10_000 },
         );
 
         const parsed = parseFullOutput(appendContext(finalizeB));
@@ -1026,11 +1070,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           writingPrefs: prefs,
         });
 
-        const knowledgeRecord =
+        // Giữ Review trong KR để Polish vẫn đọc được sau khi có Knowledge Record thật
+        const knowledgeRecord = mergeKnowledgeWithPriorReview(
           parsed.knowledgeRecord ??
-          (article.knowledgeRecord?.includes(REVIEW_DONE_MARK)
-            ? null
-            : article.knowledgeRecord);
+            (priorReview
+              ? null
+              : article.knowledgeRecord?.includes(REVIEW_DONE_MARK)
+                ? null
+                : article.knowledgeRecord),
+          priorReview,
+        );
 
         if (selfCheck.length > 0) {
           const detail = selfCheck.map((i) => i.message).join(" · ");
@@ -1039,7 +1088,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             data: {
               cleanPublish,
               heroBrief: parsed.heroBrief,
-              knowledgeRecord: knowledgeRecord ?? article.knowledgeRecord,
+              knowledgeRecord: knowledgeRecord || article.knowledgeRecord,
               title: stripInsightLevelLabels(
                 cleanPublish.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
               ),
@@ -1068,7 +1117,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           data: {
             factCheck: article.factCheck,
             knowledgeRecord:
-              knowledgeRecord ??
+              knowledgeRecord ||
               (stripPipelineMarks(article.knowledgeRecord) || null),
             cleanPublish,
             heroBrief: parsed.heroBrief,

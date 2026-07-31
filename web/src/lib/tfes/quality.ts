@@ -117,22 +117,33 @@ export function assertFullDraftQuality(draft: string): void {
   }
 }
 
+/** Sàn / trần từ bản sạch theo WRITING PREFS (target mặc định 1200). */
+export function cleanWordBounds(prefs?: WritingPrefs | null): {
+  target: number;
+  minWords: number;
+  maxWords: number;
+} {
+  const target = prefs?.targetWordCount ?? 1200;
+  // Sàn ~70% (không <450); trần ~1.6× + buffer — tránh polish bị cắt token rồi fail “quá ngắn” oan
+  const minWords = Math.max(450, Math.round(target * 0.7));
+  const maxWords = Math.round(target * 1.6) + 300;
+  return { target, minWords, maxWords };
+}
+
 /** Bản sạch Publish Ready — bài đọc liền trước khi PUBLISH_READY */
 export function assertCleanPublishQuality(
   clean: string,
   prefs?: WritingPrefs | null,
 ): void {
   const words = countWords(clean);
-  const target = prefs?.targetWordCount ?? 1200;
-  const minWords = Math.max(500, Math.round(target * 0.75));
-  const maxWords = Math.round(target * 1.35);
+  const { target, minWords, maxWords } = cleanWordBounds(prefs);
 
   if (words < minWords) {
     throw new Error(
       `Bản sạch quá ngắn (${words} từ, cần ≥${minWords} theo target ~${target}). Viết lại bài đọc liền.`,
     );
   }
-  if (words > maxWords + 200) {
+  if (words > maxWords) {
     throw new Error(
       `Bản sạch quá dài (${words} từ, target ~${target}, trần ~${maxWords}). Rút gọn bản đăng.`,
     );
@@ -352,10 +363,12 @@ export function editorialSelfCheck(input: {
   }
 
   const cleanWords = countWords(clean);
-  if (cleanWords > 0 && cleanWords < Math.max(400, Math.round(target * 0.5))) {
+  const { minWords } = cleanWordBounds(prefs);
+  // Soft gate nhẹ hơn assert (½ sàn) — tránh self-check loop khi polish gần đạt
+  if (cleanWords > 0 && cleanWords < Math.max(350, Math.round(minWords * 0.55))) {
     issues.push({
       code: "CLEAN_SHORT",
-      message: `Bản sạch quá ngắn (${cleanWords} từ; target ~${target}).`,
+      message: `Bản sạch quá ngắn (${cleanWords} từ; target ~${target}, sàn ~${minWords}).`,
     });
   }
 

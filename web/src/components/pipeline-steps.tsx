@@ -24,6 +24,7 @@ export function PipelineSteps({
 }) {
   const activeIndex = resolveTrackerIndex(article);
   const failedIndex = article.status === "FAILED" ? activeIndex : -1;
+  const complete = activeIndex >= TFES_TRACKER_STEPS.length;
 
   return (
     <div>
@@ -36,17 +37,21 @@ export function PipelineSteps({
             Thanh này = các bước chạy. Tab bên dưới = nhật ký / đầu ra (không phải bước).
           </p>
         </div>
-        <p className="text-[11px] text-[var(--ink-faint)]">10 bước + Cổng L2</p>
+        <p className="text-[11px] text-[var(--ink-faint)]">
+          {complete
+            ? "Hoàn tất pipeline"
+            : `Đang ở: ${TFES_TRACKER_STEPS[Math.min(activeIndex, TFES_TRACKER_STEPS.length - 1)]?.short ?? "—"}`}
+        </p>
       </div>
       <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {TFES_TRACKER_STEPS.map((step, index) => {
           const done = isTrackerStepDone(index, activeIndex, article.status);
           const active =
+            !complete &&
             article.status !== "FAILED" &&
-            index === Math.min(activeIndex, TFES_TRACKER_STEPS.length - 1) &&
-            activeIndex < TFES_TRACKER_STEPS.length;
+            index === activeIndex;
           const failed = failedIndex === index;
-          const showActive = (active || (running && active)) && !failed && !done;
+          const showActive = active && !failed;
 
           return (
             <li
@@ -83,6 +88,11 @@ export function PipelineSteps({
               {showActive && running && (
                 <span className="mt-1 block text-[9px] font-semibold uppercase tracking-wide text-[var(--accent)]">
                   Đang chạy…
+                </span>
+              )}
+              {showActive && !running && (
+                <span className="mt-1 block text-[9px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                  Tiếp theo
                 </span>
               )}
               {failed && (
