@@ -117,17 +117,27 @@ export function assertFullDraftQuality(draft: string): void {
   }
 }
 
-/** Sàn / trần từ bản sạch theo WRITING PREFS (target mặc định 1200). */
+/** Sàn / trần từ bản sạch theo WRITING PREFS (target mặc định 1200).
+ * Đếm TỪ = tách khoảng trắng (tiếng Việt), KHÔNG đếm ký tự. */
 export function cleanWordBounds(prefs?: WritingPrefs | null): {
   target: number;
   minWords: number;
+  /** Ngưỡng “gần target” — dưới mức này sẽ expand thêm trước khi chấm */
+  aimWords: number;
   maxWords: number;
 } {
   const target = prefs?.targetWordCount ?? 1200;
-  // Sàn ~70% (không <450); trần ~1.6× + buffer — tránh polish bị cắt token rồi fail “quá ngắn” oan
   const minWords = Math.max(450, Math.round(target * 0.7));
+  const aimWords = Math.max(minWords, Math.round(target * 0.85));
   const maxWords = Math.round(target * 1.6) + 300;
-  return { target, minWords, maxWords };
+  return { target, minWords, aimWords, maxWords };
+}
+
+/** max_tokens completion cho Publish/Polish/Expand — tỷ lệ theo target (reasoning model ăn budget). */
+export function cleanGenMaxTokens(targetWordCount?: number | null): number {
+  const target = targetWordCount && targetWordCount > 0 ? targetWordCount : 1200;
+  // ~5 token/từ VI + đệm reasoning/markdown; trần API mặc định 16384
+  return Math.min(16_384, Math.max(8_000, Math.round(target * 5) + 2_000));
 }
 
 /** Bản sạch Publish Ready — bài đọc liền trước khi PUBLISH_READY */
@@ -140,7 +150,7 @@ export function assertCleanPublishQuality(
 
   if (words < minWords) {
     throw new Error(
-      `Bản sạch quá ngắn (${words} từ, cần ≥${minWords} theo target ~${target}). Viết lại bài đọc liền.`,
+      `Bản sạch quá ngắn (${words} từ đếm khoảng trắng, cần ≥${minWords} theo target ~${target} từ — không phải ký tự). Viết thêm thân bài cho đủ.`,
     );
   }
   if (words > maxWords) {

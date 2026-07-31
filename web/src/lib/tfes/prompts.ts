@@ -160,6 +160,7 @@ type PipelineStep =
   | "finalize-a"
   | "finalize-b"
   | "finalize-polish"
+  | "finalize-expand"
   | "finalize-hero"
   | "finalize-reader-sim"
   | "finalize";
@@ -428,6 +429,21 @@ ${BLOG_NEWS_VOICE}
 ${STORY_ARC_CLEAN}
 
 ${READER_POLISH_RULES}`,
+
+    "finalize-expand": `## Nhiệm vụ: MỞ RỘNG BẢN SẠCH CHO ĐỦ SỐ TỪ
+Bài trong CONTEXT đang THIẾU độ dài so với WRITING PREFS.
+Đếm từ = tách khoảng trắng (tiếng Việt), KHÔNG đếm ký tự.
+
+Xuất lại TOÀN BỘ bài markdown hoàn chỉnh (\`# Title\` → phụ đề nghiêng → HERO → thân → kết → References nếu có).
+- GIỮ luận điểm, title, cấu trúc; KHÔNG bịa số liệu / URL mới
+- Viết THÊM vào thân: mini-case cụ thể, trade-off, phản biện, đoạn cầu nối — để đạt gần target từ trong PREFS
+- CẤM rút gọn; CẤM synopsis; CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
+- Giọng blog/tin tức kỹ thuật; không handbook
+
+${prefs}
+${NARRATIVE_FLOW_RULES}
+${BLOG_NEWS_VOICE}
+${STORY_ARC_CLEAN}`,
 
     "finalize-hero": `## Nhiệm vụ: HERO IMAGE BRIEF từ bản sạch đã chốt
 Đọc Title + đoạn mở + luận điểm trong CONTEXT. Xuất ĐÚNG khối:

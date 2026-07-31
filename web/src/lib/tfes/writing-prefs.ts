@@ -74,11 +74,13 @@ export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
   }
 
   const min = Math.round(prefs.targetWordCount * 0.7);
+  const aim = Math.round(prefs.targetWordCount * 0.85);
   const max = Math.round(prefs.targetWordCount * 1.6);
 
   return `### WRITING PREFS (bắt buộc tuân thủ)
-- Độ dài bản sạch (và tổng bài khi gộp): ~${prefs.targetWordCount} từ (khoảng ${min}–${max}; máy chấm sàn ≥${Math.max(450, min)})
-- Xuất đủ bài — CẤM rút còn synopsis / tóm tắt ngắn hơn sàn
+- Độ dài = số TỪ tiếng Việt (tách khoảng trắng), KHÔNG phải số ký tự/chữ cái
+- Target bản sạch: ~${prefs.targetWordCount} từ (aim ≥${aim}; máy chấm sàn ≥${Math.max(450, min)}; trần ~${max})
+- Viết ĐỦ gần target — mở rộng ví dụ / trade-off / phản biện / mini-case; CẤM dừng sớm hay rút synopsis
 ${avoidLines.join("\n")}`;
 }
 

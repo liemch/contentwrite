@@ -26,6 +26,7 @@ import {
 } from "@/lib/tfes/parser";
 import {
   assertCleanPublishQuality,
+  cleanGenMaxTokens,
   cleanWordBounds,
   countWords,
   assertFullDraftQuality,
@@ -218,6 +219,52 @@ function priorPipelineSupportBlock(article: {
     );
   }
   return parts.join("\n\n");
+}
+
+/**
+ * Nếu bản sạch thiếu số TỪ so với aim (~85% target) — một pass expand (không xoá bài).
+ * Đếm từ = khoảng trắng, không phải ký tự.
+ */
+async function expandCleanIfShort(input: {
+  clean: string;
+  prefs: WritingPrefs;
+  topic: string;
+  domain: string | null | undefined;
+  researchBrief?: string | null;
+}): Promise<string> {
+  const { target, aimWords, minWords } = cleanWordBounds(input.prefs);
+  const words = countWords(input.clean);
+  if (words >= aimWords) return input.clean;
+
+  const need = Math.max(aimWords - words, minWords - words);
+  const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+  const expandedRaw = await chatCompletion(
+    [
+      { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
+      {
+        role: "user",
+        content: buildPipelinePrompt(
+          "finalize-expand",
+          appendContext(
+            clipText(input.clean, 18_000),
+            clipText(input.researchBrief, 2_000),
+            `Chủ đề: ${input.topic}`,
+            `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
+          ),
+          prefsBlock,
+        ),
+      },
+    ],
+    { maxTokens: cleanGenMaxTokens(target) },
+  );
+
+  const expanded = toReaderCleanPublish(
+    sanitizeEditorialBody(stripPipelineMarks(expandedRaw)),
+  );
+  if (expanded.length < 80) return input.clean;
+  // Chỉ nhận nếu dài hơn rõ (tránh model rút gọn)
+  if (countWords(expanded) > words + 80) return expanded;
+  return input.clean;
 }
 
 function finalizePhaseOf(article: {
@@ -774,7 +821,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (finPhase === "polish") {
         const prefs = await writingPrefsForArticle(article);
         const prefsBlock = formatWritingPrefsPrompt(prefs);
-        const { minWords } = cleanWordBounds(prefs);
+        const { minWords, aimWords, target } = cleanWordBounds(prefs);
         const rawClean = stripPipelineMarks(article.cleanPublish);
         const fallbackClean = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
         const support = priorPipelineSupportBlock(article);
@@ -792,28 +839,35 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   support,
                   `Chủ đề: ${topic}`,
                   "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
-                  `Giữ đủ độ dài (~${prefs.targetWordCount} từ); KHÔNG rút thành tóm tắt / synopsis.`,
+                  `Độ dài = số TỪ (khoảng trắng), target ~${target} từ (aim ≥${aimWords}, sàn ≥${minWords}). Không rút synopsis.`,
                 ),
                 prefsBlock,
               ),
             },
           ],
-          { maxTokens: 10_000 },
+          { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
         );
 
         let polished = toReaderCleanPublish(
           sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
         );
-        // Polish bị cắt token / rút quá ngắn → giữ bản sạch trước đó nếu còn đủ từ
+        // Polish bị cắt token / rút quá ngắn → giữ bản sạch trước đó nếu dài hơn
         if (
           polished.length < 80 ||
-          (countWords(polished) < minWords && countWords(fallbackClean) >= minWords)
+          countWords(polished) + 80 < countWords(fallbackClean)
         ) {
           polished = fallbackClean;
         }
         if (polished.length < 80) {
           throw new Error("Polish bản sạch thất bại (quá ngắn). Chạy lại Publish Ready.");
         }
+        polished = await expandCleanIfShort({
+          clean: polished,
+          prefs,
+          topic,
+          domain: article.domain,
+          researchBrief: article.researchBrief,
+        });
         assertCleanPublishQuality(polished, prefs);
 
         const polishCheck = editorialSelfCheck({
@@ -1027,7 +1081,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   support,
                   `Chủ đề: ${topic}`,
                   "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
-                  `Độ dài bản sạch ~${prefs.targetWordCount} từ (đủ bài đọc liền — không viết synopsis ngắn).`,
+                  `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
                   article.errorMessage?.trim()
                     ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
                     : "",
@@ -1036,7 +1090,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 10_000 },
+          { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
         );
 
         const parsed = parseFullOutput(appendContext(finalizeB));
@@ -1059,6 +1113,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             "Publish Ready không tạo được Bản sạch (quá ngắn). Chạy lại bước Rà soát hoặc xem tab 12 phần.",
           );
         }
+        cleanPublish = await expandCleanIfShort({
+          clean: cleanPublish,
+          prefs,
+          topic,
+          domain: article.domain,
+          researchBrief: article.researchBrief,
+        });
         assertCleanPublishQuality(cleanPublish, prefs);
 
         const selfCheck = editorialSelfCheck({
