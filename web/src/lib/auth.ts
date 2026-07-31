@@ -135,34 +135,53 @@ export function authErrorResponse(error: unknown): Response | null {
   return null;
 }
 
-/** Seed/bootstrap: tạo admin từ env nếu chưa có user nào */
+/** Seed/bootstrap admin từ env. Chỉ tạo khi chưa có user; hoặc rename admin@local → ADMIN_EMAIL. */
 export async function ensureBootstrapAdmin(): Promise<void> {
-  const count = await prisma.user.count();
-  if (count > 0) return;
-
   const email = (process.env.ADMIN_EMAIL || "admin@local").trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
   if (!password) {
     throw new Error("ADMIN_PASSWORD bắt buộc để seed admin đầu tiên");
   }
 
-  await prisma.user.create({
-    data: {
-      email,
-      name: "Admin",
-      passwordHash: await hashPassword(password),
-      role: UserRole.ADMIN,
-      dailyArticleLimit: 20,
-      active: true,
-    },
-  });
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) return;
 
-  const admin = await prisma.user.findUniqueOrThrow({ where: { email } });
-  await prisma.autoWriteConfig.upsert({
-    where: { id: "default" },
-    create: { id: "default", ownerUserId: admin.id },
-    update: { ownerUserId: admin.id },
-  });
+  const count = await prisma.user.count();
+  if (count === 0) {
+    await prisma.user.create({
+      data: {
+        email,
+        name: "Admin",
+        passwordHash: await hashPassword(password),
+        role: UserRole.ADMIN,
+        dailyArticleLimit: 20,
+        active: true,
+      },
+    });
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email } });
+    await prisma.autoWriteConfig.upsert({
+      where: { id: "default" },
+      create: { id: "default", ownerUserId: admin.id },
+      update: { ownerUserId: admin.id },
+    });
+    return;
+  }
+
+  // Đã seed sớm bằng admin@local trước khi set ADMIN_EMAIL → đổi email (+ đồng bộ mật khẩu env)
+  if (email !== "admin@local") {
+    const legacy = await prisma.user.findUnique({ where: { email: "admin@local" } });
+    if (legacy) {
+      await prisma.user.update({
+        where: { id: legacy.id },
+        data: {
+          email,
+          passwordHash: await hashPassword(password),
+          role: UserRole.ADMIN,
+          active: true,
+        },
+      });
+    }
+  }
 }
 
 export { COOKIE_NAME } from "@/lib/auth-cookie";
