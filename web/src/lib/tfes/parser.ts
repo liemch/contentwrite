@@ -11,6 +11,8 @@ export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
 /** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
+/** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng duyệt */
+export const CLEAN_POLISH_MARK = "<!--TFES_CLEAN_POLISHED-->";
 /** Số lần đã research lại sau Gate &lt; L2 — <!--TFES_GATE_RETRY:N--> */
 export const GATE_RETRY_RE = /<!--TFES_GATE_RETRY:(\d+)-->/;
 

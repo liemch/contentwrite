@@ -159,6 +159,7 @@ type PipelineStep =
   | "finalize-review"
   | "finalize-a"
   | "finalize-b"
+  | "finalize-polish"
   | "finalize";
 
 const FORMAT_RULES_WRITE = `### Định dạng bài (bắt buộc)
@@ -342,6 +343,21 @@ Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
 ${NARRATIVE_FLOW_RULES}
 
 ${publishTpl}`,
+
+    "finalize-polish": `## Nhiệm vụ bước 10b: POLISH BẢN SẠCH (đăng tin)
+Biên tập LẠI bản sạch đã có thành bản sẵn sàng đăng — KHÔNG viết lại luận điểm, KHÔNG bịa số liệu / nguồn mới.
+
+Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge Record, không HERO IMAGE BRIEF, không STATUS.
+
+Sửa bắt buộc:
+- Gỡ sót: dòng "alt" trần, placeholder HERO_IMAGE lẻ, heading biên tập (Introduction/Context/Deep Analysis…), meta Insight L2
+- Nối mạch: câu cầu giữa các ##; gộp chỗ lặp "khi nào không nên"; bỏ listicle đánh số Hook/Framework
+- References: chỉ giữ URL có trong CONTEXT; bỏ link rỗng / bịa
+- Giữ \`![mô tả](HERO_IMAGE)\` ngay sau Subtitle (nếu đã có)
+- Độ dài / tránh format theo WRITING PREFS (nếu có)
+
+${prefs}
+${NARRATIVE_FLOW_RULES}`,
 
     finalize: `## Nhiệm vụ FINALIZE (full legacy)
 Review + Fact-Check + Publish Ready theo Operating Prompt.

@@ -18,6 +18,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = (await request.json()) as {
     action?: "run-step" | "reset" | "approve" | "publish";
     notes?: string;
+    allowWithoutHero?: boolean;
   };
 
   try {
@@ -38,7 +39,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ article });
       }
       case "approve": {
-        const article = await approveArticle(id, body.notes);
+        const article = await approveArticle(id, body.notes, {
+          allowWithoutHero: Boolean(body.allowWithoutHero),
+        });
         return NextResponse.json({ article });
       }
       case "publish": {

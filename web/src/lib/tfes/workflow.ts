@@ -5,6 +5,7 @@ import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { formatSearchResults, webSearch } from "@/lib/search";
 import {
   appendContext,
+  CLEAN_POLISH_MARK,
   clipText,
   gateRetryCount,
   INSIGHT_DECISION_MARK,
@@ -162,7 +163,7 @@ function finalizePhaseOf(article: {
   factCheck?: string | null;
   cleanPublish?: string | null;
   errorMessage?: string | null;
-}): "review" | "fact" | "publish" | "done" {
+}): "review" | "fact" | "publish" | "polish" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
   const clean = (article.cleanPublish ?? "").trim();
@@ -170,13 +171,17 @@ function finalizePhaseOf(article: {
   if (!reviewDone) return "review";
   if (!fc.trim()) return "fact";
   if (clean.length < 80) return "publish";
-  // Self-check / chất lượng bản sạch trước đó fail → chạy lại Publish Ready
+  // Polish fail → chạy lại 10b; các lỗi bản sạch khác → viết lại Publish
+  if (article.errorMessage && /Polish self-check/i.test(article.errorMessage)) {
+    return "polish";
+  }
   if (
     article.errorMessage &&
     /Self-check|listicle|Bản sạch|outline|BAR VIẾT|khi nào không nên/i.test(article.errorMessage)
   ) {
     return "publish";
   }
+  if (!clean.includes(CLEAN_POLISH_MARK)) return "polish";
   return "done";
 }
 
@@ -693,7 +698,89 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
       }
 
-      // Bước 10: Publish Ready — Knowledge Record + Bản sạch + Hero
+      // Bước 10b: Polish bản sạch (một pass LLM) → PUBLISH_READY
+      if (finPhase === "polish") {
+        const prefs = await writingPrefsForArticle(article);
+        const prefsBlock = formatWritingPrefsPrompt(prefs);
+        const rawClean = stripPipelineMarks(article.cleanPublish);
+        const llmStarted = Date.now();
+        const polishedRaw = await chatCompletion(
+          [
+            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-polish",
+                appendContext(
+                  clipText(rawClean, 8_000),
+                  clipText(article.researchBrief, 2_000),
+                  clipText(article.factCheck, 1_200),
+                  `Chủ đề: ${topic}`,
+                  "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
+                ),
+                prefsBlock,
+              ),
+            },
+          ],
+          { maxTokens: 4000 },
+        );
+
+        let polished = toReaderCleanPublish(
+          sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
+        );
+        if (polished.length < 80) {
+          polished = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
+        }
+        if (polished.length < 80) {
+          throw new Error("Polish bản sạch thất bại (quá ngắn). Chạy lại Publish Ready.");
+        }
+        assertCleanPublishQuality(polished, prefs);
+
+        const polishCheck = editorialSelfCheck({
+          researchBrief: article.researchBrief,
+          insightGate: article.insightGate,
+          draft12: stripPipelineMarks(article.draft12),
+          cleanPublish: polished,
+          factCheck: article.factCheck,
+          writingPrefs: prefs,
+        });
+        if (polishCheck.length > 0) {
+          const detail = polishCheck.map((i) => i.message).join(" · ");
+          const updated = await prisma.article.update({
+            where: { id: articleId },
+            data: {
+              cleanPublish: polished,
+              status: ArticleStatus.DRAFT,
+              currentStep: WorkflowStep.FINALIZE,
+              errorMessage: `Polish self-check chưa đạt: ${detail}`.slice(0, 500),
+            },
+          });
+          return withTimings(updated, {
+            llmMs: Date.now() - llmStarted,
+            finalizePhase: "self-check-fail",
+          });
+        }
+
+        const title = stripInsightLevelLabels(
+          polished.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
+        );
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            cleanPublish: `${polished}\n\n${CLEAN_POLISH_MARK}`,
+            title,
+            status: ArticleStatus.PUBLISH_READY,
+            currentStep: null,
+            errorMessage: null,
+          },
+        });
+        return withTimings(updated, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "polish",
+        });
+      }
+
+      // Bước 10: Publish Ready — Knowledge Record + Bản sạch + Hero Brief
       if (finPhase === "publish" || finPhase === "done") {
         const prefs = await writingPrefsForArticle(article);
         const prefsBlock = formatWritingPrefsPrompt(prefs);
@@ -711,10 +798,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               writingPrefs: prefs,
             });
             if (skipCheck.length === 0) {
+              const marked = cleanedExisting.includes(CLEAN_POLISH_MARK)
+                ? cleanedExisting
+                : `${cleanedExisting}\n\n${CLEAN_POLISH_MARK}`;
               const updated = await prisma.article.update({
                 where: { id: articleId },
                 data: {
-                  cleanPublish: cleanedExisting,
+                  cleanPublish: marked,
                   status: ArticleStatus.PUBLISH_READY,
                   currentStep: null,
                   errorMessage: null,
@@ -820,6 +910,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           titleMatch?.[1]?.trim() ?? article.topic ?? "Untitled",
         );
 
+        // Giữ DRAFT để tick tiếp chạy polish (10b) — tránh timeout gộp 2 LLM
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
@@ -833,8 +924,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             draft12: article.draft12?.includes(WRITE_DONE_MARK)
               ? article.draft12
               : `${sanitizeEditorialBody(draftClean)}\n\n${WRITE_DONE_MARK}`,
-            status: ArticleStatus.PUBLISH_READY,
-            currentStep: null,
+            status: ArticleStatus.DRAFT,
+            currentStep: WorkflowStep.FINALIZE,
             errorMessage: null,
           },
         });
@@ -905,11 +996,21 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
   });
 }
 
-export async function approveArticle(articleId: string, notes?: string): Promise<Article> {
+export async function approveArticle(
+  articleId: string,
+  notes?: string,
+  opts?: { allowWithoutHero?: boolean },
+): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
   if (article.status !== ArticleStatus.PUBLISH_READY) {
     throw new Error("Chỉ duyệt bài ở trạng thái Publish Ready");
+  }
+
+  if (!article.heroImageUrl?.trim() && !opts?.allowWithoutHero) {
+    throw new Error(
+      "Chưa có hero image — gen ảnh (FLUX/Qwen) trước khi duyệt, hoặc chọn «Duyệt không ảnh».",
+    );
   }
 
   const updated = await prisma.article.update({

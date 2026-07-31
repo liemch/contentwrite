@@ -103,10 +103,21 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [heroError, setHeroError] = useState("");
   const [actionError, setActionError] = useState("");
   const [heroOpen, setHeroOpen] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
 
   useEffect(() => {
     params.then((p) => setId(p.id));
   }, [params]);
+
+  useEffect(() => {
+    if (
+      article?.status === "PUBLISH_READY" &&
+      !article.heroImageUrl &&
+      (article.cleanPublish ?? "").trim().length >= 80
+    ) {
+      setHeroOpen(true);
+    }
+  }, [article?.status, article?.heroImageUrl, article?.cleanPublish]);
 
   const pushLog = useCallback((level: PipelineLogLine["level"], text: string) => {
     logSeq += 1;
@@ -131,6 +142,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   async function callAction(
     action: "run-step" | "reset" | "approve" | "publish",
+    opts?: { allowWithoutHero?: boolean },
   ): Promise<CallActionResult> {
     if (!id) return { article: null };
 
@@ -159,7 +171,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       res = await fetch(`/api/articles/${id}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, notes: notes || undefined }),
+        body: JSON.stringify({
+          action,
+          notes: notes || undefined,
+          allowWithoutHero: opts?.allowWithoutHero || undefined,
+        }),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Mất kết nối tới server";
@@ -207,7 +223,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
       const softQuality =
-        /listicle|outline listicle|Bản sạch|Self-check|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
+        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table/i.test(
           msg,
         );
       if (
@@ -275,7 +291,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       // Self-check / quality: giữ DRAFT — full pipeline thử lại cùng bước
       if (
         next.status === "DRAFT" &&
-        /Self-check|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
+        /Self-check|Polish self-check|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
           next.errorMessage,
         )
       ) {
@@ -312,10 +328,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                           : finalizePhase === "fact" || finalizePhase === "a"
                             ? "9 · Fact Check"
                             : finalizePhase === "publish" || finalizePhase === "b"
-                              ? "10 · Publish Ready"
-                              : finalizePhase === "self-check-fail"
-                                ? "10 · Self-check"
-                                : STEP_LABELS[stepBefore] || stepBefore;
+                              ? next.status === "PUBLISH_READY"
+                                ? "10 · Publish Ready"
+                                : "10 · Bản sạch (chờ polish)"
+                              : finalizePhase === "polish"
+                                ? "10b · Polish bản sạch"
+                                : finalizePhase === "self-check-fail"
+                                  ? "10 · Self-check"
+                                  : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -337,7 +357,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         writePhase === "a" ||
         finalizePhase === "review" ||
         finalizePhase === "fact" ||
-        finalizePhase === "a"
+        finalizePhase === "a" ||
+        (finalizePhase === "publish" && next.status === "DRAFT")
       ) {
         pushLog("success", `✓ Xong ${finished} · còn phase tiếp · ${elapsedSec}s`);
       } else {
@@ -465,11 +486,60 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  function buildExportMarkdown(): string {
+    if (!article?.cleanPublish) return "";
+    let body = prepareReaderContent(stripPipelineMarks(article.cleanPublish), {
+      stripLeadingHeroImage: true,
+      stripHeroBriefSection: true,
+    });
+    if (article.heroImageUrl && !article.heroImageUrl.startsWith("data:")) {
+      const alt = article.heroImageAlt || "Minh họa chủ đề bài";
+      body = `![${alt}](${article.heroImageUrl})\n\n${body}`;
+    }
+    return body.trim();
+  }
+
+  async function copyCleanMarkdown() {
+    const md = buildExportMarkdown();
+    if (!md) return;
+    try {
+      await navigator.clipboard.writeText(md);
+      setCopyState("ok");
+      pushLog("success", "✓ Đã copy Markdown bản sạch");
+      window.setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("err");
+      pushLog("error", "✗ Không copy được — thử Tải .md");
+      window.setTimeout(() => setCopyState("idle"), 2500);
+    }
+  }
+
+  function downloadCleanMarkdown() {
+    const md = buildExportMarkdown();
+    if (!md || !article) return;
+    const slug =
+      (article.title || article.topic || "bai-viet")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60) || "bai-viet";
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    pushLog("success", `✓ Đã tải ${slug}.md`);
+  }
+
   if (!article) return <LoadingSkeleton />;
 
   const contentMap: Record<string, string | null> = {
     clean: article.cleanPublish
-      ? prepareReaderContent(article.cleanPublish, {
+      ? prepareReaderContent(stripPipelineMarks(article.cleanPublish), {
           stripLeadingHeroImage: Boolean(article.heroImageUrl),
           stripHeroBriefSection: true,
         })
@@ -619,12 +689,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         >
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-              Hero image · tuỳ chọn
+              Hero image · nên có trước khi duyệt
             </p>
             <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
               {article.heroImageUrl
                 ? `Đã có ảnh (${article.heroImageModel || "model"})`
-                : "Gen sau khi có Hero Brief (bước Publish Ready)"}
+                : "Gen sau Publish Ready — bắt buộc trước Approve (trừ khi bỏ qua)"}
             </p>
           </div>
           <span className="shrink-0 text-xs font-medium text-[var(--accent)]">
@@ -697,6 +767,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             </div>
           </div>
 
+          {article.status === "PUBLISH_READY" && !article.heroImageUrl && (
+            <div className="mt-4 rounded-xl border border-[rgba(180,83,9,0.35)] bg-white/60 px-3.5 py-3 text-sm text-[var(--ink)]">
+              Chưa có hero image — gen FLUX/Qwen ở panel trên trước khi duyệt (ảnh sẽ gắn vào bản sạch / thư viện).
+            </div>
+          )}
+
           <div className="mt-4">
             <Label htmlFor="notes">Ghi chú reviewer</Label>
             <Textarea
@@ -710,9 +786,40 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
           <div className="mt-4 flex flex-wrap gap-2">
             {article.status === "PUBLISH_READY" && (
-              <Button variant="success" size="sm" disabled={running} onClick={() => callAction("approve")}>
-                Duyệt (Approve)
-              </Button>
+              <>
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={running || !article.heroImageUrl}
+                  onClick={() => callAction("approve")}
+                  title={
+                    article.heroImageUrl
+                      ? "Duyệt bài có hero"
+                      : "Gen hero trước, hoặc dùng «Duyệt không ảnh»"
+                  }
+                >
+                  Duyệt (Approve)
+                </Button>
+                {!article.heroImageUrl && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={running}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Duyệt không có hero image? Bài trong thư viện sẽ thiếu ảnh minh họa.",
+                        )
+                      ) {
+                        return;
+                      }
+                      void callAction("approve", { allowWithoutHero: true });
+                    }}
+                  >
+                    Duyệt không ảnh
+                  </Button>
+                )}
+              </>
             )}
             {(article.status === "APPROVED" || article.status === "PUBLISH_READY") && (
               <Button size="sm" disabled={running} onClick={() => callAction("publish")}>
@@ -762,15 +869,49 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <article className="surface-card min-h-[420px] p-6 sm:p-8">
           {activeTab && (
             <header className="mb-6 border-b border-[var(--line)] pb-4">
-              <h2 className="font-[family-name:var(--font-source-serif)] text-xl font-semibold text-[var(--ink)]">
-                {activeTab.label}
-              </h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">{activeTab.desc}</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-[family-name:var(--font-source-serif)] text-xl font-semibold text-[var(--ink)]">
+                    {activeTab.label}
+                  </h2>
+                  <p className="mt-1 text-sm text-[var(--ink-muted)]">{activeTab.desc}</p>
+                </div>
+                {tab === "clean" && activeContent && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={running}
+                      onClick={() => void copyCleanMarkdown()}
+                    >
+                      {copyState === "ok" ? "Đã copy" : copyState === "err" ? "Lỗi copy" : "Copy Markdown"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={running}
+                      onClick={downloadCleanMarkdown}
+                    >
+                      Tải .md
+                    </Button>
+                  </div>
+                )}
+              </div>
             </header>
           )}
 
           {activeContent ? (
-            <MarkdownView content={activeContent} />
+            <>
+              {tab === "clean" && article.heroImageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={article.heroImageUrl}
+                  alt={article.heroImageAlt || "Hero"}
+                  className="mb-6 w-full rounded-2xl border border-[var(--line)] object-cover"
+                />
+              )}
+              <MarkdownView content={activeContent} />
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có nội dung</p>

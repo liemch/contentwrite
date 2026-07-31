@@ -85,6 +85,8 @@ export function resolveTrackerIndex(article: ArticleLike): number {
   if (!reviewDone) return 8;
   if (!fact.trim()) return 9;
   if (clean.length < 80) return 10;
+  // Có bản sạch nhưng chưa polish → vẫn ở bước 10
+  if (!/<!--TFES_CLEAN_POLISHED-->/.test(clean)) return 10;
   return TFES_TRACKER_STEPS.length;
 }
 
@@ -104,6 +106,14 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
   const step = TFES_TRACKER_STEPS[idx];
   const retries = gateRetryCount(article.insightGate);
   const retryNote = retries > 0 && idx <= 4 ? ` · sau Gate fail lần ${retries}` : "";
+  const clean = article.cleanPublish ?? "";
+  if (
+    idx === 10 &&
+    clean.trim().length >= 80 &&
+    !/<!--TFES_CLEAN_POLISHED-->/.test(clean)
+  ) {
+    return "10b · Polish bản sạch";
+  }
   return `${step.label}${retryNote}`;
 }
 
