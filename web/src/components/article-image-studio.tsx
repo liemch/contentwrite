@@ -112,14 +112,10 @@ export function ArticleImageStudio({
       setError("Nhập prompt English trước khi gen.");
       return;
     }
-    if (gallery.length >= MAX_ARTICLE_IMAGES && slot.role === "inline") {
-      const onlyReplacingHero =
-        slot.role === "hero" || gallery.some((g) => g.role === "hero");
-      if (gallery.length >= MAX_ARTICLE_IMAGES && slot.role === "inline") {
-        setError(`Đã đủ ${MAX_ARTICLE_IMAGES} ảnh. Xoá bớt trước.`);
-        return;
-      }
-      void onlyReplacingHero;
+    // Hero gen lại = thay slot hero; chỉ chặn khi thêm inline mà đã đủ 5
+    if (slot.role === "inline" && gallery.length >= MAX_ARTICLE_IMAGES) {
+      setError(`Đã đủ ${MAX_ARTICLE_IMAGES} ảnh. Xoá bớt trước.`);
+      return;
     }
 
     setGenningKey(`${slot.key}-${model}`);
