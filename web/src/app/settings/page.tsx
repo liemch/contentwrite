@@ -554,7 +554,8 @@ export default function SettingsPage() {
                 }
               />
               <FieldHint>
-                Nếu đã đủ số bài PUBLISH_READY, auto sẽ bỏ qua lần chạy (không spam hàng chờ).
+                Gồm bài PUBLISH_READY (chờ Approve) và bài đang chờ người xác nhận Review AI.
+                Đủ số này thì auto bỏ qua lần chạy (không spam hàng chờ).
               </FieldHint>
             </div>
 

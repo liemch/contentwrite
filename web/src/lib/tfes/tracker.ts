@@ -8,6 +8,7 @@ import {
   WRITE_HALF_MARK,
   gateRetryCount,
 } from "@/lib/tfes/parser";
+import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 
 /** 10 bước Operating Prompt + Insight Gate (UI tracker) — nhãn tiếng Việt */
 export const TFES_TRACKER_STEPS = [
@@ -19,7 +20,7 @@ export const TFES_TRACKER_STEPS = [
   { id: "5", label: "5. Decision", short: "Quyết định" },
   { id: "6", label: "6. Planning", short: "Lập kế hoạch" },
   { id: "7", label: "7. Writing", short: "Viết bài" },
-  { id: "8", label: "8. Review", short: "Tự review" },
+  { id: "8", label: "8. Review (AI + người)", short: "Review" },
   { id: "9", label: "9. Fact Check", short: "Fact-check" },
   { id: "10", label: "10. Publish Ready", short: "Xuất bản" },
 ] as const;
@@ -73,6 +74,7 @@ function finalizeArtifactsIndex(article: {
 
   const reviewDone = knowledge.includes(REVIEW_DONE_MARK) || Boolean(fact.trim());
   if (!reviewDone) return 8;
+  if (isAwaitingHumanReview({ knowledgeRecord: knowledge, factCheck: fact })) return 8;
   if (!fact.trim()) return 9;
   if (clean.length < 80) return 10;
   if (!clean.includes("<!--TFES_CLEAN_POLISHED-->")) return 10;
@@ -138,6 +140,10 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
 
   const idx = resolveTrackerIndex(article);
   if (idx >= TFES_TRACKER_STEPS.length) return "Chờ duyệt / đã xong";
+
+  if (isAwaitingHumanReview(article)) {
+    return "8 · Chờ người xác nhận Review AI";
+  }
 
   const brief = article.researchBrief ?? "";
   const clean = article.cleanPublish ?? "";

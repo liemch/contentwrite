@@ -25,6 +25,14 @@ import {
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
 import {
+  applyHumanReviewToKnowledge,
+  humanReviewSupportBlock,
+  isAwaitingHumanReview,
+  parseEditorialFindings,
+  withHumanReviewPendingMark,
+  type HumanReviewPayload,
+} from "@/lib/tfes/human-review";
+import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
   buildCleanRepairDirectives,
@@ -208,6 +216,10 @@ function priorPipelineSupportBlock(article: {
   includeFact?: boolean;
 }): string {
   const parts: string[] = [];
+  const human = humanReviewSupportBlock(article.knowledgeRecord);
+  if (human.trim()) {
+    parts.push(human);
+  }
   const review = extractEditorialReview(article.knowledgeRecord);
   if (review.trim()) {
     parts.push(
@@ -399,12 +411,13 @@ function finalizePhaseOf(article: {
   factCheck?: string | null;
   cleanPublish?: string | null;
   errorMessage?: string | null;
-}): "review" | "fact" | "publish" | "polish" | "reader-sim" | "done" {
+}): "review" | "await-human" | "fact" | "publish" | "polish" | "reader-sim" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
   const clean = (article.cleanPublish ?? "").trim();
   const reviewDone = kr.includes(REVIEW_DONE_MARK) || Boolean(fc.trim());
   if (!reviewDone) return "review";
+  if (isAwaitingHumanReview(article)) return "await-human";
   if (!fc.trim()) return "fact";
   if (clean.length < 80) return "publish";
   // Reader Sim fail → polish lại kèm feedback
@@ -865,7 +878,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     if (step === WorkflowStep.FINALIZE) {
       const finPhase = finalizePhaseOf(article);
 
-      // Bước 8: Review — lưu tạm vào knowledgeRecord + REVIEW_DONE_MARK
+      // Bước 8: Review — lưu tạm vào knowledgeRecord + REVIEW_DONE_MARK + chờ người
       if (finPhase === "review") {
         const llmStarted = Date.now();
         const reviewOut = await chatCompletion(
@@ -880,9 +893,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(stripPipelineMarks(article.draft12), 7_000),
                   `Chủ đề: ${topic}`,
                 ),
-              undefined,
-              shapeBlockFor(articleId),
-            ),
+                undefined,
+                shapeBlockFor(articleId),
+              ),
             },
           ],
           { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
@@ -891,7 +904,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const updated = await prisma.article.update({
           where: { id: articleId },
           data: {
-            knowledgeRecord: `${reviewOut.trim()}\n\n${REVIEW_DONE_MARK}`,
+            knowledgeRecord: withHumanReviewPendingMark(reviewOut.trim()),
             currentStep: WorkflowStep.FINALIZE,
             status: ArticleStatus.DRAFT,
             errorMessage: null,
@@ -901,6 +914,18 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           llmMs: Date.now() - llmStarted,
           finalizePhase: "review",
         });
+      }
+
+      // Chờ người xác nhận AI Review (Fail / Minor–Major) trước Fact-check
+      if (finPhase === "await-human") {
+        const updated = await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            status: ArticleStatus.DRAFT,
+            errorMessage: null,
+          },
+        });
+        return withTimings(updated, { finalizePhase: "await-human" });
       }
 
       // Bước 9: Fact Check
@@ -1437,6 +1462,55 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
   });
 }
 
+/**
+ * Người xác nhận Fail / Minor từ AI Review — mở khóa Fact-check.
+ */
+export async function confirmHumanReview(
+  articleId: string,
+  payload: HumanReviewPayload,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+
+  if (!isAwaitingHumanReview(article)) {
+    throw new Error("Bài này không đang chờ xác nhận Review người");
+  }
+
+  const findings = parseEditorialFindings(article.knowledgeRecord);
+  if (findings.length > 0) {
+    const byId = new Map(payload.items.map((i) => [i.id, i]));
+    const missing = findings.filter((f) => {
+      const item = byId.get(f.id);
+      return !item || (item.disposition !== "fixed" && item.disposition !== "accept");
+    });
+    if (missing.length > 0) {
+      throw new Error(
+        `Còn ${missing.length} điểm Review chưa xác nhận (Đã sửa / Chấp nhận rủi ro)`,
+      );
+    }
+  }
+
+  const notes = payload.notes?.trim() ?? "";
+  const nextKr = applyHumanReviewToKnowledge(
+    article.knowledgeRecord,
+    { items: payload.items, notes },
+    findings,
+  );
+
+  return prisma.article.update({
+    where: { id: articleId },
+    data: {
+      knowledgeRecord: nextKr,
+      status: ArticleStatus.DRAFT,
+      errorMessage: null,
+      reviewerNotes: notes
+        ? [article.reviewerNotes?.trim(), `Review giữa chu trình:\n${notes}`]
+            .filter(Boolean)
+            .join("\n\n")
+        : article.reviewerNotes,
+    },
+  });
+}
+
 export async function approveArticle(
   articleId: string,
   notes?: string,
@@ -1444,6 +1518,7 @@ export async function approveArticle(
     allowWithoutHero?: boolean;
     editorialScore?: number;
     checklist?: string[];
+    reviewFindingsAck?: string[];
   },
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
@@ -1473,12 +1548,29 @@ export async function approveArticle(
     throw new Error("Tick đủ checklist biên tập trước khi duyệt");
   }
 
+  const findings = parseEditorialFindings(article.knowledgeRecord);
+  if (findings.length > 0) {
+    const ack = new Set(opts.reviewFindingsAck ?? []);
+    const missing = findings.filter((f) => !ack.has(f.id));
+    if (missing.length > 0) {
+      throw new Error(
+        `Tick đủ ${findings.length} điểm Review AI trên cổng duyệt (còn thiếu ${missing.length})`,
+      );
+    }
+  }
+
   const checklistNote =
     opts?.checklist && opts.checklist.length > 0
       ? `Checklist OK: ${opts.checklist.join(", ")}`
       : "";
   const scoreNote = score != null ? `Điểm biên tập: ${score}/5` : "";
-  const mergedNotes = [notes?.trim(), scoreNote, checklistNote].filter(Boolean).join("\n");
+  const reviewAckNote =
+    findings.length > 0
+      ? `Review AI ack: ${findings.map((f) => f.id).join(", ")}`
+      : "";
+  const mergedNotes = [notes?.trim(), scoreNote, checklistNote, reviewAckNote]
+    .filter(Boolean)
+    .join("\n");
 
   const updated = await prisma.article.update({
     where: { id: articleId },

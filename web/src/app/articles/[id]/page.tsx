@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ApproveGate } from "@/components/approve-gate";
+import { HumanReviewGate } from "@/components/human-review-gate";
 import { ArticleImageStudio } from "@/components/article-image-studio";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Label, Textarea } from "@/components/ui/input";
 import { getArticleShape } from "@/lib/tfes/article-shapes";
 import { prepareReaderContent } from "@/lib/publish-content";
+import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import {
   isCleanBodyQualityFail,
@@ -78,6 +79,7 @@ type CallActionResult = {
 function tabForArticle(a: Article): string {
   const clean = (a.cleanPublish ?? "").trim();
   const draft = stripPipelineMarks(a.draft12);
+  if (isAwaitingHumanReview(a)) return "knowledge";
   if (clean.length >= 80) return "clean";
   if (draft.length >= 40) return "draft";
   if (a.factCheck) return "fact";
@@ -137,11 +139,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   }, [load]);
 
   async function callAction(
-    action: "run-step" | "reset" | "approve" | "publish",
+    action: "run-step" | "reset" | "approve" | "publish" | "confirm-human-review",
     opts?: {
       allowWithoutHero?: boolean;
       editorialScore?: number;
       checklist?: string[];
+      reviewFindingsAck?: string[];
+      items?: { id: string; disposition: "fixed" | "accept"; note?: string }[];
+      notes?: string;
     },
   ): Promise<CallActionResult> {
     if (!id) return { article: null };
@@ -151,6 +156,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       const micro = article ? resolveMicroStepLabel(article) : STEP_LABELS[stepBefore];
       setRunningLabel(`Đang chạy: ${micro}`);
       pushLog("info", `→ Bắt đầu ${micro}...`);
+    } else if (action === "confirm-human-review") {
+      setRunningLabel("Đang lưu xác nhận Review...");
+      pushLog("info", "→ Người xác nhận Review AI...");
     } else {
       setRunningLabel(
         action === "reset"
@@ -173,10 +181,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          notes: notes || undefined,
+          notes: opts?.notes ?? notes ?? undefined,
           allowWithoutHero: opts?.allowWithoutHero || undefined,
           editorialScore: opts?.editorialScore,
           checklist: opts?.checklist,
+          reviewFindingsAck: opts?.reviewFindingsAck,
+          items: opts?.items,
         }),
       });
     } catch (err) {
@@ -325,25 +335,27 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                       : writePhase === "b"
                         ? "7 · Writing nửa sau"
                         : finalizePhase === "review"
-                          ? "8 · Review"
-                          : finalizePhase === "fact" || finalizePhase === "a"
-                            ? "9 · Fact Check"
-                            : finalizePhase === "publish" || finalizePhase === "b"
-                              ? next.status === "PUBLISH_READY"
-                                ? "10 · Publish Ready"
-                                : "10 · Bản sạch (chờ polish)"
-                              : finalizePhase === "polish"
-                                ? "10b · Polish bản sạch"
-                                : finalizePhase === "reader-sim" ||
-                                    finalizePhase === "await-reader-sim"
-                                  ? "10c · Reader Simulation"
-                                  : finalizePhase === "reader-sim-fail"
-                                    ? "10c · Reader Sim (chưa đạt)"
-                                    : finalizePhase === "reader-sim-soft"
-                                      ? "10c · Reader Sim (xem Knowledge)"
-                                      : finalizePhase === "self-check-fail"
-                                        ? "10 · Self-check"
-                                        : STEP_LABELS[stepBefore] || stepBefore;
+                          ? "8 · Review AI"
+                          : finalizePhase === "await-human"
+                            ? "8 · Chờ người xác nhận Review"
+                            : finalizePhase === "fact" || finalizePhase === "a"
+                              ? "9 · Fact Check"
+                              : finalizePhase === "publish" || finalizePhase === "b"
+                                ? next.status === "PUBLISH_READY"
+                                  ? "10 · Publish Ready"
+                                  : "10 · Bản sạch (chờ polish)"
+                                : finalizePhase === "polish"
+                                  ? "10b · Polish bản sạch"
+                                  : finalizePhase === "reader-sim" ||
+                                      finalizePhase === "await-reader-sim"
+                                    ? "10c · Reader Simulation"
+                                    : finalizePhase === "reader-sim-fail"
+                                      ? "10c · Reader Sim (chưa đạt)"
+                                      : finalizePhase === "reader-sim-soft"
+                                        ? "10c · Reader Sim (xem Knowledge)"
+                                        : finalizePhase === "self-check-fail"
+                                          ? "10 · Self-check"
+                                          : STEP_LABELS[stepBefore] || stepBefore;
       if (phase === "search" && data.timings) {
         const s = Math.round((data.timings.searchMs || 0) / 1000);
         pushLog(
@@ -358,12 +370,18 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       }
       if (next.status === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
+      } else if (finalizePhase === "review" || isAwaitingHumanReview(next)) {
+        pushLog(
+          "warn",
+          `✓ Xong Review AI · chờ người xác nhận Fail/Minor trước Fact-check · ${elapsedSec}s`,
+        );
+      } else if (finalizePhase === "await-human") {
+        pushLog("warn", `⏸ Đang chờ người xác nhận Review · ${elapsedSec}s`);
       } else if (
         phase === "search" ||
         insightPhase === "gate" ||
         insightPhase === "decision" ||
         writePhase === "a" ||
-        finalizePhase === "review" ||
         finalizePhase === "fact" ||
         finalizePhase === "a" ||
         (finalizePhase === "publish" && next.status === "DRAFT") ||
@@ -381,6 +399,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     } else if (action === "reset") {
       pushLog("warn", `✓ Đã làm lại từ đầu (${elapsedSec}s)`);
       setActionError("");
+    } else if (action === "confirm-human-review") {
+      pushLog("success", `✓ Đã xác nhận Review người · tiếp Fact-check (${elapsedSec}s)`);
+      setTab(tabForArticle(next));
     } else {
       pushLog("success", `✓ ${action} → ${next.status} (${elapsedSec}s)`);
     }
@@ -408,6 +429,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       current.status !== "PUBLISHED" &&
       current.status !== "APPROVED"
     ) {
+      if (isAwaitingHumanReview(current)) {
+        pushLog(
+          "warn",
+          "⏸ Dừng chu trình — xác nhận Review (người) ở panel bên dưới rồi bấm tiếp",
+        );
+        setTab("knowledge");
+        break;
+      }
       safety += 1;
       const result = await callAction("run-step");
       if (!result.article) {
@@ -415,6 +444,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         break;
       }
       current = result.article;
+
+      if (isAwaitingHumanReview(current)) {
+        pushLog(
+          "warn",
+          "⏸ Review AI xong — xác nhận Fail/Minor rồi hệ thống mới Fact-check",
+        );
+        setTab("knowledge");
+        break;
+      }
 
       if (result.softContinue) {
         softRetries += 1;
@@ -542,6 +580,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const activeContent = contentMap[tab];
   const displayError = actionError || article.errorMessage;
   const microLabel = resolveMicroStepLabel(article);
+  const awaitingHuman = isAwaitingHumanReview(article);
   const isReviewMode =
     article.status === "PUBLISH_READY" || article.status === "APPROVED";
 
@@ -553,7 +592,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           ? runningLabel
           : isReviewMode
             ? "Chế độ duyệt — kiểm Bản sạch + Fact rồi Approve"
-            : `Bước tiếp: ${microLabel}`
+            : awaitingHuman
+              ? "Chờ người xác nhận Review AI trước Fact-check"
+              : `Bước tiếp: ${microLabel}`
       }
       backHref="/dashboard"
       backLabel="Biên tập"
@@ -620,7 +661,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <Button
           size="sm"
           busy={running}
-          disabled={running || article.status === "PUBLISHED" || isReviewMode}
+          disabled={running || article.status === "PUBLISHED" || isReviewMode || awaitingHuman}
           onClick={() => callAction("run-step")}
         >
           {running ? "Đang chạy..." : "Chạy bước tiếp"}
@@ -629,7 +670,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           variant="secondary"
           size="sm"
           busy={running}
-          disabled={running || article.status === "PUBLISHED" || isReviewMode}
+          disabled={running || article.status === "PUBLISHED" || isReviewMode || awaitingHuman}
           onClick={runFullPipeline}
           title="Timeout/self-check sẽ tự retry đến PUBLISH_READY (giữ tab mở)"
         >
@@ -685,6 +726,23 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         onLog={(level, message) => pushLog(level, message)}
       />
 
+      {awaitingHuman && (
+        <HumanReviewGate
+          knowledgeRecord={article.knowledgeRecord}
+          running={running}
+          onConfirm={async ({ items, notes: humanNotes }) => {
+            const result = await callAction("confirm-human-review", {
+              items,
+              notes: humanNotes,
+            });
+            if (result.article && !isAwaitingHumanReview(result.article)) {
+              pushLog("info", "→ Tiếp tục Fact-check...");
+              await callAction("run-step");
+            }
+          }}
+        />
+      )}
+
       {(article.status === "PUBLISH_READY" || article.status === "APPROVED") && (
         <ApproveGate
           status={article.status}
@@ -692,6 +750,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           running={running}
           notes={notes}
           onNotesChange={setNotes}
+          knowledgeRecord={article.knowledgeRecord}
           onApprove={(opts) => {
             void callAction("approve", opts);
           }}

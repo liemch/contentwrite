@@ -11,6 +11,8 @@ import {
 } from "@/lib/auto-write/schedule";
 import { isTopicUsed } from "@/lib/auto-write/topic-dedupe";
 import { runWorkflowStep } from "@/lib/tfes/workflow";
+import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
+import { REVIEW_DONE_MARK } from "@/lib/tfes/parser";
 import {
   nextRotatedDomain,
   resolveDomainId,
@@ -24,6 +26,25 @@ import {
 } from "@/lib/tfes/writing-prefs";
 
 const CONFIG_ID = "default";
+
+async function countAwaitingHumanReview(): Promise<number> {
+  const rows = await prisma.article.findMany({
+    where: {
+      status: { in: [ArticleStatus.DRAFT, ArticleStatus.RUNNING] },
+      knowledgeRecord: { contains: REVIEW_DONE_MARK },
+      OR: [{ factCheck: null }, { factCheck: "" }],
+    },
+    select: { knowledgeRecord: true, factCheck: true },
+  });
+  return rows.filter((r) => isAwaitingHumanReview(r)).length;
+}
+
+function isRunnableAutoDraft(article: {
+  knowledgeRecord?: string | null;
+  factCheck?: string | null;
+}): boolean {
+  return !isAwaitingHumanReview(article);
+}
 
 export async function getAutoWriteConfig() {
   const existing = await prisma.autoWriteConfig.findUnique({ where: { id: CONFIG_ID } });
@@ -246,7 +267,8 @@ export async function runFullWorkflowToReview(articleId: string) {
     const article = await runWorkflowStep(articleId);
     if (
       article.status === ArticleStatus.PUBLISH_READY ||
-      article.status === ArticleStatus.FAILED
+      article.status === ArticleStatus.FAILED ||
+      isAwaitingHumanReview(article)
     ) {
       return article;
     }
@@ -309,9 +331,11 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     return { ran: false, skipped: "Đang có bài auto RUNNING" };
   }
 
-  const pending = await prisma.article.count({
+  const pendingReady = await prisma.article.count({
     where: { status: ArticleStatus.PUBLISH_READY },
   });
+  const pendingHuman = await countAwaitingHumanReview();
+  const pending = pendingReady + pendingHuman;
   if (pending >= config.maxPendingReview) {
     const nextRunAt = computeNextRunAt({
       scheduleMode: config.scheduleMode === "interval" ? "interval" : "daily",
@@ -323,23 +347,25 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
       where: { id: CONFIG_ID },
       data: {
         nextRunAt,
-        lastError: `Bỏ qua: đã có ${pending} bài chờ duyệt (max ${config.maxPendingReview})`,
+        lastError: `Bỏ qua: đã có ${pendingReady} chờ duyệt + ${pendingHuman} chờ Review người (max ${config.maxPendingReview})`,
       },
     });
     return {
       ran: false,
-      skipped: `Đã đủ ${pending}/${config.maxPendingReview} bài chờ duyệt`,
+      skipped: `Đã đủ ${pending}/${config.maxPendingReview} bài chờ người (duyệt hoặc Review)`,
     };
   }
 
-  // Resume bài auto chưa xong trước
-  let article = await prisma.article.findFirst({
+  // Resume bài auto chưa xong trước (bỏ qua bài đang chờ Review người)
+  const autoDrafts = await prisma.article.findMany({
     where: {
       source: "auto",
       status: { in: [ArticleStatus.DRAFT, ArticleStatus.RUNNING] },
     },
     orderBy: { updatedAt: "desc" },
+    take: 12,
   });
+  let article = autoDrafts.find((a) => isRunnableAutoDraft(a)) ?? null;
 
   let topic = article?.topic ?? "";
   let domain = resolveDomainId(article?.domain);
@@ -387,9 +413,11 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
 
   try {
     const finished = await runWorkflowStep(article.id);
+    const awaitingHuman = isAwaitingHumanReview(finished);
     const done =
       finished.status === ArticleStatus.PUBLISH_READY ||
-      finished.status === ArticleStatus.FAILED;
+      finished.status === ArticleStatus.FAILED ||
+      awaitingHuman;
 
     // Chưa xong: hẹn lại sớm hơn để cron/client tiếp tục (Hobby cron 1 lần/ngày thì dùng nút Chạy ngay)
     const nextRunAt = done
@@ -411,16 +439,18 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         lastError:
           finished.status === ArticleStatus.FAILED
             ? finished.errorMessage ?? "Pipeline FAILED"
-            : done
-              ? null
-              : `Đang chạy dở (${finished.currentStep ?? finished.status}) — bấm Chạy ngay hoặc đợi tick tiếp`,
+            : awaitingHuman
+              ? "Chờ người xác nhận Review AI — mở bài trên Biên tập"
+              : done
+                ? null
+                : `Đang chạy dở (${finished.currentStep ?? finished.status}) — bấm Chạy ngay hoặc đợi tick tiếp`,
       },
     });
 
     return {
       ran: true,
       articleId: finished.id,
-      status: finished.status,
+      status: awaitingHuman ? "AWAITING_HUMAN_REVIEW" : finished.status,
       topic,
       domain,
       error:

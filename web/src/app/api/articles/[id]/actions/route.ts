@@ -4,10 +4,12 @@ import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   approveArticle,
+  confirmHumanReview,
   publishArticle,
   resetWorkflow,
   runWorkflowStep,
 } from "@/lib/tfes/workflow";
+import type { HumanReviewItem } from "@/lib/tfes/human-review";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,11 +24,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     assertCanAccessArticle(user, article);
 
     const body = (await request.json()) as {
-      action?: "run-step" | "reset" | "approve" | "publish";
+      action?: "run-step" | "reset" | "approve" | "publish" | "confirm-human-review";
       notes?: string;
       allowWithoutHero?: boolean;
       editorialScore?: number;
       checklist?: string[];
+      reviewFindingsAck?: string[];
+      items?: HumanReviewItem[];
     };
 
     switch (body.action) {
@@ -45,11 +49,19 @@ export async function POST(request: NextRequest, { params }: Params) {
         const next = await resetWorkflow(id);
         return NextResponse.json({ article: next });
       }
+      case "confirm-human-review": {
+        const next = await confirmHumanReview(id, {
+          items: body.items ?? [],
+          notes: body.notes,
+        });
+        return NextResponse.json({ article: next });
+      }
       case "approve": {
         const next = await approveArticle(id, body.notes, {
           allowWithoutHero: Boolean(body.allowWithoutHero),
           editorialScore: body.editorialScore,
           checklist: body.checklist,
+          reviewFindingsAck: body.reviewFindingsAck,
         });
         return NextResponse.json({ article: next });
       }

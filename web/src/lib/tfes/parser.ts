@@ -11,6 +11,12 @@ export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
 /** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm (giữ sau Publish để Polish đọc) */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
+/** AI Review xong — chờ người xác nhận Fail/Minor trước Fact-check */
+export const HUMAN_REVIEW_PENDING_MARK = "<!--TFES_HUMAN_REVIEW_PENDING-->";
+/** Người đã xác nhận Review (kèm ## Human Review bên dưới) */
+export const HUMAN_REVIEW_DONE_MARK = "<!--TFES_HUMAN_REVIEW_DONE-->";
+/** Heading ghi chú người trong knowledgeRecord */
+export const HUMAN_REVIEW_HEADING = "## Human Review (editor)";
 /** Heading giữ excerpt Review trong knowledgeRecord sau khi có Knowledge Record thật */
 export const PRIOR_REVIEW_HEADING = "## Editorial Review (pipeline)";
 /** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng Reader Sim */
@@ -168,6 +174,7 @@ export function extractEditorialReview(
   if (raw.includes(REVIEW_DONE_MARK)) {
     return stripPipelineMarks(raw)
       .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
+      .replace(/\n+##\s*Human Review \(editor\)[\s\S]*$/i, "")
       .replace(/\n+##\s*Editorial Review \(pipeline\)[\s\S]*$/i, "")
       .trim();
   }
