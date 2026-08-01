@@ -177,6 +177,7 @@ type PipelineStep =
   | "finalize-a"
   | "finalize-b"
   | "finalize-polish"
+  | "finalize-human-polish"
   | "finalize-expand"
   | "finalize-repair"
   | "finalize-hero"
@@ -464,6 +465,23 @@ ${BLOG_NEWS_VOICE}
 
 ${STORY_ARC_CLEAN}
 
+${READER_POLISH_RULES}`,
+
+    "finalize-human-polish": `## Nhiệm vụ: POLISH THEO CHỈNH SỬA CỦA NGƯỜI (Human Edit Loop)
+Bản markdown dưới đây đã được BIÊN TẬP VIÊN sửa tay. Đây là nguồn sự thật.
+
+Ưu tiên tuyệt đối:
+1. Giữ nguyên mọi thay đổi ý / câu / cấu trúc người đã viết
+2. Chỉ làm mượt: chính tả, câu cụt, nối mạch nhẹ, bỏ sót nhãn biên tập (Subtitle, ---, Introduction…)
+3. Nếu CONTEXT có **Ghi chú biên tập** — áp dụng đúng các điểm đó
+4. CẤM viết lại luận điểm, CẤM đổi hook người đã chốt, CẤM bịa số liệu/nguồn
+5. CẤM kéo về khuôn “sprint + đội + công ty fintech”
+
+Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge / HERO / STATUS.
+
+${prefs}
+${shape}
+${BLOG_NEWS_VOICE}
 ${READER_POLISH_RULES}`,
 
     "finalize-expand": `## Nhiệm vụ: MỞ RỘNG BẢN SẠCH CHO ĐỦ SỐ TỪ

@@ -15,6 +15,7 @@ import {
   parseAvoidFormats,
   serializeAvoidFormats,
 } from "@/lib/tfes/writing-prefs";
+import { MemoryHints } from "@/components/memory-hints";
 import { domainSelectOptions } from "@/lib/tfes/domains";
 
 const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
@@ -119,6 +120,8 @@ export default function NewArticlePage() {
           )}
         </div>
       )}
+
+      <MemoryHints domain={domain} topic={topic} />
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">

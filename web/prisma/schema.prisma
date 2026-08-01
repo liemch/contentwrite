@@ -68,6 +68,8 @@ model Article {
   heroPromptUsed  String?        @db.Text
   /// JSON gallery ảnh bài (hero + inline), tối đa 5
   galleryJson     String?        @db.Text
+  /// JSON bàn biên tập: fact human verdicts, edit meta
+  deskJson        String?        @db.Text
 
   reviewerNotes   String?        @db.Text
   approvedAt      DateTime?

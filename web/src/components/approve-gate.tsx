@@ -103,7 +103,7 @@ export function ApproveGate({
             Cổng duyệt
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Checklist nhanh + điểm 1–5 trước khi Approve / Publish. Đối chiếu lại góp ý Review AI.
+            Checklist + điểm 1–5. Chốt claim Fact-check (tab Fact) và đối chiếu Review AI trước Approve.
           </p>
         </div>
       </div>

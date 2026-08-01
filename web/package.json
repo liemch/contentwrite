@@ -13,7 +13,8 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed-admin": "node scripts/seed-admin.mjs",
-    "db:add-gallery": "node scripts/add-gallery-json.mjs"
+    "db:add-gallery": "node scripts/add-gallery-json.mjs",
+    "db:add-desk": "node scripts/add-desk-json.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",

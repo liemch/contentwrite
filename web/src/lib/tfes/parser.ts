@@ -21,6 +21,8 @@ export const HUMAN_REVIEW_HEADING = "## Human Review (editor)";
 export const PRIOR_REVIEW_HEADING = "## Editorial Review (pipeline)";
 /** Bản sạch đã qua polish LLM (bước 10b) — sẵn sàng Reader Sim */
 export const CLEAN_POLISH_MARK = "<!--TFES_CLEAN_POLISHED-->";
+/** Biên tập viên đã sửa tay bản sạch */
+export const HUMAN_EDIT_MARK = "<!--TFES_HUMAN_EDIT-->";
 /** Reader Simulation xong (10c) — mới PUBLISH_READY */
 export const READER_SIM_DONE_MARK = "<!--TFES_READER_SIM_DONE-->";
 /** Số lần đã polish lại sau Reader Sim fail — <!--TFES_READER_SIM_RETRY:N--> */

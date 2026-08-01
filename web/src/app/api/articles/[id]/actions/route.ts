@@ -5,9 +5,11 @@ import { prisma } from "@/lib/db";
 import {
   approveArticle,
   confirmHumanReview,
+  polishFromHumanEdits,
   publishArticle,
   resetWorkflow,
   runWorkflowStep,
+  saveFactHumanVerdicts,
 } from "@/lib/tfes/workflow";
 import type { HumanReviewItem } from "@/lib/tfes/human-review";
 
@@ -24,13 +26,25 @@ export async function POST(request: NextRequest, { params }: Params) {
     assertCanAccessArticle(user, article);
 
     const body = (await request.json()) as {
-      action?: "run-step" | "reset" | "approve" | "publish" | "confirm-human-review";
+      action?:
+        | "run-step"
+        | "reset"
+        | "approve"
+        | "publish"
+        | "confirm-human-review"
+        | "polish-human-edits"
+        | "save-fact-verdicts";
       notes?: string;
       allowWithoutHero?: boolean;
       editorialScore?: number;
       checklist?: string[];
       reviewFindingsAck?: string[];
       items?: HumanReviewItem[];
+      factClaims?: Array<{
+        id: string;
+        humanDisposition: "fixed" | "accept" | "pending";
+        note?: string;
+      }>;
     };
 
     switch (body.action) {
@@ -54,6 +68,14 @@ export async function POST(request: NextRequest, { params }: Params) {
           items: body.items ?? [],
           notes: body.notes,
         });
+        return NextResponse.json({ article: next });
+      }
+      case "polish-human-edits": {
+        const next = await polishFromHumanEdits(id, body.notes);
+        return NextResponse.json({ article: next });
+      }
+      case "save-fact-verdicts": {
+        const next = await saveFactHumanVerdicts(id, body.factClaims ?? []);
         return NextResponse.json({ article: next });
       }
       case "approve": {

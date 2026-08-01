@@ -10,6 +10,8 @@ import { getSession } from "@/lib/auth";
 import { getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { isDue } from "@/lib/auto-write/schedule";
 import { BRAND } from "@/lib/brand";
+import { getDeskMetrics } from "@/lib/tfes/editorial-memory";
+import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ export default async function DashboardPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [articles, autoConfig] = await Promise.all([
+  const [articles, autoConfig, metrics] = await Promise.all([
     prisma.article.findMany({
       where: editorialWhere(session),
       orderBy: { updatedAt: "desc" },
@@ -36,13 +38,22 @@ export default async function DashboardPage() {
         heroImageUrl: true,
         errorMessage: true,
         source: true,
+        knowledgeRecord: true,
+        factCheck: true,
       },
     }),
     getAutoWriteConfig(),
+    getDeskMetrics(isAdmin(session) ? {} : { createdById: session.userId }),
   ]);
 
   const queue = articles.filter((a) => ["DRAFT", "RUNNING", "FAILED"].includes(a.status));
   const review = articles.filter((a) => a.status === "PUBLISH_READY");
+  const awaitingHuman = articles.filter((a) =>
+    isAwaitingHumanReview({
+      knowledgeRecord: a.knowledgeRecord,
+      factCheck: a.factCheck,
+    }),
+  ).length;
   const publishedCount = articles.filter((a) => a.status === "PUBLISHED").length;
   const admin = isAdmin(session);
   const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
@@ -88,7 +99,7 @@ export default async function DashboardPage() {
 
       {admin && <AutoWriteWatcher due={autoDue} />}
 
-      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {[
           {
             label: "Đang làm",
@@ -96,6 +107,13 @@ export default async function DashboardPage() {
             hint: "Draft · Running · Failed",
             href: null as string | null,
             tone: queue.some((a) => a.status === "FAILED") ? ("warm" as const) : undefined,
+          },
+          {
+            label: "Chờ Review người",
+            value: awaitingHuman,
+            hint: "Sau AI Review",
+            href: null,
+            tone: awaitingHuman > 0 ? ("warm" as const) : undefined,
           },
           {
             label: "Chờ duyệt",
@@ -109,6 +127,16 @@ export default async function DashboardPage() {
             value: publishedCount,
             hint: "Đã đăng · mở Thư viện",
             href: "/library",
+            tone: "accent" as const,
+          },
+          {
+            label: "Điểm TB",
+            value: metrics.avgScore != null ? metrics.avgScore : "—",
+            hint:
+              metrics.scoredCount > 0
+                ? `${metrics.highScoreCount} bài ≥4/5 · ${metrics.scoredCount} đã chấm`
+                : "Chưa có điểm Approve",
+            href: null,
             tone: "accent" as const,
           },
           {

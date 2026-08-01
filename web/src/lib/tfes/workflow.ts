@@ -9,6 +9,7 @@ import {
   clipText,
   extractEditorialReview,
   gateRetryCount,
+  HUMAN_EDIT_MARK,
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
@@ -109,46 +110,8 @@ export function nextStep(current: WorkflowStep | null): WorkflowStep | null {
 }
 
 async function getEditorialMemory(domain: string): Promise<string> {
-  const [records, recentArticles] = await Promise.all([
-    prisma.knowledgeRecord.findMany({
-      where: { domain },
-      orderBy: [{ editorialScore: "desc" }, { publishedAt: "desc" }],
-      take: 8,
-    }),
-    prisma.article.findMany({
-      where: {
-        domain,
-        status: { in: [ArticleStatus.PUBLISH_READY, ArticleStatus.APPROVED, ArticleStatus.PUBLISHED] },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 12,
-      select: { title: true, topic: true },
-    }),
-  ]);
-
-  const avoidList = recentArticles
-    .map((a) => `- ${(a.title || a.topic || "").trim()}`)
-    .filter((l) => l.length > 3)
-    .join("\n");
-
-  if (records.length === 0 && !avoidList) {
-    return "kho đang trống — chạy Seeding Mode";
-  }
-
-  const memory =
-    records.length === 0
-      ? "kho knowledge chưa có record đã duyệt"
-      : records
-          .map(
-            (r) =>
-              `- ${r.title} | score ${r.editorialScore ?? "—"}/5 | ${r.category ?? "N/A"} | keywords: ${r.keywords ?? ""} | core: ${(r.coreMessage ?? "").slice(0, 80)}`,
-          )
-          .join("\n");
-
-  return `${memory}
-
-## Bài đã có (TRÁNH trùng góc)
-${avoidList || "(trống)"}`;
+  const { buildEditorialMemoryBlock } = await import("@/lib/tfes/editorial-memory");
+  return buildEditorialMemoryBlock(domain);
 }
 
 type StepTimings = {
@@ -1458,6 +1421,8 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
       heroImageModel: null,
       heroImageAlt: null,
       heroPromptUsed: null,
+      galleryJson: null,
+      deskJson: null,
     },
   });
 }
@@ -1559,6 +1524,18 @@ export async function approveArticle(
     }
   }
 
+  // Fact-check tương tác: claim AI xấu phải được người chốt
+  const { parseFactClaims, unresolvedBadClaims } = await import("@/lib/tfes/fact-ledger");
+  const { parseDeskJson } = await import("@/lib/tfes/desk-state");
+  const factClaims = parseFactClaims(article.factCheck);
+  const desk = parseDeskJson(article.deskJson);
+  const unresolved = unresolvedBadClaims(factClaims, desk.factClaims);
+  if (unresolved.length > 0) {
+    throw new Error(
+      `Còn ${unresolved.length} claim Fact-check (Unsupported/Contradicted…) chưa chốt ở tab Fact-check`,
+    );
+  }
+
   const checklistNote =
     opts?.checklist && opts.checklist.length > 0
       ? `Checklist OK: ${opts.checklist.join(", ")}`
@@ -1609,11 +1586,195 @@ export async function publishArticle(articleId: string): Promise<Article> {
     throw new Error("Bài cần được duyệt trước khi publish");
   }
 
-  return prisma.article.update({
+  const updated = await prisma.article.update({
     where: { id: articleId },
     data: {
       status: ArticleStatus.PUBLISHED,
       publishedAt: new Date(),
+    },
+  });
+
+  // Nuôi gold_samples khi điểm ≥ 4
+  try {
+    const kr = await prisma.knowledgeRecord.findUnique({ where: { articleId } });
+    const score = kr?.editorialScore;
+    if (
+      typeof score === "number" &&
+      score >= 4 &&
+      (article.cleanPublish ?? "").trim().length >= 80
+    ) {
+      const { appendGoldSampleFromArticle } = await import("@/lib/tfes/editorial-memory");
+      await appendGoldSampleFromArticle({
+        domain: article.domain,
+        title: article.title || article.topic || "Untitled",
+        cleanPublish: article.cleanPublish!,
+        score,
+        updatedBy: "publish-gold",
+      });
+    }
+  } catch {
+    /* không chặn publish nếu gold fail */
+  }
+
+  return updated;
+}
+
+/**
+ * Lưu bản sạch do người sửa tay (Human Edit Loop).
+ */
+export async function saveCleanPublishEdit(
+  articleId: string,
+  cleanMarkdown: string,
+  editNote?: string,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  if (article.status === ArticleStatus.PUBLISHED) {
+    throw new Error("Bài đã publish — không sửa bản sạch");
+  }
+  const body = cleanMarkdown.trim();
+  if (body.length < 80) {
+    throw new Error("Bản sạch quá ngắn");
+  }
+
+  const { mergeDeskJson } = await import("@/lib/tfes/desk-state");
+  const keepPolish = (article.cleanPublish ?? "").includes(CLEAN_POLISH_MARK);
+  let next = stripPipelineMarks(body);
+  if (keepPolish) next = `${next}\n\n${CLEAN_POLISH_MARK}`;
+  next = `${next}\n\n${HUMAN_EDIT_MARK}`.trim();
+
+  const title =
+    stripInsightLevelLabels(next.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "") ||
+    article.title;
+
+  return prisma.article.update({
+    where: { id: articleId },
+    data: {
+      cleanPublish: next,
+      title: title || article.title,
+      deskJson: mergeDeskJson(article.deskJson, {
+        editNote: editNote?.trim() || undefined,
+        editedAt: new Date().toISOString(),
+      }),
+      errorMessage: null,
+    },
+  });
+}
+
+/**
+ * Polish nhẹ tôn trọng chỉnh sửa tay của người.
+ */
+export async function polishFromHumanEdits(
+  articleId: string,
+  editNote?: string,
+): Promise<Article> {
+  await hydrateTfesOverrides();
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  if (article.status === ArticleStatus.PUBLISHED) {
+    throw new Error("Bài đã publish");
+  }
+  const rawClean = stripPipelineMarks(article.cleanPublish);
+  if (rawClean.length < 80) {
+    throw new Error("Chưa có bản sạch để polish theo chỉnh sửa");
+  }
+
+  const prefs = await writingPrefsForArticle(article);
+  const prefsBlock = formatWritingPrefsPrompt(prefs);
+  const note =
+    editNote?.trim() ||
+    (await import("@/lib/tfes/desk-state")).parseDeskJson(article.deskJson).editNote ||
+    "";
+
+  await prisma.article.update({
+    where: { id: articleId },
+    data: { status: ArticleStatus.RUNNING, errorMessage: null },
+  });
+
+  try {
+    const polishedRaw = await chatCompletion(
+      [
+        { role: "system", content: getSystemPrompt(article.domain) },
+        {
+          role: "user",
+          content: buildPipelinePrompt(
+            "finalize-human-polish",
+            appendContext(
+              clipText(rawClean, 18_000),
+              note ? `### Ghi chú biên tập (người)\n${note}` : null,
+              priorPipelineSupportBlock(article),
+              `Chủ đề: ${article.topic ?? ""}`,
+            ),
+            prefsBlock,
+            shapeBlockFor(articleId),
+          ),
+        },
+      ],
+      { maxTokens: cleanGenMaxTokens(prefs.targetWordCount), temperature: 0.25, reasoningEffort: "low" },
+    );
+
+    let polished = toReaderCleanPublish(
+      sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
+    );
+    if (polished.length < 80 || countWords(polished) + 120 < countWords(rawClean)) {
+      // Tôn trọng bản người nếu model rút quá nhiều
+      polished = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
+    }
+
+    const { mergeDeskJson } = await import("@/lib/tfes/desk-state");
+    polished = `${polished}\n\n${CLEAN_POLISH_MARK}\n${HUMAN_EDIT_MARK}`.trim();
+
+    const keepReady =
+      article.status === ArticleStatus.PUBLISH_READY ||
+      article.status === ArticleStatus.APPROVED ||
+      (article.knowledgeRecord ?? "").includes(READER_SIM_DONE_MARK);
+
+    const title = stripInsightLevelLabels(
+      polished.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
+    );
+
+    return prisma.article.update({
+      where: { id: articleId },
+      data: {
+        cleanPublish: polished,
+        title,
+        status: keepReady ? ArticleStatus.PUBLISH_READY : ArticleStatus.DRAFT,
+        currentStep: WorkflowStep.FINALIZE,
+        errorMessage: null,
+        deskJson: mergeDeskJson(article.deskJson, {
+          editNote: note || undefined,
+          editedAt: new Date().toISOString(),
+        }),
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.article.update({
+      where: { id: articleId },
+      data: {
+        status:
+          article.status === ArticleStatus.PUBLISH_READY
+            ? ArticleStatus.PUBLISH_READY
+            : ArticleStatus.DRAFT,
+        errorMessage: message.slice(0, 500),
+      },
+    });
+    throw err instanceof Error ? err : new Error(message);
+  }
+}
+
+/** Lưu xác nhận Fact-check người (claim cards). */
+export async function saveFactHumanVerdicts(
+  articleId: string,
+  claims: Array<{ id: string; humanDisposition: "fixed" | "accept" | "pending"; note?: string }>,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  const { mergeDeskJson } = await import("@/lib/tfes/desk-state");
+  return prisma.article.update({
+    where: { id: articleId },
+    data: {
+      deskJson: mergeDeskJson(article.deskJson, {
+        factClaims: claims,
+        factAckAt: new Date().toISOString(),
+      }),
     },
   });
 }

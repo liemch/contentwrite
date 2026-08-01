@@ -7,8 +7,9 @@ import { AppShell } from "@/components/app-shell";
 import { ApproveGate } from "@/components/approve-gate";
 import { HumanReviewGate } from "@/components/human-review-gate";
 import { ArticleImageStudio } from "@/components/article-image-studio";
+import { CleanEditPanel } from "@/components/clean-edit-panel";
+import { FactLedgerPanel } from "@/components/fact-ledger-panel";
 import { EditorialSummaryPanel } from "@/components/editorial-summary-panel";
-import { PublishPackPanel } from "@/components/publish-pack-panel";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
@@ -47,6 +48,7 @@ type Article = {
   heroImageAlt: string | null;
   heroPromptUsed: string | null;
   galleryJson?: string | null;
+  deskJson?: string | null;
   reviewerNotes: string | null;
   approvedAt?: string | null;
   publishedAt?: string | null;
@@ -60,7 +62,6 @@ const TABS = [
   { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
   { key: "knowledge", label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
   { key: "desk", label: "Tóm biên tập", desc: "AI góp ý · người chốt · duyệt" },
-  { key: "pack", label: "Gói đăng", desc: "Excerpt · LinkedIn · X" },
 ] as const;
 
 function timeoutMessage(status: number): string {
@@ -579,7 +580,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       ? stripPipelineMarks(article.knowledgeRecord)
       : null,
     desk: article.knowledgeRecord || article.factCheck || article.reviewerNotes || "ready",
-    pack: "ready",
   };
 
   const activeTab = TABS.find((t) => t.key === tab);
@@ -838,25 +838,46 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
           {tab === "desk" ? (
             <EditorialSummaryPanel article={article} />
-          ) : tab === "pack" ? (
-            <PublishPackPanel
+          ) : tab === "fact" ? (
+            <FactLedgerPanel
               articleId={article.id}
-              hasClean={Boolean((article.cleanPublish ?? "").trim())}
+              factCheck={article.factCheck}
+              deskJson={article.deskJson}
+              status={article.status}
               running={running}
+              onArticleUpdate={(next) => setArticle(next as Article)}
               onLog={(level, message) => pushLog(level, message)}
             />
-          ) : activeContent && activeContent !== "ready" ? (
+          ) : tab === "clean" ? (
             <>
-              {tab === "clean" && article.heroImageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={article.heroImageUrl}
-                  alt={article.heroImageAlt || "Hero"}
-                  className="mb-6 w-full rounded-2xl border border-[var(--line)] object-cover"
-                />
+              <CleanEditPanel
+                articleId={article.id}
+                cleanPublish={article.cleanPublish}
+                status={article.status}
+                running={running}
+                onArticleUpdate={(next) => setArticle(next as Article)}
+                onLog={(level, message) => pushLog(level, message)}
+              />
+              {activeContent && activeContent !== "ready" ? (
+                <>
+                  {article.heroImageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={article.heroImageUrl}
+                      alt={article.heroImageAlt || "Hero"}
+                      className="mb-6 w-full rounded-2xl border border-[var(--line)] object-cover"
+                    />
+                  )}
+                  <MarkdownView content={activeContent} />
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có bản sạch</p>
+                </div>
               )}
-              <MarkdownView content={activeContent} />
             </>
+          ) : activeContent && activeContent !== "ready" ? (
+            <MarkdownView content={activeContent} />
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có nội dung</p>
