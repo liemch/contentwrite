@@ -43,15 +43,15 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
   if (items.length === 0) {
     return (
       <div className="surface-soft px-6 py-12 text-center">
-        <p className="font-[family-name:var(--font-source-serif)] text-lg font-semibold">
+        <p className="font-[family-name:var(--font-source-serif)] text-lg font-semibold text-[var(--ink)]">
           Hàng đợi trống
         </p>
         <p className="mt-2 text-sm text-[var(--ink-muted)]">
-          Tạo bài mới để Agent bắt đầu Research → Insight → Write.
+          Tạo bài mới để bắt đầu Research → Insight → Write.
         </p>
         <Link
           href="/articles/new"
-          className="mt-5 inline-flex rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-medium text-white"
+          className="mt-5 inline-flex rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--accent-hover)]"
         >
           Bắt đầu viết
         </Link>

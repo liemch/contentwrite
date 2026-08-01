@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Be_Vietnam_Pro, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 const beVietnam = Be_Vietnam_Pro({
@@ -20,8 +21,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ContentTechhub · AI-TFES Editorial",
-  description: "Hệ thống biên tập nội bộ — AI-TFES + GLM-5.2",
+  title: `${BRAND.name} · ${BRAND.tagline}`,
+  description: `${BRAND.pitch} — ${BRAND.productLine}`,
 };
 
 export default function RootLayout({

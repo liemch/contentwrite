@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/logout-button";
+import { BRAND } from "@/lib/brand";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -15,6 +16,8 @@ type AppShellProps = {
   showHeaderTitle?: boolean;
   /** Nội dung rộng hơn (vd. Settings editor markdown) */
   wide?: boolean;
+  /** Dashboard tự render welcome — ẩn title mặc định */
+  hidePageChrome?: boolean;
 };
 
 const NAV_BASE = [
@@ -33,6 +36,7 @@ export function AppShell({
   actions,
   showHeaderTitle = true,
   wide = false,
+  hidePageChrome = false,
 }: AppShellProps) {
   const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState(false);
@@ -54,28 +58,30 @@ export function AppShell({
   }, []);
 
   const nav = NAV_BASE.filter((item) => !("adminOnly" in item && item.adminOnly) || isAdmin);
+  const showTitle = showHeaderTitle && title && !hidePageChrome;
 
   return (
     <div className="app-shell-bg min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-[var(--line)]/80 bg-[rgba(243,247,249,0.82)] backdrop-blur-xl">
-        <div className={`mx-auto flex items-center justify-between gap-4 px-5 py-3.5 sm:px-8 ${wide ? "max-w-7xl" : "max-w-6xl"}`}>
+      <header className="site-header sticky top-0 z-30">
+        <div
+          className={`mx-auto flex items-center justify-between gap-4 px-5 py-3 sm:px-8 ${wide ? "max-w-7xl" : "max-w-6xl"}`}
+        >
           <div className="flex items-center gap-6">
             <Link href="/dashboard" className="group flex items-center gap-3">
-              <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-[var(--ink)] text-sm font-bold text-white shadow-md">
-                <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(12,110,107,0.55),transparent_60%)]" />
-                <span className="relative">CT</span>
+              <div className="brand-mark transition group-hover:scale-[1.03]">
+                <span>{BRAND.mark}</span>
               </div>
               <div className="hidden sm:block">
-                <p className="text-sm font-semibold tracking-tight text-[var(--ink)]">
-                  ContentTechhub
+                <p className="font-[family-name:var(--font-source-serif)] text-[15px] font-semibold tracking-tight text-[var(--ink)]">
+                  {BRAND.name}
                 </p>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ink-faint)]">
-                  AI-TFES Editorial
+                <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ink-faint)]">
+                  {BRAND.tagline}
                 </p>
               </div>
             </Link>
 
-            <nav className="hidden items-center gap-1 md:flex">
+            <nav className="hidden items-center gap-0.5 md:flex">
               {nav.map((item) => {
                 const active =
                   pathname === item.href ||
@@ -94,9 +100,9 @@ export function AppShell({
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {userLabel && (
-              <span className="hidden max-w-[140px] truncate text-xs text-[var(--ink-faint)] lg:inline">
+              <span className="hidden max-w-[160px] truncate rounded-full bg-white/70 px-3 py-1.5 text-xs text-[var(--ink-muted)] ring-1 ring-[var(--line)] lg:inline">
                 {userLabel}
               </span>
             )}
@@ -110,13 +116,18 @@ export function AppShell({
           </div>
         </div>
 
-        <nav className="flex gap-1 overflow-x-auto border-t border-[var(--line)]/70 px-4 py-2 md:hidden">
+        <nav className="flex gap-1 overflow-x-auto border-t border-[var(--line)]/60 px-4 py-2 md:hidden">
           {nav.map((item) => {
             const active =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
-              <Link key={item.href} href={item.href} className="nav-link whitespace-nowrap" data-active={active}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className="nav-link whitespace-nowrap"
+                data-active={active}
+              >
                 {item.label}
               </Link>
             );
@@ -124,7 +135,9 @@ export function AppShell({
         </nav>
       </header>
 
-      <main className={`mx-auto w-full px-5 py-8 sm:px-8 sm:py-10 ${wide ? "max-w-7xl" : "max-w-6xl"}`}>
+      <main
+        className={`mx-auto w-full px-5 py-8 sm:px-8 sm:py-10 ${wide ? "max-w-7xl" : "max-w-6xl"}`}
+      >
         <div className="animate-fade-up">
           {backHref && (
             <Link
@@ -135,7 +148,7 @@ export function AppShell({
             </Link>
           )}
 
-          {showHeaderTitle && title && (
+          {showTitle && (
             <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
               <div className="max-w-3xl">
                 <h1 className="font-[family-name:var(--font-source-serif)] text-3xl font-semibold tracking-tight text-[var(--ink)] sm:text-[2.5rem] sm:leading-tight">

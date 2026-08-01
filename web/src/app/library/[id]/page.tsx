@@ -19,7 +19,7 @@ export default async function LibraryArticlePage({
   const { id } = await params;
   const article = await prisma.article.findUnique({ where: { id } });
 
-  if (!article || (article.status !== "PUBLISHED" && article.status !== "APPROVED")) {
+  if (!article || article.status !== "PUBLISHED") {
     notFound();
   }
 

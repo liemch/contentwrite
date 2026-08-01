@@ -39,7 +39,7 @@ export function ArticleCard({
     month: "short",
     year: "numeric",
   });
-  const link = href ?? (status === "PUBLISHED" || status === "APPROVED" ? `/library/${id}` : `/articles/${id}`);
+  const link = href ?? (status === "PUBLISHED" ? `/library/${id}` : `/articles/${id}`);
 
   if (featured) {
     return (

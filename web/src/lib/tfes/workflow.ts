@@ -27,12 +27,18 @@ import {
 import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
+  buildCleanRepairDirectives,
   cleanGenMaxTokens,
   cleanWordBounds,
   countWords,
   assertFullDraftQuality,
   assertWritePhaseQuality,
   editorialSelfCheck,
+  hasDryOpener,
+  isCleanBodyQualityFail,
+  isCleanPublishQualityFail,
+  isDryOpenerFail,
+  isWritePhaseQualityFail,
 } from "@/lib/tfes/quality";
 import {
   buildDailyTaskPrompt,
@@ -217,12 +223,7 @@ function priorPipelineSupportBlock(article: {
     parts.push(
       `### Reader Simulation — sửa đúng các điểm này\n${clipText(article.errorMessage, 700)}`,
     );
-  } else if (
-    article.errorMessage?.trim() &&
-    /Bản sạch|Self-check|Polish self-check|ngưỡng %|handbook|quá ngắn|heading biên tập|Subtitle|tình huống cụ thể|điều kiện\/phản biện/i.test(
-      article.errorMessage,
-    )
-  ) {
+  } else if (article.errorMessage?.trim() && isCleanPublishQualityFail(article.errorMessage)) {
     parts.push(
       `### Lỗi chất lượng bản sạch (lần trước) — BẮT BUỘC sửa đúng điểm này, không lặp lại\n${clipText(article.errorMessage, 700)}`,
     );
@@ -231,7 +232,7 @@ function priorPipelineSupportBlock(article: {
 }
 
 /**
- * Chấm bản sạch; fail → sửa máy (table/%/---) → (nếu cần) 1 pass LLM repair → sửa máy lại.
+ * Chấm bản sạch; fail → sửa máy → LLM repair (chỉ thị theo lỗi) → nếu còn fail: 1 pass targeted nữa.
  */
 async function ensureCleanPublishQuality(input: {
   clean: string;
@@ -253,47 +254,95 @@ async function ensureCleanPublishQuality(input: {
       input.qualityHint ||
       "Quality gate fail";
 
-    // 1) Sửa máy trước (table / % / ---) — tránh soft-retry vòng với cùng lỗi
+    // 1) Sửa máy trước (table / % / --- / Subtitle / alt) — tránh soft-retry vòng với cùng lỗi
     clean = applyDeterministicCleanFixes(clean, input.prefs);
     try {
       assertCleanPublishQuality(clean, input.prefs);
       return clean;
-    } catch {
-      /* cần LLM */
-    }
+    } catch (afterDeterministic) {
+      const hint2 =
+        afterDeterministic instanceof Error
+          ? afterDeterministic.message
+          : String(afterDeterministic);
+      const activeHint = hint2 || hint;
 
-    const prefsBlock = formatWritingPrefsPrompt(input.prefs);
-    const repairedRaw = await chatCompletion(
-      [
-        { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
-        {
-          role: "user",
-          content: buildPipelinePrompt(
-            "finalize-repair",
-            appendContext(
-              clipText(clean, 18_000),
-              clipText(input.researchBrief, 2_000),
-              clipText(input.factCheck, 1_200),
-              `Chủ đề: ${input.topic}`,
-              `LỖI MÁY CHẤM (sửa đúng):\n${hint.slice(0, 700)}`,
-              /table|Table|\|/i.test(hint)
-                ? "CẤM markdown table (|---|). Đổi thành đoạn hoặc bullet `- cột1 — cột2`."
-                : "",
+      const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+      const directives = buildCleanRepairDirectives(activeHint, clean);
+
+      const repairedRaw = await chatCompletion(
+        [
+          { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
+          {
+            role: "user",
+            content: buildPipelinePrompt(
+              "finalize-repair",
+              appendContext(
+                clipText(clean, 18_000),
+                clipText(input.researchBrief, 2_000),
+                clipText(input.factCheck, 1_200),
+                `Chủ đề: ${input.topic}`,
+                `LỖI MÁY CHẤM (sửa đúng):\n${activeHint.slice(0, 700)}`,
+                directives,
+              ),
+              prefsBlock,
+              shapeBlockFor(input.articleId),
             ),
-            prefsBlock,
-            shapeBlockFor(input.articleId),
-          ),
-        },
-      ],
-      { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
-    );
-    const repaired = toReaderCleanPublish(
-      sanitizeEditorialBody(stripPipelineMarks(repairedRaw)),
-    );
-    if (repaired.length >= 80) clean = repaired;
-    clean = applyDeterministicCleanFixes(clean, input.prefs);
-    assertCleanPublishQuality(clean, input.prefs);
-    return clean;
+          },
+        ],
+        { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
+      );
+      const repaired = toReaderCleanPublish(
+        sanitizeEditorialBody(stripPipelineMarks(repairedRaw)),
+      );
+      if (repaired.length >= 80) clean = repaired;
+      clean = applyDeterministicCleanFixes(clean, input.prefs);
+
+      try {
+        assertCleanPublishQuality(clean, input.prefs);
+        return clean;
+      } catch (still) {
+        const stillHint =
+          still instanceof Error ? still.message : String(still);
+        const focus =
+          buildCleanRepairDirectives(stillHint, clean) ||
+          (isDryOpenerFail(stillHint) || hasDryOpener(clean)
+            ? "CHỈ SỬA ĐOẠN MỞ: cảnh hoặc nghịch lý; CẤM Trong môi trường/bối cảnh/Ngày nay."
+            : `Sửa đúng: ${stillHint.slice(0, 400)}`);
+
+        const pass2Raw = await chatCompletion(
+          [
+            {
+              role: "system",
+              content: getSystemPromptLite(input.domain ?? "engineering"),
+            },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-repair",
+                appendContext(
+                  clipText(clean, 18_000),
+                  clipText(input.researchBrief, 1_500),
+                  `Chủ đề: ${input.topic}`,
+                  `VẪN FAIL SAU LẦN SỬA TRƯỚC:\n${stillHint.slice(0, 500)}`,
+                  focus,
+                  "Giữ title + luận điểm chính. Xuất lại TOÀN BỘ bài markdown.",
+                ),
+                prefsBlock,
+                shapeBlockFor(input.articleId),
+              ),
+            },
+          ],
+          { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
+        );
+        const pass2 = toReaderCleanPublish(
+          sanitizeEditorialBody(stripPipelineMarks(pass2Raw)),
+        );
+        if (pass2.length >= 80) clean = pass2;
+        clean = applyDeterministicCleanFixes(clean, input.prefs);
+        assertCleanPublishQuality(clean, input.prefs);
+        return clean;
+      }
+    }
   }
 }
 
@@ -362,12 +411,7 @@ function finalizePhaseOf(article: {
   if (article.errorMessage && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
     return "polish";
   }
-  if (
-    article.errorMessage &&
-    /Bản sạch|Self-check|Polish self-check|ngưỡng %|heading biên tập|handbook|tình huống cụ thể|Subtitle|gạch ngang|listicle|outline|BAR VIẾT|khi nào không nên/i.test(
-      article.errorMessage,
-    )
-  ) {
+  if (article.errorMessage && isCleanPublishQualityFail(article.errorMessage)) {
     return "polish";
   }
   if (!clean.includes(CLEAN_POLISH_MARK)) return "polish";
@@ -1342,15 +1386,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const raw = error instanceof Error ? error.message : "Lỗi không xác định";
     const isTimeout = /timed? ?out|timeout|Request timed out|Hobby chỉ cho/i.test(raw);
     const isQuality =
-      /quá ngắn|sáo ngữ|bịa|Self-check|≥3 nguồn|≥450|≥350|khi nào KHÔNG|BAR VIẾT|listicle|Bản sạch|outline|heading biên tập|không phù hợp|điều kiện\/phản biện/i.test(
-        raw,
-      );
+      isCleanPublishQualityFail(raw) ||
+      isWritePhaseQualityFail(raw) ||
+      /bịa|≥3 nguồn|≥450|≥350|khi nào KHÔNG|công ty giả|reference nghi bịa/i.test(raw);
     // Listicle ở nửa đầu → viết lại Write A
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
     // Bản sạch fail → GIỮ cleanPublish để lần sau polish/sửa (không viết lại từ nháp rồi lặp lỗi)
-    const isCleanPublishFail =
-      /Bản sạch|heading biên tập|điều kiện\/phản biện|markdown table|Mermaid|gạch ngang|Subtitle|handbook|ngưỡng %|tình huống cụ thể|encoding/i.test(raw) &&
-      !isListicleRewrite;
+    const isCleanPublishFail = isCleanBodyQualityFail(raw) && !isListicleRewrite;
 
     await prisma.article.update({
       where: { id: articleId },

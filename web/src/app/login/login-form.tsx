@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { BRAND } from "@/lib/brand";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -39,28 +40,39 @@ export default function LoginForm() {
 
   return (
     <div className="app-shell-bg relative min-h-screen overflow-hidden">
-      <div className="pointer-events-none absolute -left-20 top-10 h-80 w-80 rounded-full bg-[var(--accent-glow)] blur-3xl" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-96 w-96 rounded-full bg-[rgba(196,92,38,0.1)] blur-3xl" />
+      <div className="pointer-events-none absolute -left-24 top-0 h-[28rem] w-[28rem] rounded-full bg-[var(--accent-glow)] blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 right-0 h-[32rem] w-[32rem] rounded-full bg-[rgba(10,21,32,0.08)] blur-3xl" />
 
       <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-5 py-12 sm:px-8">
-        <div className="grid items-center gap-12 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="grid items-center gap-12 lg:grid-cols-[1.2fr_0.8fr]">
           <section className="animate-fade-up">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)] ring-1 ring-[var(--line)]">
-              ContentTechhub · Nội bộ
+            <div className="mb-7 flex items-center gap-3">
+              <div className="brand-mark h-12 w-12 text-base">
+                <span>{BRAND.mark}</span>
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-source-serif)] text-xl font-semibold tracking-tight text-[var(--ink)]">
+                  {BRAND.name}
+                </p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-faint)]">
+                  {BRAND.productLine}
+                </p>
+              </div>
             </div>
-            <h1 className="font-[family-name:var(--font-source-serif)] text-4xl font-semibold leading-[1.15] tracking-tight text-[var(--ink)] sm:text-5xl">
+
+            <h1 className="font-[family-name:var(--font-source-serif)] text-4xl font-semibold leading-[1.12] tracking-tight text-[var(--ink)] sm:text-[3.25rem]">
               Biên tập tri thức
               <span className="block text-gradient">có kiểm chứng nguồn</span>
             </h1>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-[var(--ink-muted)]">
-              AI-TFES + GLM-5.2: research thật, Insight Gate, cổng duyệt người — rồi lưu vào thư
-              viện nội bộ.
+              Bàn biên tập nội bộ: research thật, Insight Gate ≥ L2, duyệt người — rồi vào thư viện
+              đọc như tạp chí.
             </p>
-            <div className="mt-8 grid max-w-md gap-3 text-sm text-[var(--ink-muted)]">
+            <div className="mt-9 grid max-w-md gap-3.5 text-sm text-[var(--ink-muted)]">
               {[
-                "Chu trình AI-TFES 10 bước (+ Insight Gate ≥ L2)",
-                "Thư viện bài đã duyệt, đọc dạng tạp chí nội bộ",
-                "Hero brief sẵn sàng để gen ảnh minh họa",
+                "Chu trình AI-TFES 10 bước (+ Insight Gate)",
+                "Thư viện bài đã publish, lọc theo danh mục",
+                "Hero brief sẵn sàng gen ảnh minh họa",
               ].map((item) => (
                 <div key={item} className="flex gap-3">
                   <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
@@ -70,12 +82,11 @@ export default function LoginForm() {
             </div>
           </section>
 
-          <section
-            className="glass-panel animate-fade-up rounded-[24px] p-8 sm:p-9"
-            style={{ animationDelay: "70ms" }}
-          >
-            <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập editorial</p>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">Email tài khoản do admin cấp</p>
+          <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-8 sm:p-9">
+            <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập</p>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Tài khoản do admin cấp — vào bàn biên tập {BRAND.name}
+            </p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">
               <div>

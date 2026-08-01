@@ -9,6 +9,7 @@ import { editorialWhere, isAdmin } from "@/lib/access";
 import { getSession } from "@/lib/auth";
 import { getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { isDue } from "@/lib/auto-write/schedule";
+import { BRAND } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -40,64 +41,112 @@ export default async function DashboardPage() {
     getAutoWriteConfig(),
   ]);
 
-  // Hàng đợi: đang làm / lỗi. PUBLISH_READY chỉ hiện ở "Chờ duyệt"
   const queue = articles.filter((a) => ["DRAFT", "RUNNING", "FAILED"].includes(a.status));
   const review = articles.filter((a) => a.status === "PUBLISH_READY");
-  const published = articles.filter((a) => a.status === "PUBLISHED" || a.status === "APPROVED");
-  const featured = published[0];
+  const publishedCount = articles.filter((a) => a.status === "PUBLISHED").length;
   const admin = isAdmin(session);
   const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
+  const greetingName = session.name?.trim() || session.email?.split("@")[0] || "biên tập viên";
 
   return (
-    <AppShell
-      title="Biên tập"
-      subtitle={
-        admin
-          ? "Research → Insight ≥ L2 → Viết → Duyệt. Chi tiết 10 bước xem trên từng bài."
-          : "Bài của bạn — Research → Insight ≥ L2 → Viết → tự Approve khi sẵn sàng."
-      }
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          {admin && (
+    <AppShell hidePageChrome>
+      {/* Welcome — một composition */}
+      <section className="desk-hero relative mb-8 px-6 py-8 sm:px-10 sm:py-10">
+        <div className="desk-hero-shine" aria-hidden />
+        <div className="relative z-[1] flex flex-wrap items-end justify-between gap-6">
+          <div className="max-w-xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[rgba(213,240,237,0.85)]">
+              {BRAND.name} · {BRAND.tagline}
+            </p>
+            <h1 className="mt-3 font-[family-name:var(--font-source-serif)] text-3xl font-semibold tracking-tight text-white sm:text-[2.35rem] sm:leading-tight">
+              Xin chào, {greetingName}
+            </h1>
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-[rgba(244,248,250,0.72)] sm:text-[15px]">
+              {admin
+                ? "Bàn biên tập: Research → Insight ≥ L2 → Viết → Duyệt. Bài publish nằm ở Thư viện."
+                : "Bài của bạn theo chu trình AI-TFES — sẵn sàng thì vào Thư viện sau khi Publish."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {admin && (
+              <Link
+                href="/settings"
+                className="inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-sm transition hover:bg-white/18"
+              >
+                Cài đặt{autoConfig.enabled ? " · Auto ON" : ""}
+              </Link>
+            )}
             <Link
-              href="/settings"
-              className="inline-flex items-center justify-center rounded-full border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--ink)]"
+              href="/articles/new"
+              className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm transition hover:bg-[var(--accent-soft)]"
             >
-              Cài đặt{autoConfig.enabled ? " · Auto ON" : ""}
+              + Tạo bài mới
             </Link>
-          )}
-          <Link
-            href="/articles/new"
-            className="inline-flex items-center justify-center rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--accent-hover)]"
-          >
-            + Tạo bài mới
-          </Link>
+          </div>
         </div>
-      }
-    >
+      </section>
+
       {admin && <AutoWriteWatcher due={autoDue} />}
 
-      <section className="mb-8 grid gap-3 sm:grid-cols-4">
+      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Đang làm", value: queue.length, hint: "Draft / Running / Failed" },
-          { label: "Chờ duyệt", value: review.length, hint: "Publish Ready (gồm Auto)" },
-          { label: "Thư viện", value: published.length, hint: "Approved / Published" },
-          { label: "Tổng", value: articles.length, hint: "Mọi trạng thái" },
-        ].map((item) => (
-          <div key={item.label} className="surface-soft px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-              {item.label}
-            </p>
-            <p className="mt-1 font-[family-name:var(--font-source-serif)] text-3xl font-semibold text-[var(--ink)]">
-              {item.value}
-            </p>
-            <p className="mt-1 text-xs text-[var(--ink-faint)]">{item.hint}</p>
-          </div>
-        ))}
+          {
+            label: "Đang làm",
+            value: queue.length,
+            hint: "Draft · Running · Failed",
+            href: null as string | null,
+            tone: queue.some((a) => a.status === "FAILED") ? ("warm" as const) : undefined,
+          },
+          {
+            label: "Chờ duyệt",
+            value: review.length,
+            hint: "Publish Ready",
+            href: null,
+            tone: review.length > 0 ? ("warm" as const) : undefined,
+          },
+          {
+            label: "Thư viện",
+            value: publishedCount,
+            hint: "Đã đăng · mở Thư viện",
+            href: "/library",
+            tone: "accent" as const,
+          },
+          {
+            label: "Tổng bài",
+            value: articles.length,
+            hint: "Mọi trạng thái",
+            href: null,
+            tone: undefined,
+          },
+        ].map((item) => {
+          const inner = (
+            <>
+              <p className="section-kicker">{item.label}</p>
+              <p className="mt-2 font-[family-name:var(--font-source-serif)] text-3xl font-semibold tracking-tight text-[var(--ink)]">
+                {item.value}
+              </p>
+              <p className="mt-1.5 text-xs text-[var(--ink-faint)]">{item.hint}</p>
+            </>
+          );
+          return item.href ? (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="metric-tile block px-4 py-4"
+              data-tone={item.tone}
+            >
+              {inner}
+            </Link>
+          ) : (
+            <div key={item.label} className="metric-tile px-4 py-4" data-tone={item.tone}>
+              {inner}
+            </div>
+          );
+        })}
       </section>
 
       {autoConfig.enabled && (
-        <div className="mb-8 rounded-2xl border border-[rgba(12,110,107,0.18)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
+        <div className="mb-8 rounded-2xl border border-[rgba(11,107,102,0.2)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
           Auto-write đang bật
           {autoConfig.nextRunAt
             ? ` · lần tới ${new Date(autoConfig.nextRunAt).toLocaleString("vi-VN", {
@@ -114,19 +163,20 @@ export default async function DashboardPage() {
       )}
 
       {review.length > 0 && (
-        <section className="mb-10">
+        <section className="mb-10 animate-fade-up-delay">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--warm)]">
-                Cần hành động
-              </p>
-              <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold">
+              <p className="section-kicker text-[var(--warm)]">Cần hành động</p>
+              <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold text-[var(--ink)]">
                 Chờ duyệt
               </h2>
               <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                Bài auto và bài tay đều dừng ở đây — duyệt trước khi vào Thư viện.
+                Duyệt rồi Publish để bài vào Thư viện.
               </p>
             </div>
+            <span className="rounded-full bg-[var(--warm-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--warm)]">
+              {review.length} bài
+            </span>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {review.map((article) => (
@@ -136,13 +186,11 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      <section className="mb-10">
+      <section>
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
-              Workspace
-            </p>
-            <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold">
+            <p className="section-kicker text-[var(--accent)]">Workspace</p>
+            <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold text-[var(--ink)]">
               Đang soạn
             </h2>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
@@ -152,46 +200,6 @@ export default async function DashboardPage() {
         </div>
 
         <PipelineQueue items={queue} />
-      </section>
-
-      <section>
-        <div className="mb-4 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-              Đã duyệt
-            </p>
-            <h2 className="mt-1 font-[family-name:var(--font-source-serif)] text-xl font-semibold">
-              Thư viện gần đây
-            </h2>
-          </div>
-          <Link
-            href="/library"
-            className="text-sm font-medium text-[var(--accent)] hover:underline"
-          >
-            Xem tất cả →
-          </Link>
-        </div>
-
-        {published.length === 0 ? (
-          <div className="surface-soft px-6 py-10 text-center text-sm text-[var(--ink-muted)]">
-            Chưa có bài đã duyệt. Khi Approve / Publish, bài sẽ xuất hiện tại{" "}
-            <Link href="/library" className="font-medium text-[var(--accent)] underline">
-              Thư viện
-            </Link>
-            .
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {featured && <ArticleCard {...featured} featured />}
-            {published.length > 1 && (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {published.slice(1, 4).map((article) => (
-                  <ArticleCard key={article.id} {...article} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </section>
     </AppShell>
   );

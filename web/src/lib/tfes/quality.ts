@@ -124,6 +124,153 @@ export function applyDeterministicCleanFixes(
 
 export { countPercentClaims };
 
+/** Lỗi thuộc bước Viết / nháp — soft-retry WRITE, không ép polish bản sạch. */
+export const WRITE_PHASE_QUALITY_FAIL_RE =
+  /Nháp|bước Viết|Bản 12 phần|BAR VIẾT|Chạy lại bước Viết|Chạy lại Viết|Gate < L2|nghiên cứu lại/i;
+
+/**
+ * Lỗi máy chấm bản sạch / self-check / Reader Sim — soft-retry + route polish.
+ * Bao phủ assertCleanPublishQuality + editorialSelfCheck (clean) + Reader Sim.
+ */
+export const CLEAN_PUBLISH_QUALITY_FAIL_RE =
+  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|Self-check|Polish self-check|Reader Sim|ngưỡng %|heading biên tập|Introduction\/Context|handbook|brochure|mini-case|tình huống|Subtitle|gạch ngang|thematic break|listicle|outline|BAR VIẾT|sáo ngữ|Hook\/mở|khi nào không nên|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|FACTCHECK|Fact-Check/i;
+
+/** Lỗi gắn thân bài sạch — giữ cleanPublish, ép polish/repair (không FAILED). */
+export const CLEAN_BODY_QUALITY_FAIL_RE =
+  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|heading biên tập|Introduction\/Context|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|gạch ngang|thematic break|Subtitle|handbook|brochure|ngưỡng %|mini-case|tình huống|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|listicle|outline/i;
+
+export function isWritePhaseQualityFail(message: string | null | undefined): boolean {
+  return Boolean(message && WRITE_PHASE_QUALITY_FAIL_RE.test(message));
+}
+
+export function isCleanPublishQualityFail(message: string | null | undefined): boolean {
+  if (!message) return false;
+  // Self-check / Reader Sim luôn soft; còn lại loại trừ lỗi thuần bước Viết
+  if (/Self-check|Polish self-check|Reader Sim/i.test(message)) return true;
+  if (isWritePhaseQualityFail(message) && !/Bản sạch/i.test(message)) return false;
+  return CLEAN_PUBLISH_QUALITY_FAIL_RE.test(message);
+}
+
+export function isCleanBodyQualityFail(message: string | null | undefined): boolean {
+  if (!message) return false;
+  if (isWritePhaseQualityFail(message) && !/Bản sạch/i.test(message)) return false;
+  return CLEAN_BODY_QUALITY_FAIL_RE.test(message);
+}
+
+export function isDryOpenerFail(message: string | null | undefined): boolean {
+  return Boolean(message && /Đoạn mở|khô\/giáo trình|mở khô|DRY_OPEN/i.test(message));
+}
+
+/** True nếu đoạn mở còn khớp DRY_OPENER / “Trong môi trường|bối cảnh”. */
+export function hasDryOpener(clean: string): boolean {
+  const openSample = clean
+    .replace(/^#[^\n]+\n+/, "")
+    .replace(/^\*[^\n]+\*\n+/, "")
+    .slice(0, 600);
+  return DRY_OPENER.test(clean) || /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample);
+}
+
+/**
+ * Chỉ thị sửa cụ thể theo từng loại lỗi máy chấm — nhét vào finalize-repair.
+ */
+export function buildCleanRepairDirectives(
+  hint: string,
+  clean?: string,
+): string {
+  const lines: string[] = [];
+  const h = hint;
+  const body = clean ?? "";
+
+  if (isDryOpenerFail(h) || (body && hasDryOpener(body))) {
+    lines.push(
+      "ƯU TIÊN — ĐOẠN MỞ:",
+      "- XÓA mở kiểu “Trong môi trường/bối cảnh/những năm…”, “Không thể phủ nhận”, “Ngày nay,”.",
+      "- Viết lại 1–3 câu đầu thành CẢNH (ai/đội, hệ, áp lực) hoặc NGHỊCH LÝ — rồi mới nêu luận điểm.",
+    );
+  }
+  if (/handbook|brochure/i.test(h) || (body && HANDBOOK_VOICE.test(body))) {
+    lines.push(
+      "ƯU TIÊN — GIỌNG BLOG:",
+      "- Bỏ checklist “Cần áp dụng các biện pháp sau”, brochure “được nhắc đến như một giải pháp”.",
+      "- Viết đoạn có chủ ngữ (đội/lead/bạn), cảnh hoặc quyết định — như tin tức kỹ thuật.",
+    );
+  }
+  if (/heading biên tập|Introduction|Context|Deep Analysis|EDITORIAL/i.test(h) || EDITORIAL_HEADING_RE.test(body)) {
+    lines.push(
+      "ƯU TIÊN — HEADING:",
+      "- Đổi ## Introduction/Context/Deep Analysis/… thành heading tin tức (câu luận điểm, không nhãn biên tập).",
+    );
+  }
+  if (/listicle|outline|Hook\/Khi nào|Framework/i.test(h) || LISTICLE_OUTLINE.test(body)) {
+    lines.push(
+      "ƯU TIÊN — BỎ LISTICLE:",
+      "- Xóa outline đánh số Hook / Khi nào nên / Framework / Decision Framework.",
+      "- Viết liền mạch theo ## luận điểm.",
+    );
+  }
+  if (/table|Table|\|/i.test(h) || hasMarkdownTable(body)) {
+    lines.push(
+      "ƯU TIÊN — TABLE:",
+      "- CẤM markdown table (|---|). Đổi thành đoạn hoặc bullet `- cột1 — cột2`.",
+    );
+  }
+  if (/Mermaid/i.test(h) || /```\s*mermaid/i.test(body)) {
+    lines.push("ƯU TIÊN — Bỏ mọi khối ```mermaid … ```; mô tả bằng đoạn văn.");
+  }
+  if (/ngưỡng %|STAT_SPAM|quá nhiều.*%/i.test(h) || countPercentClaims(body) >= 6) {
+    lines.push(
+      "ƯU TIÊN — SỐ %:",
+      "- Giữ ≤5 ngưỡng % (ưu tiên số có trong Research/Fact); còn lại viết định tính (thường / phần lớn / khi…).",
+    );
+  }
+  if (/mini-case|tình huống|NO_SCENE/i.test(h) || (body && !CONCRETE_SCENE.test(body))) {
+    lines.push(
+      "ƯU TIÊN — MINI-CASE:",
+      "- Thêm ≥1 tình huống cụ thể (pipeline/stage/retry/snapshot/incident/họp/1:1…) với hậu quả hoặc quyết định.",
+    );
+  }
+  if (/điều kiện\/phản biện|không nên|không phù hợp|WHEN_NOT|READER_HONESTY/i.test(h) || (body && !READER_HONESTY_RE.test(body))) {
+    lines.push(
+      "ƯU TIÊN — PHẢN BIỆN:",
+      "- Thêm rõ điều kiện không áp dụng (không nên / chỉ khi / không phù hợp khi…).",
+    );
+  }
+  if (/khi nào không nên.*≥3|WHEN_NOT_REPEAT|≥3 khối/i.test(h)) {
+    lines.push(
+      "ƯU TIÊN — GỘP “khi nào không nên”: chỉ còn MỘT khối/đoạn; xóa các lần lặp.",
+    );
+  }
+  if (/Subtitle/i.test(h) || BARE_SUBTITLE_LABEL.test(body)) {
+    lines.push("ƯU TIÊN — Xóa mọi nhãn Subtitle; chỉ giữ 1 dòng *phụ đề nghiêng* dưới # Title.");
+  }
+  if (/\balt\b|placeholder hero/i.test(h) || BARE_ALT_LINE.test(body)) {
+    lines.push("ƯU TIÊN — Xóa dòng chỉ có “alt”; dùng ![mô tả ngắn](HERO_IMAGE) nếu cần.");
+  }
+  if (/gạch ngang|thematic break|---/i.test(h) || /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/m.test(body)) {
+    lines.push("ƯU TIÊN — Xóa mọi dòng --- / *** / ___ giữa nội dung; nối đoạn.");
+  }
+  if (/encoding|�/i.test(h) || /\uFFFD|�/.test(body)) {
+    lines.push("ƯU TIÊN — Xóa/sửa ký tự encoding lỗi (�).");
+  }
+  if (/quá ngắn|CLEAN_SHORT/i.test(h)) {
+    lines.push(
+      "ƯU TIÊN — ĐỘ DÀI: viết thêm thân bài (ví dụ, trade-off, hậu quả) — không rút synopsis; đủ sàn WRITING PREFS.",
+    );
+  }
+  if (/quá dài|Rút gọn/i.test(h)) {
+    lines.push(
+      "ƯU TIÊN — RÚT GỌN: cắt lặp / checklist; giữ luận điểm + 1 mini-case; dưới trần WRITING PREFS.",
+    );
+  }
+
+  if (lines.length === 0) {
+    lines.push(
+      "Sửa đúng lỗi máy chấm ở trên; giữ luận điểm/title; giọng blog/tin tức kỹ thuật.",
+    );
+  }
+  return lines.join("\n");
+}
+
 export type QualityIssue = { code: string; message: string };
 
 /**
@@ -282,11 +429,10 @@ export function assertCleanPublishQuality(
       "Bản sạch còn giọng handbook/brochure — viết lại như blog/tin tức (cảnh mở + người/đội, không “ngày càng phức tạp… được nhắc đến như”).",
     );
   }
-  // Chỉ soi ~600 ký tự đầu body (sau title/phụ đề)
-  const openSample = clean.replace(/^#[^\n]+\n+/, "").replace(/^\*[^\n]+\*\n+/, "").slice(0, 600);
-  if (DRY_OPENER.test(clean) || /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample)) {
+  // Chỉ soi ~600 ký tự đầu body (sau title/phụ đề) — prefix “Bản sạch” để soft-retry nhận diện
+  if (hasDryOpener(clean)) {
     throw new Error(
-      "Đoạn mở còn khô/giáo trình — mở bằng cảnh hoặc nghịch lý như bài blog/tin tức.",
+      "Bản sạch: đoạn mở còn khô/giáo trình — mở bằng cảnh hoặc nghịch lý như bài blog/tin tức.",
     );
   }
   if (countPercentClaims(clean) >= 6) {
@@ -370,11 +516,10 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  // Listicle trên nháp vẫn bắt; trên bản sạch luôn bắt
   if (LISTICLE_OUTLINE.test(draft) || LISTICLE_OUTLINE.test(clean)) {
     issues.push({
       code: "LISTICLE",
-      message: "Còn outline listicle (Hook/Khi nào nên/Framework…) — bản đăng phải liền mạch.",
+      message: "Bản sạch còn outline listicle (Hook/Khi nào nên/Framework…) — bản đăng phải liền mạch.",
     });
   }
 
@@ -389,14 +534,14 @@ export function editorialSelfCheck(input: {
   if (prefs && hasAvoid(prefs, "table") && hasMarkdownTable(clean || draft)) {
     issues.push({
       code: "AVOID_TABLE",
-      message: "Còn markdown table trong khi prefs tránh Table.",
+      message: "Bản sạch còn markdown table trong khi prefs tránh Table.",
     });
   }
 
   if (prefs && hasAvoid(prefs, "mermaid") && /```\s*mermaid/i.test(clean || draft)) {
     issues.push({
       code: "AVOID_MERMAID",
-      message: "Còn Mermaid trong khi prefs tránh.",
+      message: "Bản sạch còn Mermaid trong khi prefs tránh.",
     });
   }
 
@@ -404,14 +549,14 @@ export function editorialSelfCheck(input: {
     issues.push({
       code: "WHEN_NOT_REPEAT",
       message:
-        "Có ≥3 khối/heading “khi nào không nên” riêng — gộp một lần trong Recommendations.",
+        "Bản sạch có ≥3 khối/heading “khi nào không nên” riêng — gộp một lần trong Recommendations.",
     });
   }
 
   if (BARE_ALT_LINE.test(body)) {
     issues.push({
       code: "BARE_ALT",
-      message: "Còn dòng “alt” sót từ placeholder hero.",
+      message: "Bản sạch còn dòng “alt” sót từ placeholder hero.",
     });
   }
 
@@ -425,30 +570,28 @@ export function editorialSelfCheck(input: {
   if (clean.trim() && HANDBOOK_VOICE.test(clean)) {
     issues.push({
       code: "HANDBOOK",
-      message: "Giọng handbook/brochure — viết lại như blog/tin tức kỹ thuật.",
+      message: "Bản sạch còn giọng handbook/brochure — viết lại như blog/tin tức kỹ thuật.",
     });
   }
 
-  const openSample =
-    clean.replace(/^#[^\n]+\n+/, "").replace(/^\*[^\n]+\*\n+/, "").slice(0, 600);
-  if (clean.trim() && /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample)) {
+  if (clean.trim() && hasDryOpener(clean)) {
     issues.push({
       code: "DRY_OPEN",
-      message: "Đoạn mở khô/giáo trình — cần cảnh hoặc nghịch lý như blog.",
+      message: "Bản sạch: đoạn mở khô/giáo trình — cần cảnh hoặc nghịch lý như blog.",
     });
   }
 
   if (clean.trim() && countPercentClaims(clean) >= 6) {
     issues.push({
       code: "STAT_SPAM",
-      message: "Quá nhiều ngưỡng % cụ thể — dễ bịa; bớt số hoặc khớp Research.",
+      message: "Bản sạch có quá nhiều ngưỡng % cụ thể — dễ bịa; bớt số hoặc khớp Research.",
     });
   }
 
   if (clean.trim() && !CONCRETE_SCENE.test(clean)) {
     issues.push({
       code: "NO_SCENE",
-      message: "Thiếu mini-case / tình huống kỹ thuật cụ thể trên bản sạch.",
+      message: "Bản sạch thiếu mini-case / tình huống kỹ thuật cụ thể.",
     });
   }
 

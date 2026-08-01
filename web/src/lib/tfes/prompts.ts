@@ -478,8 +478,13 @@ ${STORY_ARC_CLEAN}`,
 Bài trong CONTEXT đã gần xong nhưng MÁY CHẤM FAIL. Sửa ĐÚNG lỗi được nêu — xuất lại TOÀN BỘ bài markdown.
 
 - GIỮ luận điểm, title, mạch, ARTICLE_SHAPE; KHÔNG bịa số liệu / URL mới
-- Nếu lỗi "quá nhiều ngưỡng %" → giữ ≤5 con số % (ưu tiên số có trong Research/Fact); còn lại viết định tính (thường / phần lớn / khi…)
-- Nếu lỗi khác (handbook, mở khô, thiếu mini-case, heading biên tập, Subtitle, ---) → sửa đúng điểm đó
+- Làm đúng các mục “ƯU TIÊN” trong CONTEXT (nếu có) trước khi chỉnh chỗ khác
+- Đoạn mở khô → viết lại 1–3 câu đầu (cảnh / nghịch lý); CẤM “Trong môi trường/bối cảnh/những năm”, “Không thể phủ nhận”, “Ngày nay,”
+- Handbook/brochure → giọng blog/tin tức có chủ ngữ người/đội
+- Heading biên tập / listicle → heading tin tức, viết liền mạch
+- Table / Mermaid / --- / Subtitle / alt / encoding → xóa hoặc đổi đúng chỉ thị
+- Quá nhiều % → ≤5 số; thiếu mini-case / phản biện → bổ sung
+- Quá ngắn → viết thêm thân; quá dài → rút gọn lặp
 - CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
 - Độ dài theo WRITING PREFS — không rút synopsis
 

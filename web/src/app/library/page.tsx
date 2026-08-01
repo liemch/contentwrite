@@ -3,7 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
 import { prisma } from "@/lib/db";
-import { DOMAIN_META, isDomainId } from "@/lib/tfes/domains";
+import { DOMAIN_IDS, DOMAIN_META, isDomainId } from "@/lib/tfes/domains";
 
 export const dynamic = "force-dynamic";
 
@@ -16,37 +16,53 @@ export default async function LibraryPage({
   const { domain } = await searchParams;
   const selected = isDomainId(domain) ? domain : "all";
 
-  const articles = await prisma.article.findMany({
-    where: {
-      status: { in: ["PUBLISHED", "APPROVED"] },
-      ...(selected !== "all" ? { domain: selected } : {}),
-    },
-    orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
-    select: {
-      id: true,
-      title: true,
-      topic: true,
-      domain: true,
-      status: true,
-      updatedAt: true,
-      publishedAt: true,
-      cleanPublish: true,
-      heroImageUrl: true,
-    },
-  });
+  const [articles, domainCounts] = await Promise.all([
+    prisma.article.findMany({
+      where: {
+        status: "PUBLISHED",
+        ...(selected !== "all" ? { domain: selected } : {}),
+      },
+      orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        topic: true,
+        domain: true,
+        status: true,
+        updatedAt: true,
+        publishedAt: true,
+        cleanPublish: true,
+        heroImageUrl: true,
+      },
+    }),
+    prisma.article.groupBy({
+      by: ["domain"],
+      where: { status: "PUBLISHED" },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const countByDomain = Object.fromEntries(
+    domainCounts.map((row) => [row.domain, row._count._all]),
+  ) as Record<string, number>;
+  const totalPublished = domainCounts.reduce((sum, row) => sum + row._count._all, 0);
 
   const featured = articles[0];
   const rest = articles.slice(1);
 
-  const filters: Array<{ key: string; label: string }> = [
-    { key: "all", label: "Tất cả" },
-    ...Object.values(DOMAIN_META).map((d) => ({ key: d.id, label: d.short })),
+  const filters: Array<{ key: string; label: string; count: number }> = [
+    { key: "all", label: "Tất cả", count: totalPublished },
+    ...DOMAIN_IDS.map((id) => ({
+      key: id,
+      label: DOMAIN_META[id].short,
+      count: countByDomain[id] ?? 0,
+    })),
   ];
 
   return (
     <AppShell
       title="Thư viện nội bộ"
-      subtitle="Các bài đã duyệt / publish — đọc lại, chia sẻ nội bộ, đối chiếu Knowledge Base."
+      subtitle="Chỉ bài đã đăng (Published) — đọc lại, chia sẻ nội bộ, lọc theo danh mục."
     >
       <div className="mb-8 flex flex-wrap gap-2">
         {filters.map((item) => (
@@ -60,6 +76,13 @@ export default async function LibraryPage({
             }`}
           >
             {item.label}
+            <span
+              className={`ml-1.5 tabular-nums ${
+                selected === item.key ? "text-white/70" : "text-[var(--ink-faint)]"
+              }`}
+            >
+              {item.count}
+            </span>
           </Link>
         ))}
       </div>
@@ -70,11 +93,11 @@ export default async function LibraryPage({
             Thư viện trống
           </p>
           <h2 className="mt-3 font-[family-name:var(--font-source-serif)] text-2xl font-semibold">
-            Chưa có bài đã duyệt
+            {selected === "all" ? "Chưa có bài đã đăng" : "Chưa có bài trong danh mục này"}
           </h2>
           <p className="mx-auto mt-3 max-w-md text-sm text-[var(--ink-muted)]">
-            Chạy chu trình đến Chờ duyệt → Approve / Publish. Bài sẽ xuất hiện ở đây để đọc gọn
-            như tạp chí nội bộ.
+            Chỉ bài trạng thái Published xuất hiện ở đây. Từ Biên tập: Chờ duyệt → Approve →
+            Publish.
           </p>
           <Link
             href="/dashboard"

@@ -14,6 +14,11 @@ import { extractAlt, suggestEditableHeroPrompt } from "@/lib/image/hero-prompt";
 import { getArticleShape } from "@/lib/tfes/article-shapes";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
+import {
+  isCleanBodyQualityFail,
+  isCleanPublishQualityFail,
+  isWritePhaseQualityFail,
+} from "@/lib/tfes/quality";
 import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
 
 type Article = {
@@ -250,19 +255,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("error", `✗ ${msg} (${elapsedSec}s)`);
       const refreshed = await load();
       const softQuality =
-        /listicle|outline listicle|Bản sạch|Self-check|Polish self-check|Reader Sim|BAR VIẾT|sáo ngữ|quá ngắn|heading biên tập|điều kiện\/phản biện|markdown table|Table|ngưỡng %|Mermaid|handbook/i.test(
-          msg,
-        );
+        isCleanPublishQualityFail(msg) ||
+        isWritePhaseQualityFail(msg) ||
+        /bịa|công ty giả|≥3 nguồn/i.test(msg);
       if (
         action === "run-step" &&
         refreshed &&
         (refreshed.status === "DRAFT" || refreshed.status === "RUNNING") &&
         (isTimeoutLike(msg, res.status) || softQuality)
       ) {
-        const isCleanOnly =
-          /Bản sạch|heading biên tập|điều kiện\/phản biện|ngưỡng %|handbook|tình huống cụ thể/i.test(
-            msg,
-          );
+        const isCleanOnly = isCleanBodyQualityFail(msg);
         const isListicle = /listicle|outline listicle/i.test(msg);
         pushLog(
           "warn",
@@ -321,9 +323,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       // Self-check / quality: giữ DRAFT — full pipeline thử lại cùng bước
       if (
         next.status === "DRAFT" &&
-        /Self-check|Polish self-check|Reader Sim|listicle|Bản sạch|quá ngắn|BAR VIẾT|outline|sáo ngữ/i.test(
-          next.errorMessage,
-        )
+        (isCleanPublishQualityFail(next.errorMessage) ||
+          isWritePhaseQualityFail(next.errorMessage))
       ) {
         pushLog("warn", "⚠ Chất lượng chưa đạt — tự chạy lại bước hiện tại...");
         return { article: next, softContinue: true };
@@ -448,7 +449,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       if (result.softContinue) {
         softRetries += 1;
         const err = current.errorMessage || actionError || "";
-        if (/Bản sạch|heading biên tập|điều kiện\/phản biện/i.test(err)) {
+        if (isCleanBodyQualityFail(err)) {
           publishSoftRetries += 1;
           if (publishSoftRetries > MAX_PUBLISH_SOFT) {
             pushLog(
