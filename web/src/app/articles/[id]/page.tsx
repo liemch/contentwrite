@@ -15,7 +15,7 @@ import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-ru
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { getArticleShape } from "@/lib/tfes/article-shapes";
+import { resolvePublishFormat, resolveShapeForArticle } from "@/lib/tfes/publish-formats";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
@@ -34,6 +34,9 @@ type Article = {
   status: string;
   currentStep: string | null;
   errorMessage: string | null;
+  publishFormat?: string | null;
+  seriesId?: string | null;
+  seriesOrder?: number | null;
   targetWordCount?: number | null;
   avoidFormats?: string | null;
   researchBrief: string | null;
@@ -623,16 +626,33 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <PipelineSteps article={article} running={running} />
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
           {(() => {
-            const shape = getArticleShape(article.id);
+            const fmt = resolvePublishFormat(article.publishFormat);
+            const shape = resolveShapeForArticle({
+              articleId: article.id,
+              publishFormat: article.publishFormat,
+            });
             return (
-              <span
-                className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
-                title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}`}
-              >
-                Khung: {shape.labelVi}
-              </span>
+              <>
+                <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]">
+                  {fmt.labelVi}
+                </span>
+                <span
+                  className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
+                  title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}`}
+                >
+                  Khung: {shape.labelVi}
+                </span>
+              </>
             );
           })()}
+          {article.seriesId && (
+            <Link
+              href={`/series/${article.seriesId}`}
+              className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)] hover:text-[var(--accent)]"
+            >
+              Series{article.seriesOrder != null ? ` #${article.seriesOrder}` : ""}
+            </Link>
+          )}
           {article.targetWordCount ? (
             <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]">
               ~{article.targetWordCount} từ (bản sạch)

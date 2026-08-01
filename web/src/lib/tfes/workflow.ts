@@ -69,7 +69,7 @@ import {
 } from "@/lib/tfes/writing-prefs";
 import { readerRolesForDomain, resolveDomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
-import { formatArticleShapePrompt } from "@/lib/tfes/article-shapes";
+import { formatPublishShapePrompt } from "@/lib/tfes/publish-formats";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
@@ -92,8 +92,11 @@ async function writingPrefsForArticle(article: {
   });
 }
 
-function shapeBlockFor(articleId: string): string {
-  return formatArticleShapePrompt(articleId);
+function shapeBlockFor(article: { id: string; publishFormat?: string | null }): string {
+  return formatPublishShapePrompt({
+    articleId: article.id,
+    publishFormat: article.publishFormat,
+  });
 }
 
 export const STEP_ORDER: WorkflowStep[] = [
@@ -110,9 +113,12 @@ export function nextStep(current: WorkflowStep | null): WorkflowStep | null {
   return STEP_ORDER[idx + 1];
 }
 
-async function getEditorialMemory(domain: string): Promise<string> {
+async function getEditorialMemory(
+  domain: string,
+  seriesId?: string | null,
+): Promise<string> {
   const { buildEditorialMemoryBlock } = await import("@/lib/tfes/editorial-memory");
-  return buildEditorialMemoryBlock(domain);
+  return buildEditorialMemoryBlock(domain, { seriesId });
 }
 
 type StepTimings = {
@@ -216,6 +222,7 @@ async function ensureCleanPublishQuality(input: {
   topic: string;
   domain: string | null | undefined;
   articleId: string;
+  publishFormat?: string | null;
   researchBrief?: string | null;
   factCheck?: string | null;
   qualityHint?: string | null;
@@ -261,7 +268,7 @@ async function ensureCleanPublishQuality(input: {
                 directives,
               ),
               prefsBlock,
-              shapeBlockFor(input.articleId),
+              shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
             ),
           },
         ],
@@ -304,7 +311,7 @@ async function ensureCleanPublishQuality(input: {
                   "Giữ title + luận điểm chính. Xuất lại TOÀN BỘ bài markdown.",
                 ),
                 prefsBlock,
-                shapeBlockFor(input.articleId),
+                shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
               ),
             },
           ],
@@ -344,6 +351,7 @@ async function expandCleanIfShort(input: {
   topic: string;
   domain: string | null | undefined;
   articleId: string;
+  publishFormat?: string | null;
   researchBrief?: string | null;
 }): Promise<string> {
   const { target, aimWords, minWords } = cleanWordBounds(input.prefs);
@@ -366,7 +374,7 @@ async function expandCleanIfShort(input: {
             `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
           ),
           prefsBlock,
-          shapeBlockFor(input.articleId),
+          shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
         ),
       },
     ],
@@ -520,7 +528,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       // Phase 2: Verification + Synthesis → Research Brief (bước 3–4 OP)
-      const memory = await getEditorialMemory(article.domain);
+      const memory = await getEditorialMemory(article.domain, article.seriesId);
       const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
       const previousGateFail =
         gateRetryCount(article.insightGate) > 0
@@ -665,7 +673,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   "Trả lời bullet ngắn ≤200 từ. Không nhắc lại Research / Gate tests.",
                 ),
               undefined,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -705,7 +713,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
               undefined,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -764,7 +772,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
                 prefsBlock,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -809,7 +817,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
                 prefsBlock,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -870,7 +878,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
                 undefined,
-                shapeBlockFor(articleId),
+                shapeBlockFor(article),
               ),
             },
           ],
@@ -973,7 +981,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Độ dài = số TỪ (khoảng trắng), target ~${target} từ (aim ≥${aimWords}, sàn ≥${minWords}). Không rút synopsis.`,
                 ),
                 prefsBlock,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -995,6 +1003,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
         polished = await expandCleanIfShort({
           articleId,
+          publishFormat: article.publishFormat,
           clean: polished,
           prefs,
           topic,
@@ -1004,6 +1013,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         try {
           polished = await ensureCleanPublishQuality({
           articleId,
+          publishFormat: article.publishFormat,
           clean: polished,
             prefs,
             topic,
@@ -1115,7 +1125,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Chủ đề: ${topic}`,
                 ),
               undefined,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -1245,7 +1255,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                     : "",
                 ),
                 prefsBlock,
-              shapeBlockFor(articleId),
+              shapeBlockFor(article),
             ),
             },
           ],
@@ -1274,6 +1284,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
         cleanPublish = await expandCleanIfShort({
           articleId,
+          publishFormat: article.publishFormat,
           clean: cleanPublish,
           prefs,
           topic,
@@ -1283,6 +1294,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         try {
           cleanPublish = await ensureCleanPublishQuality({
           articleId,
+          publishFormat: article.publishFormat,
           clean: cleanPublish,
             prefs,
             topic,
@@ -1522,13 +1534,13 @@ export async function approveArticle(
     throw new Error("Chọn điểm biên tập 1–5 trước khi duyệt");
   }
 
-  if (!opts?.checklist || opts.checklist.length < 5) {
-    throw new Error("Tick đủ checklist biên tập trước khi duyệt");
+  if (score <= 2 && !(notes?.trim() && notes.trim().length >= 8)) {
+    throw new Error("Điểm ≤2 cần ghi chú reviewer (vì sao / cần sửa gì)");
   }
 
   const findings = parseEditorialFindings(article.knowledgeRecord);
   if (findings.length > 0) {
-    const ack = new Set(opts.reviewFindingsAck ?? []);
+    const ack = new Set(opts?.reviewFindingsAck ?? []);
     const missing = findings.filter((f) => !ack.has(f.id));
     if (missing.length > 0) {
       throw new Error(
@@ -1549,18 +1561,12 @@ export async function approveArticle(
     );
   }
 
-  const checklistNote =
-    opts?.checklist && opts.checklist.length > 0
-      ? `Checklist OK: ${opts.checklist.join(", ")}`
-      : "";
-  const scoreNote = score != null ? `Điểm biên tập: ${score}/5` : "";
+  const scoreNote = `Điểm biên tập: ${score}/5`;
   const reviewAckNote =
     findings.length > 0
       ? `Review AI ack: ${findings.map((f) => f.id).join(", ")}`
       : "";
-  const mergedNotes = [notes?.trim(), scoreNote, checklistNote, reviewAckNote]
-    .filter(Boolean)
-    .join("\n");
+  const mergedNotes = [notes?.trim(), scoreNote, reviewAckNote].filter(Boolean).join("\n");
 
   const updated = await prisma.article.update({
     where: { id: articleId },
@@ -1717,7 +1723,7 @@ export async function polishFromHumanEdits(
               `Chủ đề: ${article.topic ?? ""}`,
             ),
             prefsBlock,
-            shapeBlockFor(articleId),
+            shapeBlockFor(article),
           ),
         },
       ],

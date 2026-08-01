@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const domain = searchParams.get("domain") || "engineering";
     const topic = searchParams.get("topic");
+    const seriesId = searchParams.get("seriesId");
     const metricsOnly = searchParams.get("metrics") === "1";
 
     if (metricsOnly) {
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     const angles = await getRelatedAngles({
       domain,
       topic,
+      seriesId,
       limit: 6,
     });
     return NextResponse.json({ angles });

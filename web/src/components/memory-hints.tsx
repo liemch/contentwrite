@@ -6,9 +6,10 @@ import type { MemoryAngle } from "@/lib/tfes/editorial-memory";
 type MemoryHintsProps = {
   domain: string;
   topic: string;
+  seriesId?: string;
 };
 
-export function MemoryHints({ domain, topic }: MemoryHintsProps) {
+export function MemoryHints({ domain, topic, seriesId }: MemoryHintsProps) {
   const [angles, setAngles] = useState<MemoryAngle[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -19,6 +20,7 @@ export function MemoryHints({ domain, topic }: MemoryHintsProps) {
       setLoading(true);
       const q = new URLSearchParams({ domain });
       if (topic.trim()) q.set("topic", topic.trim());
+      if (seriesId) q.set("seriesId", seriesId);
       fetch(`/api/editorial-memory?${q}`, { signal: ctrl.signal })
         .then((r) => (r.ok ? r.json() : null))
         .then((data: { angles?: MemoryAngle[] } | null) => {
@@ -31,7 +33,7 @@ export function MemoryHints({ domain, topic }: MemoryHintsProps) {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [domain, topic]);
+  }, [domain, topic, seriesId]);
 
   if (!loading && angles.length === 0) return null;
 

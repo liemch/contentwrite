@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -15,11 +16,17 @@ import {
 } from "@/lib/tfes/writing-prefs";
 import { MemoryHints } from "@/components/memory-hints";
 import { domainSelectOptions } from "@/lib/tfes/domains";
+import { PUBLISH_FORMATS, PUBLISH_FORMAT_IDS, type PublishFormatId } from "@/lib/tfes/publish-formats";
+
+type SeriesOption = { id: string; title: string; domain: string };
 
 export default function NewArticlePage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [domain, setDomain] = useState("engineering");
+  const [publishFormat, setPublishFormat] = useState<PublishFormatId>("blog");
+  const [seriesId, setSeriesId] = useState("");
+  const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
   const [targetWordCount, setTargetWordCount] = useState<number>(DEFAULT_TARGET_WORD_COUNT);
   const [avoidFormats, setAvoidFormats] = useState(DEFAULT_AVOID_FORMATS);
   const [loading, setLoading] = useState(false);
@@ -51,6 +58,20 @@ export default function NewArticlePage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    fetch("/api/series")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { series?: SeriesOption[] } | null) => {
+        setSeriesList(data?.series ?? []);
+      })
+      .catch(() => setSeriesList([]));
+  }, []);
+
+  useEffect(() => {
+    const fmt = PUBLISH_FORMATS[publishFormat];
+    if (fmt) setTargetWordCount(fmt.wordHint);
+  }, [publishFormat]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -62,6 +83,8 @@ export default function NewArticlePage() {
       body: JSON.stringify({
         topic,
         domain,
+        publishFormat,
+        seriesId: seriesId || null,
         targetWordCount,
         avoidFormats: normalizeAvoidFormatsText(avoidFormats),
       }),
@@ -89,11 +112,13 @@ export default function NewArticlePage() {
   }
 
   const quotaBlocked = quota != null && quota.remaining <= 0;
+  const formatMeta = PUBLISH_FORMATS[publishFormat];
+  const seriesForDomain = seriesList.filter((s) => s.domain === domain);
 
   return (
     <AppShell
       title="Tạo bài mới"
-      subtitle="Khởi tạo chu trình AI-TFES. Agent research nguồn thật trước khi viết."
+      subtitle="Khởi tạo chu trình AI-TFES. Chọn format + series trước khi research."
       backHref="/dashboard"
       backLabel="Biên tập"
     >
@@ -110,7 +135,7 @@ export default function NewArticlePage() {
         </div>
       )}
 
-      <MemoryHints domain={domain} topic={topic} />
+      <MemoryHints domain={domain} topic={topic} seriesId={seriesId || undefined} />
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">
@@ -124,6 +149,45 @@ export default function NewArticlePage() {
               ))}
             </Select>
             <FieldHint>Quyết định tông giọng, tier nguồn và nhóm chủ đề.</FieldHint>
+          </div>
+
+          <div>
+            <Label htmlFor="format">Định dạng xuất bản</Label>
+            <Select
+              id="format"
+              value={publishFormat}
+              onChange={(e) => setPublishFormat(e.target.value as PublishFormatId)}
+            >
+              {PUBLISH_FORMAT_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {PUBLISH_FORMATS[id].labelVi}
+                </option>
+              ))}
+            </Select>
+            <FieldHint>{formatMeta.desc}. Gợi ý ~{formatMeta.wordHint} từ.</FieldHint>
+          </div>
+
+          <div>
+            <Label htmlFor="series">Series (tuỳ chọn)</Label>
+            <Select
+              id="series"
+              value={seriesId}
+              onChange={(e) => setSeriesId(e.target.value)}
+            >
+              <option value="">— Không gắn series —</option>
+              {seriesForDomain.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title}
+                </option>
+              ))}
+            </Select>
+            <FieldHint>
+              Memory sẽ tránh trùng góc với bài cùng series. Quản lý tại{" "}
+              <Link href="/series" className="text-[var(--accent)] underline-offset-2 hover:underline">
+                Series
+              </Link>
+              .
+            </FieldHint>
           </div>
 
           <div>
@@ -159,8 +223,7 @@ export default function NewArticlePage() {
                 }}
               />
               <FieldHint>
-                Bản đăng đọc liền nhắm khoảng số từ này (tối đa {MAX_TARGET_WORD_COUNT}). Prefill từ
-                Settings.
+                Prefill theo format; tối đa {MAX_TARGET_WORD_COUNT}. Đổi được trước khi chạy.
               </FieldHint>
             </div>
             <div>
@@ -198,7 +261,7 @@ export default function NewArticlePage() {
               {[
                 "Research + nguồn",
                 "Insight Gate ≥ L2",
-                "Viết 12 phần (nội bộ)",
+                "Viết theo format đã chọn",
                 "Bản sạch đọc liền để đăng",
               ].map((step, i) => (
                 <li key={step} className="flex items-center gap-3 text-sm text-[var(--ink-muted)]">
@@ -211,8 +274,8 @@ export default function NewArticlePage() {
             </ol>
           </div>
           <div className="surface-soft p-5 text-sm leading-relaxed text-[var(--ink-muted)]">
-            Bản sạch = bài đăng cho mọi người đọc (mở → thân → kết), không heading biên tập. Đổi mặc định
-            số từ / tránh Table tại <strong className="text-[var(--ink)]">Settings</strong>.
+            Cùng pipeline TFES — đầu ra khác nhau: blog, field note, ADR, postmortem, brief, thread.
+            Series giúp kho trí thức có chiều sâu; Digest tuần tận dụng bài điểm cao.
           </div>
         </aside>
       </div>

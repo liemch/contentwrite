@@ -10,7 +10,10 @@ export type ArticleShapeId =
   | "debate-two-sides"
   | "narrative-case"
   | "question-led"
-  | "field-note";
+  | "field-note"
+  | "adr"
+  | "internal-brief"
+  | "thread-qa";
 
 export type ArticleShape = {
   id: ArticleShapeId;
@@ -174,6 +177,79 @@ export const ARTICLE_SHAPES: Record<ArticleShapeId, ArticleShape> = {
     discussion: "skip",
     draftHint: "Recommendations dày hơn Deep Analysis; Examples = anti-pattern + tín hiệu nhận biết.",
   },
+  adr: {
+    id: "adr",
+    labelVi: "ADR — quyết định kiến trúc",
+    fit: "Cần ghi nhận quyết định + hệ quả để đội sau không quên",
+    beats: [
+      "Context / lực đẩy phải quyết",
+      "Options đã xét (ngắn)",
+      "Decision rõ ràng",
+      "Consequences (tốt / xấu / nợ)",
+      "Khi nào revisit / đảo quyết định",
+      "Liên hệ hệ thống / team affected",
+    ],
+    headingHints: [
+      "Vì sao phải quyết tuần này",
+      "Các phương án đã loại",
+      "Quyết định",
+      "Hệ quả và nợ kỹ thuật",
+      "Khi nào mở lại ADR",
+    ],
+    opening: "Mở bằng áp lực quyết định (constraint), không định nghĩa ADR là gì.",
+    ending: "Kết bằng điều kiện revisit — một câu.",
+    recommendations: "Gắn owner + tín hiệu revisit; không checklist tổ chức 3 tầng.",
+    discussion: "skip",
+    draftHint: "Problem = context; Deep Analysis = options; Recommendations = decision + consequences.",
+  },
+  "internal-brief": {
+    id: "internal-brief",
+    labelVi: "Brief nội bộ (lead)",
+    fit: "Cần 1 trang để lead quyết nhanh",
+    beats: [
+      "Đề xuất / hỏi quyết định (1–2 câu)",
+      "Vì sao bây giờ (áp lực)",
+      "Rủi ro / điều kiện (ngắn)",
+      "Phương án đề xuất + phương án loại",
+      "Những gì cần từ lead (approve / resource / stop)",
+      "Một dòng chốt",
+    ],
+    headingHints: [
+      "Cần quyết gì",
+      "Áp lực",
+      "Rủi ro chính",
+      "Đề xuất",
+    ],
+    opening: "Mở thẳng “Cần quyết: …” — không hook văn.",
+    ending: "Một dòng: quyết / hoãn / cần thêm gì.",
+    recommendations: "Toàn bài = CTA quyết định; cực ngắn.",
+    discussion: "skip",
+    draftHint: "Executive tone; Recommendations là xương; Deep Analysis tối giản.",
+  },
+  "thread-qa": {
+    id: "thread-qa",
+    labelVi: "Thread / Q&A",
+    fit: "Phá 3–5 câu hỏi sai hoặc dẫn dắt theo nhịp hỏi–đáp",
+    beats: [
+      "Câu hỏi mở / câu hỏi sai phổ biến",
+      "Đáp 1 + điều kiện",
+      "Câu hỏi tiếp (xoay góc)",
+      "Đáp 2 + trade-off",
+      "Câu hỏi đúng hơn mang về đội",
+      "Chốt hẹp",
+    ],
+    headingHints: [
+      "Người ta hay hỏi",
+      "Đáp có điều kiện",
+      "Góc bị bỏ quên",
+      "Câu hỏi mang về standup",
+    ],
+    opening: "Mở bằng câu hỏi — độc giả muốn đáp án.",
+    ending: "Kết bằng câu hỏi đúng hơn cho team.",
+    recommendations: "Lồng trong đáp; không mục khuyến nghị dài.",
+    discussion: "required",
+    draftHint: "Giống question-led nhưng nhịp ## = hỏi/đáp rõ hơn.",
+  },
 };
 
 const SHAPE_ORDER: ArticleShapeId[] = [
@@ -185,7 +261,7 @@ const SHAPE_ORDER: ArticleShapeId[] = [
   "field-note",
 ];
 
-/** Hash ổn định → index shape (đủ đều giữa các biến thể). */
+/** Hash ổn định → index shape (chỉ các shape blog xoay vòng). */
 export function pickArticleShapeId(seed: string): ArticleShapeId {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
@@ -200,9 +276,12 @@ export function getArticleShape(seed: string): ArticleShape {
   return ARTICLE_SHAPES[pickArticleShapeId(seed)];
 }
 
-/** Block nhúng prompt Planning / Write / Publish */
-export function formatArticleShapePrompt(seed: string): string {
-  const shape = getArticleShape(seed);
+export function getArticleShapeById(id: ArticleShapeId): ArticleShape {
+  return ARTICLE_SHAPES[id] ?? ARTICLE_SHAPES["paradox-deepdive"];
+}
+
+/** Block nhúng prompt từ một shape đã chọn */
+export function formatShapePromptBlock(shape: ArticleShape, formatExtra = ""): string {
   const beats = shape.beats.map((b, i) => `${i + 1}. ${b}`).join("\n");
   const heads = shape.headingHints.map((h) => `· ${h}`).join("\n");
   const discussionLine =
@@ -212,7 +291,7 @@ export function formatArticleShapePrompt(seed: string): string {
         ? "- Câu hỏi thảo luận: TUỲ — chỉ thêm nếu thật sự kích thảo luận; không bắt buộc mọi bài"
         : "- CẤM mục “Câu hỏi thảo luận” khuôn mẫu — shape này kết bằng chốt/hệ quả";
 
-  return `### ARTICLE_SHAPE (bắt buộc — bài này ≠ bài khác)
+  return `${formatExtra}### ARTICLE_SHAPE (bắt buộc — bài này ≠ bài khác)
 - **Shape id:** \`${shape.id}\`
 - **Tên:** ${shape.labelVi}
 - **Hợp khi:** ${shape.fit}
@@ -232,4 +311,9 @@ ${discussionLine}
 
 CẤM copy lại đúng khung 6 nhịp “Cảnh → Tension → Cơ chế → Mini-case → Guardrail → Mở” nếu shape khác \`paradox-deepdive\`.
 CẤM mọi bài đều “Khuyến nghị Cá nhân / Team / Tổ chức” + 3 câu hỏi thảo luận — chỉ làm khi shape yêu cầu hoặc thật sự hợp.`;
+}
+
+/** Block nhúng prompt Planning / Write / Publish (blog xoay shape theo seed) */
+export function formatArticleShapePrompt(seed: string): string {
+  return formatShapePromptBlock(getArticleShape(seed));
 }

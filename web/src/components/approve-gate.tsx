@@ -5,33 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { parseEditorialFindings } from "@/lib/tfes/human-review";
 
-export const APPROVE_CHECKLIST = [
-  {
-    id: "hook",
-    label: "Hook kéo ~15 giây",
-    hint: "Cảnh hoặc nghịch lý — không mở giáo trình / “Trong bối cảnh…”",
-  },
-  {
-    id: "case",
-    label: "Có mini-case cụ thể",
-    hint: "Pipeline / stage / incident / họp / quyết định có hậu quả",
-  },
-  {
-    id: "guardrail",
-    label: "Có điều kiện không áp dụng",
-    hint: "“Không nên / chỉ khi / không phù hợp khi…” rõ ràng",
-  },
-  {
-    id: "insight",
-    label: "Insight không hiển nhiên với senior",
-    hint: "Không chỉ tóm best practice phổ biến",
-  },
-  {
-    id: "facts",
-    label: "Fact-check ổn",
-    hint: "Không còn claim FAIL nặng / số liệu nghi bịa",
-  },
-] as const;
+const SCORE_LABELS: Record<number, string> = {
+  1: "Yếu — nên sửa / rewrite trước khi đăng",
+  2: "Còn lệch — đăng sẽ làm loãng thư viện",
+  3: "Ổn đăng — đúng bar tối thiểu",
+  4: "Hay — gần gold sample, đáng giữ",
+  5: "Đáng bookmark — nuôi memory / gold",
+};
 
 type ApproveGateProps = {
   hasHero: boolean;
@@ -42,7 +22,7 @@ type ApproveGateProps = {
   onApprove: (opts: {
     allowWithoutHero?: boolean;
     editorialScore: number;
-    checklist: string[];
+    checklist?: string[];
     reviewFindingsAck?: string[];
   }) => void | Promise<void>;
   onPublish: () => void | Promise<void>;
@@ -59,7 +39,6 @@ export function ApproveGate({
   onPublish,
   status,
 }: ApproveGateProps) {
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [reviewAck, setReviewAck] = useState<Record<string, boolean>>({});
   const [score, setScore] = useState<number>(0);
 
@@ -68,29 +47,21 @@ export function ApproveGate({
     [knowledgeRecord],
   );
 
-  const allChecked = useMemo(
-    () => APPROVE_CHECKLIST.every((item) => checked[item.id]),
-    [checked],
-  );
   const allFindingsAck =
     findings.length === 0 || findings.every((f) => reviewAck[f.id]);
+  const notesOk = score >= 3 || notes.trim().length >= 8;
   const canApprove =
-    allChecked && allFindingsAck && score >= 1 && score <= 5 && !running;
-
-  function toggle(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
+    allFindingsAck && score >= 1 && score <= 5 && notesOk && !running;
 
   function toggleFinding(id: string) {
     setReviewAck((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   function submit(allowWithoutHero?: boolean) {
-    if (!allChecked || score < 1 || !allFindingsAck) return;
+    if (!canApprove) return;
     void onApprove({
       allowWithoutHero,
       editorialScore: score,
-      checklist: APPROVE_CHECKLIST.filter((i) => checked[i.id]).map((i) => i.id),
       reviewFindingsAck: findings.filter((f) => reviewAck[f.id]).map((f) => f.id),
     });
   }
@@ -103,7 +74,8 @@ export function ApproveGate({
             Cổng duyệt
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Checklist + điểm 1–5. Chốt claim Fact-check (tab Fact) và đối chiếu Review AI trước Approve.
+            Quyết định thật: chấm điểm + (nếu có) đối chiếu Review AI. Hook / case / fact đã do
+            pipeline + tab Fact chặn trước.
           </p>
         </div>
       </div>
@@ -120,7 +92,7 @@ export function ApproveGate({
           {findings.length > 0 && (
             <div className="mt-5 space-y-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-                Đối chiếu Review AI ({findings.length})
+                Còn góp ý Review AI — anh xác nhận đã ổn trên bản sạch ({findings.length})
               </p>
               {findings.map((f) => (
                 <label
@@ -135,11 +107,9 @@ export function ApproveGate({
                     disabled={running}
                   />
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-[var(--ink)]">
-                      Điểm này đã ổn trên bản sạch: {f.label}
-                    </span>
+                    <span className="block text-sm font-medium text-[var(--ink)]">{f.label}</span>
                     <span className="mt-0.5 block text-xs text-[var(--ink-faint)]">
-                      Tick khi anh thấy AI đã xử lý hoặc anh chủ đích giữ nguyên
+                      Tick khi đã sửa trên bản sạch hoặc chủ đích giữ nguyên
                     </span>
                   </span>
                 </label>
@@ -147,42 +117,21 @@ export function ApproveGate({
             </div>
           )}
 
-          <div className="mt-5 space-y-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-              Checklist biên tập
-            </p>
-            {APPROVE_CHECKLIST.map((item) => (
-              <label
-                key={item.id}
-                className="flex cursor-pointer gap-3 rounded-xl border border-[var(--line)] bg-white/80 px-3.5 py-3 transition hover:border-[var(--line-strong)]"
-              >
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 accent-[var(--accent)]"
-                  checked={Boolean(checked[item.id])}
-                  onChange={() => toggle(item.id)}
-                  disabled={running}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-[var(--ink)]">{item.label}</span>
-                  <span className="mt-0.5 block text-xs text-[var(--ink-faint)]">{item.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
           <div className="mt-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-              Điểm biên tập (1–5)
+              Điểm biên tập (bắt buộc)
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+              Đây là quyết định chính — nuôi Memory / gold_samples khi ≥4.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
               {[1, 2, 3, 4, 5].map((n) => (
                 <button
                   key={n}
                   type="button"
                   disabled={running}
                   onClick={() => setScore(n)}
-                  className={`h-10 w-10 rounded-full text-sm font-semibold transition ${
+                  className={`min-w-10 rounded-full px-3 py-2 text-sm font-semibold transition ${
                     score === n
                       ? "bg-[var(--ink)] text-white shadow-sm"
                       : "bg-white/80 text-[var(--ink-muted)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]"
@@ -193,20 +142,26 @@ export function ApproveGate({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-xs text-[var(--ink-faint)]">
-              5 = đáng bookmark · 3 = ổn đăng · 1–2 = nên sửa trước khi publish
-            </p>
+            {score >= 1 && (
+              <p className="mt-2 text-sm font-medium text-[var(--ink)]">{SCORE_LABELS[score]}</p>
+            )}
           </div>
         </>
       )}
 
       <div className="mt-4">
-        <Label htmlFor="notes">Ghi chú reviewer</Label>
+        <Label htmlFor="notes">
+          Ghi chú reviewer{score > 0 && score <= 2 ? " (bắt buộc khi điểm ≤2)" : " (tuỳ chọn)"}
+        </Label>
         <Textarea
           id="notes"
           value={notes}
           onChange={(e) => onNotesChange(e.target.value)}
-          placeholder="Tuỳ chọn — strength, revision, lưu ý fact-check..."
+          placeholder={
+            score > 0 && score <= 2
+              ? "Vì sao điểm thấp — cần sửa gì trước khi đăng?"
+              : "Strength / lý do điểm / lưu ý cho lần sau…"
+          }
           rows={3}
           disabled={running}
         />
@@ -223,11 +178,11 @@ export function ApproveGate({
               onClick={() => submit(false)}
               title={
                 !allFindingsAck
-                  ? "Tick đủ điểm Review AI"
-                  : !allChecked
-                    ? "Tick đủ checklist"
-                    : score < 1
-                      ? "Chọn điểm 1–5"
+                  ? "Tick đủ điểm Review AI còn sót"
+                  : score < 1
+                    ? "Chọn điểm 1–5"
+                    : !notesOk
+                      ? "Ghi chú bắt buộc khi điểm ≤2"
                       : hasHero
                         ? "Duyệt bài có hero"
                         : "Gen hero trước, hoặc dùng «Duyệt không ảnh»"
@@ -264,11 +219,15 @@ export function ApproveGate({
         )}
       </div>
 
-      {status === "PUBLISH_READY" && (!allChecked || score < 1 || !allFindingsAck) && (
+      {status === "PUBLISH_READY" && (!canApprove || score < 1) && (
         <p className="mt-3 text-xs text-[var(--warm)]">
           {!allFindingsAck
-            ? `Tick đủ ${findings.length} điểm Review AI, checklist và chọn điểm trước khi duyệt.`
-            : `Tick đủ ${APPROVE_CHECKLIST.length} mục và chọn điểm trước khi duyệt.`}
+            ? `Còn ${findings.filter((f) => !reviewAck[f.id]).length} góp ý Review chưa xác nhận.`
+            : score < 1
+              ? "Chọn điểm biên tập 1–5 — đây là quyết định duyệt."
+              : !notesOk
+                ? "Điểm ≤2 cần ghi chú ngắn (vì sao / cần sửa gì)."
+                : null}
         </p>
       )}
       {status === "APPROVED" && (

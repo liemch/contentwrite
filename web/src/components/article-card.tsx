@@ -15,6 +15,7 @@ type ArticleCardProps = {
   source?: string | null;
   href?: string;
   featured?: boolean;
+  formatLabel?: string | null;
 };
 
 export function ArticleCard({
@@ -30,6 +31,7 @@ export function ArticleCard({
   source,
   href,
   featured = false,
+  formatLabel,
 }: ArticleCardProps) {
   const displayTitle = title || topic || "Bài chưa có tiêu đề";
   const excerpt = excerptFromMarkdown(cleanPublish, featured ? 220 : 140);
@@ -52,6 +54,11 @@ export function ArticleCard({
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={status} />
             <DomainBadge domain={domain} />
+            {formatLabel && (
+              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                {formatLabel}
+              </span>
+            )}
             {source === "auto" && (
               <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
                 Auto
@@ -88,6 +95,11 @@ export function ArticleCard({
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <DomainBadge domain={domain} />
+            {formatLabel && (
+              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                {formatLabel}
+              </span>
+            )}
             {source === "auto" && (
               <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
                 Auto

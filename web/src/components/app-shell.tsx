@@ -23,6 +23,8 @@ type AppShellProps = {
 const NAV_BASE = [
   { href: "/dashboard", label: "Biên tập" },
   { href: "/library", label: "Thư viện" },
+  { href: "/series", label: "Series" },
+  { href: "/digests", label: "Digest" },
   { href: "/articles/new", label: "Viết bài" },
   { href: "/settings", label: "Cài đặt", adminOnly: true },
 ] as const;

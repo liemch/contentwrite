@@ -4,6 +4,7 @@ import { AuthError, authErrorResponse, requireUser } from "@/lib/auth";
 import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
 import { resolveDomainId } from "@/lib/tfes/domains";
+import { isPublishFormatId, resolvePublishFormat } from "@/lib/tfes/publish-formats";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 import {
   DEFAULT_AVOID_FORMATS,
@@ -25,6 +26,9 @@ export async function GET() {
         domain: true,
         status: true,
         currentStep: true,
+        publishFormat: true,
+        seriesId: true,
+        seriesOrder: true,
         targetWordCount: true,
         avoidFormats: true,
         createdById: true,
@@ -52,9 +56,15 @@ export async function POST(request: NextRequest) {
       domain?: string;
       targetWordCount?: number;
       avoidFormats?: string;
+      publishFormat?: string;
+      seriesId?: string | null;
+      seriesOrder?: number | null;
     };
     const domain = resolveDomainId(body.domain);
     let topic = body.topic?.trim() || "";
+    const publishFormat = resolvePublishFormat(
+      isPublishFormatId(body.publishFormat) ? body.publishFormat : "blog",
+    );
 
     await hydrateTfesOverrides();
     const config = await getAutoWriteConfig();
@@ -74,7 +84,8 @@ export async function POST(request: NextRequest) {
     }
 
     const prefs = resolveWritingPrefs({
-      targetWordCount: body.targetWordCount,
+      targetWordCount:
+        body.targetWordCount != null ? body.targetWordCount : publishFormat.wordHint,
       avoidFormats:
         body.avoidFormats !== undefined
           ? normalizeAvoidFormatsText(body.avoidFormats)
@@ -83,14 +94,36 @@ export async function POST(request: NextRequest) {
       defaultAvoidFormats: config.defaultAvoidFormats ?? DEFAULT_AVOID_FORMATS,
     });
 
+    let seriesId: string | null = null;
+    let seriesOrder: number | null = null;
+    if (body.seriesId) {
+      const series = await prisma.series.findUnique({ where: { id: body.seriesId } });
+      if (!series) {
+        return NextResponse.json({ error: "Series không tồn tại" }, { status: 400 });
+      }
+      seriesId = series.id;
+      if (typeof body.seriesOrder === "number" && body.seriesOrder > 0) {
+        seriesOrder = Math.floor(body.seriesOrder);
+      } else {
+        const max = await prisma.article.aggregate({
+          where: { seriesId },
+          _max: { seriesOrder: true },
+        });
+        seriesOrder = (max._max.seriesOrder ?? 0) + 1;
+      }
+    }
+
     const article = await prisma.article.create({
       data: {
         topic,
         domain,
         source: "manual",
         createdById: user.userId,
+        publishFormat: publishFormat.id,
         targetWordCount: prefs.targetWordCount,
         avoidFormats: prefs.avoidFormatsText || DEFAULT_AVOID_FORMATS,
+        seriesId,
+        seriesOrder,
       },
     });
 

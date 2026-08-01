@@ -46,10 +46,11 @@ function overlapScore(a: string, b: string): number {
 export async function getRelatedAngles(input: {
   domain: string;
   topic?: string | null;
+  seriesId?: string | null;
   limit?: number;
 }): Promise<MemoryAngle[]> {
   const limit = input.limit ?? 6;
-  const [records, published] = await Promise.all([
+  const [records, published, seriesArticles] = await Promise.all([
     prisma.knowledgeRecord.findMany({
       where: { domain: input.domain },
       orderBy: [{ editorialScore: "desc" }, { publishedAt: "desc" }],
@@ -69,6 +70,19 @@ export async function getRelatedAngles(input: {
         knowledgeRecord: true,
       },
     }),
+    input.seriesId
+      ? prisma.article.findMany({
+          where: { seriesId: input.seriesId },
+          orderBy: [{ seriesOrder: "asc" }, { createdAt: "asc" }],
+          take: 12,
+          select: {
+            id: true,
+            title: true,
+            topic: true,
+            domain: true,
+          },
+        })
+      : Promise.resolve([]),
   ]);
 
   const topic = (input.topic ?? "").trim();
@@ -93,6 +107,19 @@ export async function getRelatedAngles(input: {
     });
   }
 
+  for (const s of seriesArticles) {
+    const title = (s.title || s.topic || "").trim();
+    if (!title) continue;
+    if (angles.some((x) => normalize(x.title) === normalize(title))) continue;
+    angles.unshift({
+      title: `[Series] ${title}`,
+      score: null,
+      domain: s.domain,
+      core: "cùng series — tránh trùng góc",
+      articleId: s.id,
+    });
+  }
+
   if (!topic) {
     return angles.slice(0, limit);
   }
@@ -103,7 +130,7 @@ export async function getRelatedAngles(input: {
       s: Math.max(overlapScore(topic, a.title), overlapScore(topic, a.core)),
     }))
     .sort((x, y) => y.s - x.s || (y.a.score ?? 0) - (x.a.score ?? 0))
-    .filter((x) => x.s > 0.08 || !topic)
+    .filter((x) => x.s > 0.08 || !topic || x.a.title.startsWith("[Series]"))
     .slice(0, limit)
     .map((x) => x.a);
 }
@@ -168,9 +195,37 @@ export async function getDeskMetrics(whereArticles: {
 }
 
 /** Format memory block cho LLM research (richer). */
-export async function buildEditorialMemoryBlock(domain: string): Promise<string> {
+export async function buildEditorialMemoryBlock(
+  domain: string,
+  opts?: { seriesId?: string | null },
+): Promise<string> {
   const angles = await getRelatedAngles({ domain, limit: 10 });
-  if (angles.length === 0) return "kho đang trống — chạy Seeding Mode";
+  const seriesLines: string[] = [];
+
+  if (opts?.seriesId) {
+    const siblings = await prisma.article.findMany({
+      where: { seriesId: opts.seriesId },
+      orderBy: [{ seriesOrder: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        topic: true,
+        seriesOrder: true,
+        status: true,
+        knowledgeRecord: true,
+      },
+      take: 20,
+    });
+    for (const s of siblings) {
+      const title = (s.title || s.topic || "Untitled").trim();
+      const order = s.seriesOrder != null ? `#${s.seriesOrder}` : "·";
+      seriesLines.push(`- ${order} ${title} [${s.status}]`);
+    }
+  }
+
+  if (angles.length === 0 && seriesLines.length === 0) {
+    return "kho đang trống — chạy Seeding Mode";
+  }
 
   const lines = angles.map((a) => {
     const score = a.score != null ? `score ${a.score}/5` : "published";
@@ -178,10 +233,21 @@ export async function buildEditorialMemoryBlock(domain: string): Promise<string>
     return `- ${a.title} (${score})${core}`;
   });
 
+  const seriesBlock =
+    seriesLines.length > 0
+      ? `\n## Series siblings (CẤM trùng góc / mở bài giống trong series)
+${seriesLines.join("\n")}
+`
+      : "";
+
   return `## Editorial Memory (đã có — CẤM trùng góc / mở bài giống)
 ${lines.join("\n")}
-
-Khi chọn góc mới: khác luận điểm cốt lõi; xoay shape/mở bài; không viết lại cùng insight với wording khác.`;
+${seriesBlock}
+Khi chọn góc mới: khác luận điểm cốt lõi; xoay shape/mở bài; không viết lại cùng insight với wording khác.${
+    seriesLines.length
+      ? " Trong series: mỗi bài một góc hẹp khác; nối mạch nhưng không lặp luận điểm."
+      : ""
+  }`;
 }
 
 /**
