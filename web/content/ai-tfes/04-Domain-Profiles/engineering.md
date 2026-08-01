@@ -35,3 +35,20 @@ Tin tức 7 ngày · Công nghệ mới 30 ngày · Best Practice / Architecture
 
 ## seed_topics
 Modular Monolith · Feature Flags · Progressive Delivery · CAP Theorem · Event Sourcing · API Versioning · Internal Developer Platform · Observability cơ bản · AI Coding Agents · ADR (Architecture Decision Record).
+
+## gold_samples
+Chuẩn “hay” — bắt chước **nhịp / độ cụ thể / mở bài**, không copy nguyên văn.
+
+### Sample A — Feature flags
+Mở: “Ba tuần sau launch, team vẫn chưa dám tắt flag cũ — không vì bug, vì không ai nhớ flag đang che quyết định kiến trúc nào.”
+Nhịp: nghịch lý vận hành → cơ chế (flag = nợ quyết định) → mini-case rollback → khi nào KHÔNG nên (prototype ngắn) → hệ quả cho Tech Lead.
+Tránh: định nghĩa “feature flag là gì”, checklist 7 lợi ích.
+
+### Sample B — Observability
+Mở: “Alert kêu đúng — nhưng on-call mất 40 phút mới biết *node nào* đang chết vì dashboard đo average, không đo tail.”
+Nhịp: cảnh incident → metric sai câu hỏi → trade-off cardinality/cost → guardrail → câu hỏi mở cho platform.
+Tránh: liệt kê “3 trụ logs/metrics/traces” như giáo trình.
+
+### Sample C — ADR
+Mở: “Cuộc họp kiến trúc kết thúc bằng ‘mọi người đồng ý’ — sáu tháng sau không ai nhớ đã từ chối phương án nào.”
+Nhịp: quyết định mất dấu → ADR như hợp đồng với tương lai → case team 8 người → khi ADR trở thành nghi lễ → hành động hẹp.

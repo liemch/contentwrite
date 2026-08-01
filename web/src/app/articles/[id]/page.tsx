@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { ApproveGate } from "@/components/approve-gate";
+import { ArticleImageStudio } from "@/components/article-image-studio";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
-import { extractAlt, suggestEditableHeroPrompt } from "@/lib/image/hero-prompt";
 import { getArticleShape } from "@/lib/tfes/article-shapes";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
@@ -42,6 +43,7 @@ type Article = {
   heroImageModel: string | null;
   heroImageAlt: string | null;
   heroPromptUsed: string | null;
+  galleryJson?: string | null;
   reviewerNotes: string | null;
 };
 
@@ -106,50 +108,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [runningLabel, setRunningLabel] = useState("");
   const [logs, setLogs] = useState<PipelineLogLine[]>([]);
   const [notes, setNotes] = useState("");
-  const [genning, setGenning] = useState<"flux" | "qwen" | null>(null);
-  const [heroError, setHeroError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [heroOpen, setHeroOpen] = useState(false);
-  const [heroPromptDraft, setHeroPromptDraft] = useState("");
-  const [heroAltDraft, setHeroAltDraft] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
 
   useEffect(() => {
     params.then((p) => setId(p.id));
   }, [params]);
-
-  useEffect(() => {
-    if (
-      article?.status === "PUBLISH_READY" &&
-      !article.heroImageUrl &&
-      (article.cleanPublish ?? "").trim().length >= 80
-    ) {
-      setHeroOpen(true);
-    }
-  }, [article?.status, article?.heroImageUrl, article?.cleanPublish]);
-
-  useEffect(() => {
-    if (!article) return;
-    setHeroPromptDraft(
-      suggestEditableHeroPrompt({
-        heroPromptUsed: article.heroPromptUsed,
-        heroBrief: article.heroBrief,
-        topic: article.topic,
-        title: article.title,
-      }),
-    );
-    setHeroAltDraft(
-      article.heroImageAlt?.trim() ||
-        extractAlt(article.heroBrief, article.title || article.topic || "Hero illustration"),
-    );
-  }, [
-    article?.id,
-    article?.heroBrief,
-    article?.heroPromptUsed,
-    article?.heroImageAlt,
-    article?.topic,
-    article?.title,
-  ]);
 
   const pushLog = useCallback((level: PipelineLogLine["level"], text: string) => {
     logSeq += 1;
@@ -174,7 +138,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   async function callAction(
     action: "run-step" | "reset" | "approve" | "publish",
-    opts?: { allowWithoutHero?: boolean },
+    opts?: {
+      allowWithoutHero?: boolean;
+      editorialScore?: number;
+      checklist?: string[];
+    },
   ): Promise<CallActionResult> {
     if (!id) return { article: null };
 
@@ -207,6 +175,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           action,
           notes: notes || undefined,
           allowWithoutHero: opts?.allowWithoutHero || undefined,
+          editorialScore: opts?.editorialScore,
+          checklist: opts?.checklist,
         }),
       });
     } catch (err) {
@@ -497,70 +467,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  function resetHeroPromptFromBrief() {
-    if (!article) return;
-    setHeroPromptDraft(
-      suggestEditableHeroPrompt({
-        heroPromptUsed: null,
-        heroBrief: article.heroBrief,
-        topic: article.topic,
-        title: article.title,
-      }),
-    );
-    setHeroAltDraft(
-      extractAlt(article.heroBrief, article.title || article.topic || "Hero illustration"),
-    );
-  }
-
-  async function generateHero(model: "flux" | "qwen") {
-    if (!id) return;
-    const prompt = heroPromptDraft.trim();
-    if (!prompt) {
-      setHeroError("Nhập hoặc chỉnh prompt ảnh trước khi gen.");
-      return;
-    }
-    setGenning(model);
-    setHeroError("");
-    pushLog("info", `→ Gen hero (${model})...`);
-
-    const started = Date.now();
-    const res = await fetch(`/api/articles/${id}/hero`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        prompt,
-        alt: heroAltDraft.trim() || undefined,
-      }),
-    });
-    const data = (await res.json()) as { article?: Article; error?: string; hero?: { modelLabel: string } };
-    setGenning(null);
-    const sec = Math.round((Date.now() - started) / 1000);
-
-    if (!res.ok) {
-      setHeroError(data.error ?? "Gen ảnh thất bại");
-      pushLog("error", `✗ hero ${model}: ${data.error ?? "lỗi"} (${sec}s)`);
-      return;
-    }
-
-    if (data.article) {
-      setArticle(data.article);
-      setTab("clean");
-      pushLog("success", `✓ hero ${data.hero?.modelLabel ?? model} (${sec}s)`);
-    }
-  }
-
   function buildExportMarkdown(): string {
     if (!article?.cleanPublish) return "";
-    let body = prepareReaderContent(stripPipelineMarks(article.cleanPublish), {
-      stripLeadingHeroImage: true,
+    // Bản sạch đã có ảnh gallery (file URL); data URL không nằm trong markdown
+    return prepareReaderContent(stripPipelineMarks(article.cleanPublish), {
+      stripLeadingHeroImage: false,
       stripHeroBriefSection: true,
-    });
-    if (article.heroImageUrl && !article.heroImageUrl.startsWith("data:")) {
-      const alt = article.heroImageAlt || "Minh họa chủ đề bài";
-      body = `![${alt}](${article.heroImageUrl})\n\n${body}`;
-    }
-    return body.trim();
+    }).trim();
   }
 
   async function copyCleanMarkdown() {
@@ -706,6 +619,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       <section className="mb-6 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          busy={running}
           disabled={running || article.status === "PUBLISHED" || isReviewMode}
           onClick={() => callAction("run-step")}
         >
@@ -714,13 +628,20 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <Button
           variant="secondary"
           size="sm"
+          busy={running}
           disabled={running || article.status === "PUBLISHED" || isReviewMode}
           onClick={runFullPipeline}
           title="Timeout/self-check sẽ tự retry đến PUBLISH_READY (giữ tab mở)"
         >
           Chạy cả chu trình
         </Button>
-        <Button variant="ghost" size="sm" disabled={running} onClick={() => callAction("reset")}>
+        <Button
+          variant="ghost"
+          size="sm"
+          busy={running}
+          disabled={running}
+          onClick={() => callAction("reset")}
+        >
           Làm lại từ đầu
         </Button>
         {article.status !== "PUBLISHED" && (
@@ -754,189 +675,26 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </p>
       </section>
 
-      <section className="mb-6 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
-        <button
-          type="button"
-          onClick={() => setHeroOpen((v) => !v)}
-          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left sm:px-5"
-        >
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-              Hero image · nên có trước khi duyệt
-            </p>
-            <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
-              {article.heroImageUrl
-                ? `Đã có ảnh (${article.heroImageModel || "model"})`
-                : "Gen sau Publish Ready — bắt buộc trước Approve (trừ khi bỏ qua)"}
-            </p>
-          </div>
-          <span className="shrink-0 text-xs font-medium text-[var(--accent)]">
-            {heroOpen ? "Thu gọn" : "Mở"}
-          </span>
-        </button>
-        {heroOpen && (
-          <div className="border-t border-[var(--line)] px-4 py-4 sm:px-5">
-            <div className="space-y-3">
-              <div>
-                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="hero-prompt">Prompt ảnh (English) — sửa nếu lệch chủ đề</Label>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-50"
-                    disabled={!!genning || running}
-                    onClick={resetHeroPromptFromBrief}
-                  >
-                    Lấy lại từ Hero Brief
-                  </button>
-                </div>
-                <Textarea
-                  id="hero-prompt"
-                  rows={4}
-                  value={heroPromptDraft}
-                  onChange={(e) => setHeroPromptDraft(e.target.value)}
-                  disabled={!!genning || running}
-                  placeholder="Mô tả ảnh hero bằng tiếng Anh, đúng chủ đề bài..."
-                  className="min-h-[96px] font-mono text-xs leading-relaxed"
-                />
-              </div>
-              <div>
-                <Label htmlFor="hero-alt">Alt text</Label>
-                <Textarea
-                  id="hero-alt"
-                  rows={2}
-                  value={heroAltDraft}
-                  onChange={(e) => setHeroAltDraft(e.target.value)}
-                  disabled={!!genning || running}
-                  placeholder="Mô tả ngắn cho accessibility / markdown export"
-                  className="mt-1.5 min-h-[56px] text-sm"
-                />
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" disabled={!!genning || running} onClick={() => generateHero("flux")}>
-                {genning === "flux" ? "Đang gen Flux..." : "Gen FLUX.1-dev"}
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!!genning || running}
-                onClick={() => generateHero("qwen")}
-              >
-                {genning === "qwen" ? "Đang gen Qwen..." : "Gen Qwen-Image"}
-              </Button>
-            </div>
-            {heroError && (
-              <div className="mt-3 rounded-xl border border-red-200 bg-[var(--danger-soft)] px-3.5 py-2.5 text-sm text-[var(--danger)]">
-                {heroError}
-              </div>
-            )}
-            {article.heroImageUrl ? (
-              <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={article.heroImageUrl}
-                  alt={article.heroImageAlt || "Hero"}
-                  className="w-full rounded-2xl border border-[var(--line)] object-cover"
-                />
-                <div className="text-sm text-[var(--ink-muted)]">
-                  <p>
-                    <span className="font-medium text-[var(--ink)]">Model:</span>{" "}
-                    {article.heroImageModel || "—"}
-                  </p>
-                  <p className="mt-2 text-xs text-[var(--ink-faint)]">
-                    Sửa prompt phía trên rồi gen lại nếu ảnh lệch chủ đề.
-                  </p>
-                  {article.heroPromptUsed && (
-                    <p className="mt-3 rounded-xl bg-[var(--surface-muted)] p-3 text-xs leading-relaxed">
-                      <span className="font-medium text-[var(--ink)]">Prompt đã dùng: </span>
-                      {article.heroPromptUsed}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-[var(--ink-faint)]">
-                Chưa có ảnh. Chỉnh prompt cho đúng chủ đề rồi gen — nên có Hero Brief sau Publish Ready.
-              </p>
-            )}
-          </div>
-        )}
-      </section>
+      <ArticleImageStudio
+        article={article}
+        running={running}
+        onArticleUpdate={(next) => {
+          setArticle(next as Article);
+          setTab("clean");
+        }}
+        onLog={(level, message) => pushLog(level, message)}
+      />
 
       {(article.status === "PUBLISH_READY" || article.status === "APPROVED") && (
-        <section className="mb-8 rounded-2xl border border-[rgba(180,83,9,0.2)] bg-[var(--warn-soft)] p-5 sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-[family-name:var(--font-source-serif)] text-lg font-semibold text-[var(--ink)]">
-                Cổng duyệt
-              </h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                Kiểm tab Bản sạch + Fact-check rồi Approve / Publish.
-              </p>
-            </div>
-          </div>
-
-          {article.status === "PUBLISH_READY" && !article.heroImageUrl && (
-            <div className="mt-4 rounded-xl border border-[rgba(180,83,9,0.35)] bg-white/60 px-3.5 py-3 text-sm text-[var(--ink)]">
-              Chưa có hero image — gen FLUX/Qwen ở panel trên trước khi duyệt (ảnh sẽ gắn vào bản sạch / thư viện).
-            </div>
-          )}
-
-          <div className="mt-4">
-            <Label htmlFor="notes">Ghi chú reviewer</Label>
-            <Textarea
-              id="notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Tuỳ chọn — strength, revision, lưu ý fact-check..."
-              rows={3}
-            />
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {article.status === "PUBLISH_READY" && (
-              <>
-                <Button
-                  variant="success"
-                  size="sm"
-                  disabled={running || !article.heroImageUrl}
-                  onClick={() => callAction("approve")}
-                  title={
-                    article.heroImageUrl
-                      ? "Duyệt bài có hero"
-                      : "Gen hero trước, hoặc dùng «Duyệt không ảnh»"
-                  }
-                >
-                  Duyệt (Approve)
-                </Button>
-                {!article.heroImageUrl && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={running}
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          "Duyệt không có hero image? Bài trong thư viện sẽ thiếu ảnh minh họa.",
-                        )
-                      ) {
-                        return;
-                      }
-                      void callAction("approve", { allowWithoutHero: true });
-                    }}
-                  >
-                    Duyệt không ảnh
-                  </Button>
-                )}
-              </>
-            )}
-            {(article.status === "APPROVED" || article.status === "PUBLISH_READY") && (
-              <Button size="sm" disabled={running} onClick={() => callAction("publish")}>
-                Publish nội bộ
-              </Button>
-            )}
-          </div>
-        </section>
+        <ApproveGate
+          status={article.status}
+          hasHero={Boolean(article.heroImageUrl)}
+          running={running}
+          notes={notes}
+          onNotesChange={setNotes}
+          onApprove={(opts) => callAction("approve", opts)}
+          onPublish={() => callAction("publish")}
+        />
       )}
 
       <section className="mb-3">

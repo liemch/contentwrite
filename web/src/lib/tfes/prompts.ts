@@ -65,7 +65,12 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 - Nhét HERO IMAGE BRIEF vào bản nháp 12 phần (Hero chỉ ở Publish Ready)
 - Lạm dụng markdown table — ưu tiên bullet/numbered list; table chỉ khi so sánh ≤3 cột số liệu thật
 - Bản đăng kiểu listicle đánh số (1. Hook / 2. Khi nào nên / Decision Framework…) — phải viết liền mạch theo Article.md
-- Lặp mục “khi nào không nên” nhiều lần chỉ để đệm chữ`;
+- Lặp mục “khi nào không nên” nhiều lần chỉ để đệm chữ
+
+## MỨC HAY (bắt buộc hướng tới)
+- Nếu Domain Profile có mục **gold_samples** — coi đó là chuẩn giọng/nhịp/mở bài; viết gần mức đó (không copy nguyên văn)
+- Hook cảnh hoặc nghịch lý trong 1–3 câu; ≥1 mini-case cụ thể; đúng một chỗ “khi nào KHÔNG”
+- Senior đọc xong phải thấy điều kiện ẩn / trade-off — không chỉ checklist best practice`;
 }
 
 /**
@@ -495,19 +500,20 @@ ${BLOG_NEWS_VOICE}
 ${STORY_ARC_CLEAN}`,
 
     "finalize-hero": `## Nhiệm vụ: HERO IMAGE BRIEF từ bản sạch đã chốt
-Đọc Title + đoạn mở + luận điểm trong CONTEXT. Xuất ĐÚNG khối:
+Đọc Title + đoạn mở + luận điểm + ## trong CONTEXT. Xuất ĐÚNG khối:
 
 \`\`\`text
 HERO IMAGE BRIEF
-Concept: <1 câu tiếng Việt — metaphor đúng bài này>
-Prompt (English): "<editorial illustration that visualizes THIS article's thesis/metaphor; soft lighting; no text/numbers/charts/logos/real people in the image; no watermark>"
+Concept: <1 câu tiếng Việt — metaphor ĐÚNG bài này, không generic>
+Prompt (English): "<concrete visual metaphor of THIS thesis; cinematic soft light; editorial magazine; no text/numbers/charts/logos/real people/watermark>"
 Caption: <1 câu tiếng Việt>
-Alt: <mô tả ngắn tiếng Việt cho a11y>
+Alt: <mô tả ngắn tiếng Việt cho a11y — nêu đúng ý bài>
 \`\`\`
 
 Bắt buộc:
-- Prompt English mirror luận điểm thật (vd. tốc độ vs kiến trúc → fork in the road / scaffolding unfinished vs stopwatch — KHÔNG CPU/server generic nếu bài không về hạ tầng)
-- CẤM prompt sáo: "abstract futuristic technology background", "circuit boards", "glowing code on screen" trừ khi bài đúng chủ đề đó
+- Prompt English mirror luận điểm thật (vd. tốc độ vs kiến trúc → unfinished scaffolding vs stopwatch / fork in the road — KHÔNG CPU/server/circuit board nếu bài không về hạ tầng)
+- CẤM sáo: "abstract futuristic technology background", "circuit boards", "glowing code on screen", "neon cyber city"
+- Alt phải mô tả metaphor của BÀI, không "minh họa công nghệ" chung
 - Không viết lại bài; chỉ xuất HERO IMAGE BRIEF`,
 
     "finalize-reader-sim": `## Nhiệm vụ bước 10c: READER SIMULATION (đáng đọc)

@@ -21,18 +21,27 @@ const sizes: Record<Size, string> = {
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   size?: Size;
+  /** Hiển thị spinner nhỏ khi đang xử lý */
+  busy?: boolean;
 };
 
 export function Button({
   variant = "primary",
   size = "md",
   className = "",
+  busy = false,
+  disabled,
+  children,
   ...props
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${busy ? "btn-busy pr-9" : ""} ${className}`}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
       {...props}
-    />
+    >
+      {children}
+    </button>
   );
 }

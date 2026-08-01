@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extractAlt, resolveHeroPrompt, sanitizeFluxPrompt } from "@/lib/image/hero-prompt";
+import { resolveHeroPrompt, resolveImageAlt, sanitizeFluxPrompt } from "@/lib/image/hero-prompt";
+import { injectGalleryIntoCleanPublish, type GalleryImage } from "@/lib/image/gallery";
 
 export type HeroImageModel = "flux" | "qwen";
 
@@ -112,7 +113,7 @@ async function postJsonCurl(url: string, headers: Record<string, string>, body: 
   }
 }
 
-async function generateWithFlux(prompt: string): Promise<Buffer> {
+async function generateWithFlux(prompt: string, topicHint?: string): Promise<Buffer> {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) throw new Error("NVIDIA_API_KEY chưa được cấu hình");
 
@@ -125,12 +126,12 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
       {
         prompt: p,
         mode: "base",
-        cfg_scale: 3.5,
+        cfg_scale: 4,
         // Landscape gần 16:9 trong enum API
         width: 1344,
         height: 768,
         seed,
-        steps: 28,
+        steps: 35,
         samples: 1,
       },
       110000,
@@ -177,24 +178,25 @@ async function generateWithFlux(prompt: string): Promise<Buffer> {
     return buffer;
   }
 
-  const safeFallback = sanitizeFluxPrompt(
-    "Abstract soft teal geometric shapes floating over a dark editorial background, technology magazine hero, calm lighting",
-    "technology",
+  const topic = (topicHint || "the article thesis").slice(0, 140);
+  const topicFallback = sanitizeFluxPrompt(
+    `Symbolic editorial magazine illustration about ${topic}. Concrete visual metaphor, cinematic soft light, muted teal and ink tones, no text or logos`,
+    topic,
   );
 
   try {
     return await once(prompt, Math.floor(Math.random() * 1_000_000));
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    // Ảnh đen / filter → thử 1 lần với prompt sạch ngắn
+    // Ảnh đen / filter → thử lại với prompt ngắn VẪN neo topic (không generic circuit board)
     if (msg === "FLUX_BLACK" || /chặn|FILTER|NSFW|rỗng|đen/i.test(msg)) {
       try {
-        return await once(safeFallback, Math.floor(Math.random() * 1_000_000));
+        return await once(topicFallback, Math.floor(Math.random() * 1_000_000));
       } catch (retryErr) {
         const r = retryErr instanceof Error ? retryErr.message : String(retryErr);
         if (r === "FLUX_BLACK") {
           throw new Error(
-            "FLUX trả ảnh rỗng/đen sau 2 lần. Rút Hero Brief (Prompt English ngắn, không markdown/VI) rồi gen lại.",
+            "FLUX trả ảnh rỗng/đen sau 2 lần. Bấm «Gợi ý từ bài» rồi gen lại với prompt ngắn hơn.",
           );
         }
         throw retryErr instanceof Error ? retryErr : new Error(r);
@@ -281,22 +283,32 @@ export async function generateHeroImage(input: {
   heroBrief?: string | null;
   topic?: string | null;
   title?: string | null;
+  cleanPublish?: string | null;
   /** Prompt English do user chỉnh — ưu tiên hơn extract từ Hero Brief */
   promptOverride?: string | null;
   altOverride?: string | null;
+  conceptVi?: string | null;
 }) {
   const prompt = resolveHeroPrompt({
     promptOverride: input.promptOverride,
     heroBrief: input.heroBrief,
     topic: input.topic,
     title: input.title,
+    cleanPublish: input.cleanPublish,
   });
-  const alt =
-    input.altOverride?.trim().slice(0, 180) ||
-    extractAlt(input.heroBrief, input.title || input.topic || "Hero image");
+  const alt = resolveImageAlt({
+    altOverride: input.altOverride,
+    heroBrief: input.heroBrief,
+    title: input.title,
+    topic: input.topic,
+    conceptVi: input.conceptVi,
+  });
 
+  const topicHint = input.title || input.topic || undefined;
   const buffer =
-    input.model === "flux" ? await generateWithFlux(prompt) : await generateWithQwen(prompt);
+    input.model === "flux"
+      ? await generateWithFlux(prompt, topicHint || undefined)
+      : await generateWithQwen(prompt);
 
   const url = await saveHeroImage(input.articleId, input.model, buffer);
 
@@ -309,29 +321,23 @@ export async function generateHeroImage(input: {
   };
 }
 
-/** Chèn/ghi đè hero image ở đầu bản sạch */
-export function injectHeroIntoCleanPublish(cleanPublish: string | null | undefined, imageUrl: string, alt: string) {
-  if (!cleanPublish) return cleanPublish;
-  let body = cleanPublish;
-
-  // Data URL quá lớn cho markdown DB — UI render từ heroImageUrl
-  if (imageUrl.startsWith("data:")) {
-    return body
-      .replace(/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)\s*/g, "")
-      .replace(/\bHERO_IMAGE\b/g, "")
-      .replace(/^\s*!\[[^\]]*]\(data:[^)]+\)\s*/m, "")
-      .trimStart();
-  }
-
-  const mdImage = `![${alt}](${imageUrl})`;
-  if (/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)/.test(body)) {
-    body = body.replace(/!\[[^\]]*]\(\s*HERO_IMAGE\s*\)/, mdImage);
-    return body;
-  }
-  if (/\bHERO_IMAGE\b/.test(body)) {
-    body = body.replace(/\bHERO_IMAGE\b/g, imageUrl);
-    return body;
-  }
-  body = body.replace(/^\s*!\[[^\]]*]\([^)]+\)\s*/m, "").trimStart();
-  return `${mdImage}\n\n${body}`;
+/** @deprecated dùng injectGalleryIntoCleanPublish — giữ export tên cũ */
+export function injectHeroIntoCleanPublish(
+  cleanPublish: string | null | undefined,
+  imageUrl: string,
+  alt: string,
+) {
+  const hero: GalleryImage = {
+    id: "hero",
+    role: "hero",
+    url: imageUrl,
+    alt,
+    prompt: "",
+    modelLabel: "",
+    createdAt: new Date().toISOString(),
+  };
+  return injectGalleryIntoCleanPublish(cleanPublish, [hero]);
 }
+
+export { injectGalleryIntoCleanPublish };
+

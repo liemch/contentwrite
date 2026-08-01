@@ -66,6 +66,8 @@ model Article {
   heroImageModel  String?
   heroImageAlt    String?
   heroPromptUsed  String?        @db.Text
+  /// JSON gallery ảnh bài (hero + inline), tối đa 5
+  galleryJson     String?        @db.Text
 
   reviewerNotes   String?        @db.Text
   approvedAt      DateTime?

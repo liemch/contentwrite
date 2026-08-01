@@ -38,3 +38,14 @@ Tôn trọng đa dạng & bối cảnh văn hóa nơi làm việc Việt Nam. Kh
 
 ## learning_track_seed
 "Giao tiếp kỹ thuật hiệu quả": (1) Lắng nghe chủ động [Beginner] → (2) Giải thích khái niệm rõ ràng [Beginner] → (3) Đưa phản hồi xây dựng [Intermediate] → (4) Điều hướng bất đồng [Intermediate] → (5) Thuyết phục & tạo ảnh hưởng [Advanced].
+
+## gold_samples
+Chuẩn “hay” — bắt chước nhịp / độ cụ thể, không copy nguyên văn. Evidence-based, không self-help sáo.
+
+### Sample A — Feedback
+Mở: “Bạn nói ‘cần proactive hơn’ — hai tuần sau không gì đổi, vì người nhận vẫn không biết *hành vi nào* cần dừng vào thứ Ba tuần sau.”
+Nhịp: feedback mơ → cơ chế hành vi quan sát được → mini-case 1:1 → khi nào không đẩy (thiếu dữ liệu) → câu hỏi cho lead.
+
+### Sample B — Quyết định
+Mở: “Team bàn 45 phút rồi chọn phương án ‘an toàn nhất’ — không phải vì đúng, vì không ai muốn sở hữu rủi ro của phương án sắc.”
+Nhịp: quyết định ủy thác sợ hãi → khung sở hữu rủi ro → case sprint planning → guardrail → hệ quả.

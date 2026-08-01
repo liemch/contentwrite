@@ -104,7 +104,7 @@ async function getEditorialMemory(domain: string): Promise<string> {
   const [records, recentArticles] = await Promise.all([
     prisma.knowledgeRecord.findMany({
       where: { domain },
-      orderBy: { publishedAt: "desc" },
+      orderBy: [{ editorialScore: "desc" }, { publishedAt: "desc" }],
       take: 8,
     }),
     prisma.article.findMany({
@@ -133,7 +133,7 @@ async function getEditorialMemory(domain: string): Promise<string> {
       : records
           .map(
             (r) =>
-              `- ${r.title} | ${r.category ?? "N/A"} | keywords: ${r.keywords ?? ""} | core: ${(r.coreMessage ?? "").slice(0, 80)}`,
+              `- ${r.title} | score ${r.editorialScore ?? "—"}/5 | ${r.category ?? "N/A"} | keywords: ${r.keywords ?? ""} | core: ${(r.coreMessage ?? "").slice(0, 80)}`,
           )
           .join("\n");
 
@@ -1440,7 +1440,11 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
 export async function approveArticle(
   articleId: string,
   notes?: string,
-  opts?: { allowWithoutHero?: boolean },
+  opts?: {
+    allowWithoutHero?: boolean;
+    editorialScore?: number;
+    checklist?: string[];
+  },
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
@@ -1454,11 +1458,33 @@ export async function approveArticle(
     );
   }
 
+  const score =
+    typeof opts?.editorialScore === "number" &&
+    opts.editorialScore >= 1 &&
+    opts.editorialScore <= 5
+      ? Math.round(opts.editorialScore)
+      : null;
+
+  if (score == null) {
+    throw new Error("Chọn điểm biên tập 1–5 trước khi duyệt");
+  }
+
+  if (!opts?.checklist || opts.checklist.length < 5) {
+    throw new Error("Tick đủ checklist biên tập trước khi duyệt");
+  }
+
+  const checklistNote =
+    opts?.checklist && opts.checklist.length > 0
+      ? `Checklist OK: ${opts.checklist.join(", ")}`
+      : "";
+  const scoreNote = score != null ? `Điểm biên tập: ${score}/5` : "";
+  const mergedNotes = [notes?.trim(), scoreNote, checklistNote].filter(Boolean).join("\n");
+
   const updated = await prisma.article.update({
     where: { id: articleId },
     data: {
       status: ArticleStatus.APPROVED,
-      reviewerNotes: notes,
+      reviewerNotes: mergedNotes || null,
       approvedAt: new Date(),
     },
   });
@@ -1471,10 +1497,12 @@ export async function approveArticle(
         title: article.title,
         domain: article.domain,
         coreMessage: article.knowledgeRecord ?? undefined,
+        editorialScore: score ?? undefined,
       },
       update: {
         title: article.title,
         coreMessage: article.knowledgeRecord ?? undefined,
+        ...(score != null ? { editorialScore: score } : {}),
       },
     });
   }
