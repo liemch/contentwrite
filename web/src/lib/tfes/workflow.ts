@@ -48,6 +48,7 @@ import {
   isCleanPublishQualityFail,
   isDryOpenerFail,
   isWritePhaseQualityFail,
+  rewriteStockOpenerDeterministic,
 } from "@/lib/tfes/quality";
 import {
   buildDailyTaskPrompt,
@@ -281,7 +282,7 @@ async function ensureCleanPublishQuality(input: {
         const focus =
           buildCleanRepairDirectives(stillHint, clean) ||
           (isDryOpenerFail(stillHint) || hasDryOpener(clean)
-            ? "CHỈ SỬA ĐOẠN MỞ: cảnh hoặc nghịch lý; CẤM Trong môi trường/bối cảnh/Ngày nay."
+            ? "CHỈ SỬA ĐOẠN MỞ: nghịch lý / failure+metric từ Research. CẤM Trong môi trường/bối cảnh/Ngày nay. CẤM “Trong một sprint…”, “đội … công ty fintech/startup”."
             : `Sửa đúng: ${stillHint.slice(0, 400)}`);
 
         const pass2Raw = await chatCompletion(
@@ -314,8 +315,20 @@ async function ensureCleanPublishQuality(input: {
         );
         if (pass2.length >= 80) clean = pass2;
         clean = applyDeterministicCleanFixes(clean, input.prefs);
-        assertCleanPublishQuality(clean, input.prefs);
-        return clean;
+        try {
+          assertCleanPublishQuality(clean, input.prefs);
+          return clean;
+        } catch (last) {
+          // Thoát loop opener: sửa máy đoạn mở lần cuối rồi chấm lại
+          const lastHint = last instanceof Error ? last.message : String(last);
+          if (isDryOpenerFail(lastHint) || hasDryOpener(clean)) {
+            clean = rewriteStockOpenerDeterministic(clean);
+            clean = applyDeterministicCleanFixes(clean, input.prefs);
+            assertCleanPublishQuality(clean, input.prefs);
+            return clean;
+          }
+          throw last instanceof Error ? last : new Error(lastHint);
+        }
       }
     }
   }

@@ -9,21 +9,12 @@ import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
 import {
-  AVOID_FORMAT_FLAGS,
-  type AvoidFormatFlag,
   MAX_TARGET_WORD_COUNT,
   MIN_TARGET_WORD_COUNT,
-  parseAvoidFormats,
-  serializeAvoidFormats,
+  normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
 import { DOMAIN_IDS, domainSelectOptions, type DomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
-
-const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
-  table: "Table (bảng markdown)",
-  mermaid: "Mermaid / sơ đồ code",
-  numbered_outline: "Outline listicle đánh số",
-};
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -307,7 +298,7 @@ export default function SettingsPage() {
         seedTopicsSoftSkills: config.seedTopicsSoftSkills,
         maxPendingReview: config.maxPendingReview,
         defaultTargetWordCount: config.defaultTargetWordCount,
-        defaultAvoidFormats: config.defaultAvoidFormats,
+        defaultAvoidFormats: normalizeAvoidFormatsText(config.defaultAvoidFormats),
         ownerUserId: config.ownerUserId,
       }),
     });
@@ -590,35 +581,22 @@ export default function SettingsPage() {
                 <FieldHint>Tối đa {MAX_TARGET_WORD_COUNT} từ (đếm khoảng trắng).</FieldHint>
               </div>
               <div>
-                <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format (mặc định)</p>
-                <ul className="space-y-2">
-                  {AVOID_FORMAT_FLAGS.map((flag) => {
-                    const selected = parseAvoidFormats(config.defaultAvoidFormats).includes(flag);
-                    return (
-                      <li key={flag} className="flex items-start gap-2 text-sm text-[var(--ink-muted)]">
-                        <input
-                          id={`default-avoid-${flag}`}
-                          type="checkbox"
-                          className="mt-1"
-                          checked={selected}
-                          onChange={() => {
-                            const cur = parseAvoidFormats(config.defaultAvoidFormats);
-                            const next = selected
-                              ? cur.filter((f) => f !== flag)
-                              : [...cur, flag];
-                            setConfig({
-                              ...config,
-                              defaultAvoidFormats: serializeAvoidFormats(next),
-                            });
-                          }}
-                        />
-                        <label htmlFor={`default-avoid-${flag}`} className="cursor-pointer">
-                          {AVOID_LABELS[flag]}
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <Label htmlFor="defaultAvoidFormats">Tránh format (mặc định)</Label>
+                <Input
+                  id="defaultAvoidFormats"
+                  value={config.defaultAvoidFormats ?? ""}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      defaultAvoidFormats: e.target.value,
+                    })
+                  }
+                  placeholder="vd. table, mermaid, emoji, blockquote…"
+                />
+                <FieldHint>
+                  Chuỗi tự do — prefill khi Tạo bài / auto-write. Gợi ý phổ biến: table, mermaid,
+                  numbered_outline.
+                </FieldHint>
               </div>
             </div>
 

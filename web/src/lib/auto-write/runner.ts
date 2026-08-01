@@ -23,6 +23,7 @@ import {
   DEFAULT_TARGET_WORD_COUNT,
   MAX_TARGET_WORD_COUNT,
   MIN_TARGET_WORD_COUNT,
+  normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
 
 const CONFIG_ID = "default";
@@ -402,7 +403,9 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         status: ArticleStatus.DRAFT,
         currentStep: WorkflowStep.RESEARCH,
         targetWordCount: config.defaultTargetWordCount ?? 1200,
-        avoidFormats: config.defaultAvoidFormats ?? "table",
+        avoidFormats: normalizeAvoidFormatsText(
+          config.defaultAvoidFormats ?? "table",
+        ) || "table",
         createdById: config.ownerUserId ?? undefined,
       },
     });

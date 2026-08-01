@@ -8,9 +8,8 @@ import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 import {
   DEFAULT_AVOID_FORMATS,
   DEFAULT_TARGET_WORD_COUNT,
-  parseAvoidFormats,
+  normalizeAvoidFormatsText,
   resolveWritingPrefs,
-  serializeAvoidFormats,
 } from "@/lib/tfes/writing-prefs";
 
 export async function GET() {
@@ -78,7 +77,7 @@ export async function POST(request: NextRequest) {
       targetWordCount: body.targetWordCount,
       avoidFormats:
         body.avoidFormats !== undefined
-          ? serializeAvoidFormats(parseAvoidFormats(body.avoidFormats))
+          ? normalizeAvoidFormatsText(body.avoidFormats)
           : undefined,
       defaultTargetWordCount: config.defaultTargetWordCount ?? DEFAULT_TARGET_WORD_COUNT,
       defaultAvoidFormats: config.defaultAvoidFormats ?? DEFAULT_AVOID_FORMATS,
@@ -91,7 +90,7 @@ export async function POST(request: NextRequest) {
         source: "manual",
         createdById: user.userId,
         targetWordCount: prefs.targetWordCount,
-        avoidFormats: serializeAvoidFormats(prefs.avoidFormats) || DEFAULT_AVOID_FORMATS,
+        avoidFormats: prefs.avoidFormatsText || DEFAULT_AVOID_FORMATS,
       },
     });
 

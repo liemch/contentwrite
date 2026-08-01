@@ -2,6 +2,7 @@
 
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
+/** Flag máy vẫn nhận diện trong chuỗi tự do (quality gate). */
 export const AVOID_FORMAT_FLAGS = ["table", "mermaid", "numbered_outline"] as const;
 export type AvoidFormatFlag = (typeof AVOID_FORMAT_FLAGS)[number];
 
@@ -13,23 +14,41 @@ export const DEFAULT_AVOID_FORMATS = "table";
 
 export type WritingPrefs = {
   targetWordCount: number;
-  avoidFormats: AvoidFormatFlag[];
+  /** Chuỗi tự do do biên tập viên nhập (phẩy / câu ngắn). */
+  avoidFormatsText: string;
 };
 
-export function parseAvoidFormats(raw: string | null | undefined): AvoidFormatFlag[] {
-  if (!raw?.trim()) return [];
-  const set = new Set<AvoidFormatFlag>();
-  for (const part of raw.split(/[,;\s]+/)) {
-    const t = part.trim().toLowerCase();
-    if ((AVOID_FORMAT_FLAGS as readonly string[]).includes(t)) {
-      set.add(t as AvoidFormatFlag);
-    }
-  }
-  return [...set];
+/** Chuẩn hoá text tránh format — giữ nội dung tự do, gọn khoảng trắng. */
+export function normalizeAvoidFormatsText(raw: string | null | undefined): string {
+  if (!raw?.trim()) return "";
+  return raw
+    .replace(/\r\n/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("; ")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 500);
 }
 
-export function serializeAvoidFormats(flags: AvoidFormatFlag[]): string {
-  return flags.join(",");
+/**
+ * @deprecated Dùng normalizeAvoidFormatsText — giữ để tương thích chỗ còn gọi parse.
+ * Trả token đã biết + token tự do (không bỏ mất).
+ */
+export function parseAvoidFormats(raw: string | null | undefined): string[] {
+  const text = normalizeAvoidFormatsText(raw);
+  if (!text) return [];
+  return text
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Serialize list → text (tương thích API cũ). */
+export function serializeAvoidFormats(flags: string[]): string {
+  return normalizeAvoidFormatsText(flags.join(", "));
 }
 
 export function resolveWritingPrefs(input: {
@@ -58,30 +77,52 @@ export function resolveWritingPrefs(input: {
 
   return {
     targetWordCount: target,
-    avoidFormats: parseAvoidFormats(avoidRaw),
+    avoidFormatsText: normalizeAvoidFormatsText(avoidRaw),
   };
 }
 
+/** True nếu prefs nhắc tới flag máy (token hoặc từ khóa gần nghĩa). */
 export function hasAvoid(prefs: WritingPrefs, flag: AvoidFormatFlag): boolean {
-  return prefs.avoidFormats.includes(flag);
+  const t = prefs.avoidFormatsText.toLowerCase();
+  if (!t) return false;
+  const tokens = t.split(/[,;]+/).map((s) => s.trim().toLowerCase());
+  if (tokens.includes(flag)) return true;
+
+  switch (flag) {
+    case "table":
+      return /\btable\b|bảng\s*markdown|markdown\s*table/i.test(t);
+    case "mermaid":
+      return /\bmermaid\b|sơ\s*đồ\s*code|flowchart\s*code/i.test(t);
+    case "numbered_outline":
+      return (
+        /numbered[_\s-]?outline|listicle|outline\s*đánh\s*số|1\.\s*hook/i.test(t) ||
+        tokens.some((x) => x.includes("outline") || x.includes("listicle"))
+      );
+    default:
+      return false;
+  }
 }
 
 /** Block nhúng vào prompt Write / Publish */
 export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
   const avoidLines: string[] = [];
-  if (hasAvoid(prefs, "table")) {
-    avoidLines.push("- CẤM markdown table (|---|); dùng đoạn văn hoặc bullet ngắn");
-  }
-  if (hasAvoid(prefs, "mermaid")) {
-    avoidLines.push("- CẤM sơ đồ Mermaid / code fence ```mermaid");
-  }
-  if (hasAvoid(prefs, "numbered_outline")) {
-    avoidLines.push(
-      "- CẤM outline listicle đánh số (1. Hook / 2. Khi nào nên / Decision Framework…)",
-    );
-  }
-  if (avoidLines.length === 0) {
+  const text = prefs.avoidFormatsText.trim();
+
+  if (!text) {
     avoidLines.push("- Không ràng buộc format đặc biệt ngoài BAR VIẾT");
+  } else {
+    avoidLines.push(`- Tránh format (yêu cầu biên tập — bắt buộc): ${text}`);
+    if (hasAvoid(prefs, "table")) {
+      avoidLines.push("- CẤM markdown table (|---|); dùng đoạn văn hoặc bullet ngắn");
+    }
+    if (hasAvoid(prefs, "mermaid")) {
+      avoidLines.push("- CẤM sơ đồ Mermaid / code fence ```mermaid");
+    }
+    if (hasAvoid(prefs, "numbered_outline")) {
+      avoidLines.push(
+        "- CẤM outline listicle đánh số (1. Hook / 2. Khi nào nên / Decision Framework…)",
+      );
+    }
   }
 
   const min = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMinRatio);
@@ -106,4 +147,3 @@ export const READER_HONESTY_RE =
 export function hasMarkdownTable(text: string): boolean {
   return /^\s*\|.+\|\s*$/m.test(text) && /^\s*\|?\s*:?-{3,}/m.test(text);
 }
-

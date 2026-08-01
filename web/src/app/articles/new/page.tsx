@@ -7,29 +7,21 @@ import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
 import {
-  AVOID_FORMAT_FLAGS,
-  type AvoidFormatFlag,
+  DEFAULT_AVOID_FORMATS,
   DEFAULT_TARGET_WORD_COUNT,
   MAX_TARGET_WORD_COUNT,
   MIN_TARGET_WORD_COUNT,
-  parseAvoidFormats,
-  serializeAvoidFormats,
+  normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
 import { MemoryHints } from "@/components/memory-hints";
 import { domainSelectOptions } from "@/lib/tfes/domains";
-
-const AVOID_LABELS: Record<AvoidFormatFlag, string> = {
-  table: "Table (bảng markdown)",
-  mermaid: "Mermaid / sơ đồ code",
-  numbered_outline: "Outline listicle đánh số (1. Hook…)",
-};
 
 export default function NewArticlePage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [domain, setDomain] = useState("engineering");
   const [targetWordCount, setTargetWordCount] = useState<number>(DEFAULT_TARGET_WORD_COUNT);
-  const [avoidFlags, setAvoidFlags] = useState<AvoidFormatFlag[]>(["table"]);
+  const [avoidFormats, setAvoidFormats] = useState(DEFAULT_AVOID_FORMATS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [quota, setQuota] = useState<{ limit: number; used: number; remaining: number } | null>(
@@ -42,7 +34,10 @@ export default function NewArticlePage() {
       .then((data: { config?: AutoWriteSettings } | null) => {
         if (!data?.config) return;
         setTargetWordCount(data.config.defaultTargetWordCount || DEFAULT_TARGET_WORD_COUNT);
-        setAvoidFlags(parseAvoidFormats(data.config.defaultAvoidFormats || "table"));
+        setAvoidFormats(
+          normalizeAvoidFormatsText(data.config.defaultAvoidFormats || DEFAULT_AVOID_FORMATS) ||
+            DEFAULT_AVOID_FORMATS,
+        );
       })
       .catch(() => {
         /* giữ default */
@@ -56,12 +51,6 @@ export default function NewArticlePage() {
       .catch(() => {});
   }, []);
 
-  function toggleAvoid(flag: AvoidFormatFlag) {
-    setAvoidFlags((prev) =>
-      prev.includes(flag) ? prev.filter((f) => f !== flag) : [...prev, flag],
-    );
-  }
-
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -74,7 +63,7 @@ export default function NewArticlePage() {
         topic,
         domain,
         targetWordCount,
-        avoidFormats: serializeAvoidFormats(avoidFlags),
+        avoidFormats: normalizeAvoidFormatsText(avoidFormats),
       }),
     });
 
@@ -175,24 +164,17 @@ export default function NewArticlePage() {
               </FieldHint>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-[var(--ink)]">Tránh format</p>
-              <ul className="space-y-2">
-                {AVOID_FORMAT_FLAGS.map((flag) => (
-                  <li key={flag} className="flex items-start gap-2 text-sm text-[var(--ink-muted)]">
-                    <input
-                      id={`avoid-${flag}`}
-                      type="checkbox"
-                      className="mt-1"
-                      checked={avoidFlags.includes(flag)}
-                      onChange={() => toggleAvoid(flag)}
-                    />
-                    <label htmlFor={`avoid-${flag}`} className="cursor-pointer">
-                      {AVOID_LABELS[flag]}
-                    </label>
-                  </li>
-                ))}
-              </ul>
-              <FieldHint>Áp vào bước Viết + Bản sạch. Nháp 12 phần vẫn theo Article.md nội bộ.</FieldHint>
+              <Label htmlFor="avoid-formats">Tránh format</Label>
+              <Input
+                id="avoid-formats"
+                value={avoidFormats}
+                onChange={(e) => setAvoidFormats(e.target.value)}
+                placeholder="vd. table, mermaid, emoji, blockquote, numbered outline…"
+              />
+              <FieldHint>
+                Nhập tự do (phẩy hoặc câu ngắn). Máy vẫn siết table/mermaid/listicle nếu anh ghi
+                các từ đó. Áp vào Viết + Bản sạch.
+              </FieldHint>
             </div>
           </div>
 

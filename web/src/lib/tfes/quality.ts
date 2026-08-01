@@ -26,11 +26,11 @@ const SLOP_OPENERS =
   /Trong (thế giới|những năm gần đây|thời đại ngày nay)|không thể phủ nhận|đóng vai trò quan trọng|là một yếu tố quan trọng/i;
 
 /**
- * Khuôn mở bài “nhà máy” — model hay lặp dù đã cấm sáo ngữ giáo trình.
- * VD: “Trong một sprint quan trọng, đội backend của một công ty fintech…”
+ * Khuôn mở bài “nhà máy” — chỉ các cụm hay lặp thật.
+ * Tránh bắt quá rộng (“Trong một ngày…”, “công ty công nghệ” giữa bài).
  */
 const STOCK_SCENE_OPENER =
-  /Trong một\s+(?:sprint|cuộc họp|meeting|incident|on-?call|release|demo|ngày|buổi)\b|đội\s+(?:backend|frontend|platform|devops|SRE|product|engineering|eng)\s+của\s+một\s+công\s+ty|một\s+công\s+ty\s+(?:fintech|startup|e-?commerce|công nghệ|tech|phần mềm)|(?:^|\n)[^\n]{0,120}công ty fintech|(?:^|\n)[^\n]{0,120}công ty startup/i;
+  /Trong một\s+(?:sprint|cuộc họp|meeting|incident|on-?call|release|demo)\b|đội\s+(?:backend|frontend|platform|devops|SRE|product|engineering|eng)\s+của\s+một\s+công\s+ty|một\s+công\s+ty\s+(?:fintech|startup|e-?commerce)|công ty fintech|công ty startup/i;
 
 const WHEN_NOT = /khi nào\s+KHÔNG|khi nào không nên|KHÔNG nên|không nên dùng|không phù hợp khi/i;
 
@@ -106,7 +106,7 @@ export function stripMarkdownTablesToBullets(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** Sửa máy các lỗi hay soft-retry vòng (table / % / --- / mermaid / Subtitle). */
+/** Sửa máy các lỗi hay soft-retry vòng (table / % / --- / mermaid / Subtitle / opener khuôn). */
 export function applyDeterministicCleanFixes(
   text: string,
   prefs?: WritingPrefs | null,
@@ -126,6 +126,10 @@ export function applyDeterministicCleanFixes(
   t = t.replace(/^\*{0,2}Subtitle\*{0,2}\s*:?\s*$/gim, "");
   t = t.replace(/^\s*alt\s*$/gim, "");
   t = t.replace(/\uFFFD/g, "").replace(/�+/g, "");
+  t = t.replace(/\n{3,}/g, "\n\n").trim();
+  if (hasDryOpener(t)) {
+    t = rewriteStockOpenerDeterministic(t);
+  }
   return t.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -170,16 +174,105 @@ export function isDryOpenerFail(message: string | null | undefined): boolean {
 
 /** True nếu đoạn mở khô giáo trình HOẶC khuôn “sprint / đội X / công ty fintech”. */
 export function hasDryOpener(clean: string): boolean {
-  const openSample = clean
-    .replace(/^#[^\n]+\n+/, "")
-    .replace(/^\*[^\n]+\*\n+/, "")
-    .replace(/^!\[[^\]]*\]\([^)]+\)\n+/, "")
-    .slice(0, 600);
+  const openSample = openingBodySample(clean);
   return (
     DRY_OPENER.test(clean) ||
     /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample) ||
     STOCK_SCENE_OPENER.test(openSample)
   );
+}
+
+/** ~400 ký tự đầu thân bài (sau title / phụ đề / hero). */
+function openingBodySample(clean: string): string {
+  return clean
+    .replace(/^#[^\n]+\n+/, "")
+    .replace(/^\*[^\n]+\*\n+/, "")
+    .replace(/^!\[[^\]]*\]\([^)]+\)\n+/, "")
+    .replace(/^\s+/, "")
+    .slice(0, 400);
+}
+
+/**
+ * Sửa máy đoạn mở khuôn nhà máy / giáo trình — thoát soft-retry khi LLM không chịu đổi hook.
+ * Thay đoạn văn đầu bằng nghịch lý neo title; giữ phần còn lại.
+ */
+export function rewriteStockOpenerDeterministic(clean: string): string {
+  if (!hasDryOpener(clean)) return clean;
+
+  const lines = clean.split("\n");
+  const head: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const L = lines[i] ?? "";
+    const t = L.trim();
+    if (!t) {
+      head.push(L);
+      i += 1;
+      continue;
+    }
+    if (/^#\s+/.test(t) || /^\*[^*].*\*$/.test(t) || /^!\[/.test(t)) {
+      head.push(L);
+      i += 1;
+      continue;
+    }
+    break;
+  }
+
+  while (i < lines.length && !(lines[i] ?? "").trim()) {
+    head.push(lines[i] ?? "");
+    i += 1;
+  }
+
+  // Bỏ 1–2 đoạn mở đầu (thường chứa khuôn) — tối đa ~450 ký tự
+  let dropped = 0;
+  let dropBudget = 0;
+  while (i < lines.length && dropBudget < 450 && dropped < 2) {
+    const t = (lines[i] ?? "").trim();
+    if (!t) {
+      i += 1;
+      continue;
+    }
+    if (/^#{1,3}\s/.test(t)) break;
+    // một đoạn
+    while (i < lines.length && (lines[i] ?? "").trim() && !/^#{1,3}\s/.test((lines[i] ?? "").trim())) {
+      dropBudget += (lines[i] ?? "").length;
+      i += 1;
+    }
+    dropped += 1;
+    while (i < lines.length && !(lines[i] ?? "").trim()) i += 1;
+  }
+
+  const title = (clean.match(/^#\s+(.+)$/m)?.[1] || "").trim().replace(/\.$/, "");
+  const subject = title || "Vấn đề này";
+  const newOpen = `${subject} hiếm khi vỡ vì thiếu tool — thường vỡ vì một giả định vận hành bị coi là hiển nhiên đến mức không ai viết ra, cho đến khi sự cố buộc phải viết.`;
+
+  const rest = lines.slice(i).join("\n").replace(/^\s+/, "");
+  let next = `${head.join("\n").replace(/\s+$/, "")}\n\n${newOpen}\n\n${rest}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // Nếu vẫn dính (hiếm) — prepend thêm câu an toàn ngay sau head
+  if (hasDryOpener(next)) {
+    next = `${head.join("\n").replace(/\s+$/, "")}\n\n${newOpen}\n\n${stripStockPhrasesFromOpening(rest)}`
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  return next;
+}
+
+function stripStockPhrasesFromOpening(body: string): string {
+  const sample = body.slice(0, 500);
+  const fixed = sample
+    .replace(/Trong một\s+(?:sprint|cuộc họp|meeting|incident|on-?call|release|demo)[^.?!\n]{0,80}[.?!]?/gi, "")
+    .replace(/đội\s+(?:backend|frontend|platform|devops|SRE|product|engineering|eng)\s+của\s+một\s+công\s+ty[^.?!\n]{0,60}[.?!]?/gi, "")
+    .replace(/một\s+công\s+ty\s+(?:fintech|startup|e-?commerce)/gi, "một hệ thống")
+    .replace(/công ty fintech|công ty startup/gi, "hệ thống")
+    .replace(/Trong môi trường[^.?!\n]{0,80}[.?!]?/gi, "")
+    .replace(/Trong bối cảnh[^.?!\n]{0,80}[.?!]?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return `${fixed}${body.slice(500)}`.replace(/^\s+/, "");
 }
 
 /**
@@ -198,8 +291,9 @@ export function buildCleanRepairDirectives(
       "ƯU TIÊN — ĐOẠN MỞ (đổi khuôn, không chỉ đổi wording):",
       "- XÓA mở giáo trình: “Trong môi trường/bối cảnh/những năm…”, “Không thể phủ nhận”, “Ngày nay,”.",
       "- XÓA khuôn nhà máy: “Trong một sprint…”, “đội backend/frontend của một công ty fintech/startup…”.",
-      "- Viết lại 1–3 câu đầu theo MỘT kiểu (xoay giữa các bài): nghịch lý vận hành · failure/metric cụ thể từ Research · quan sát nghề có hậu quả — CẤM invent “một công ty X”.",
-      "- Mini-case (nếu cần) đặt SAU mở luận điểm; tên hệ/giai đoạn/metric từ Research, không generic fintech.",
+      "- Viết lại 1–3 câu đầu theo MỘT kiểu: nghịch lý vận hành · failure/metric cụ thể từ Research — CẤM invent “một công ty fintech/startup”.",
+      "- CẤM thay bằng khuôn tương tự (“Trong một cuộc họp…”, “đội platform của một công ty…”).",
+      "- Mini-case (nếu cần) đặt SAU mở luận điểm.",
     );
   }
   if (/handbook|brochure/i.test(h) || (body && HANDBOOK_VOICE.test(body))) {

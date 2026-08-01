@@ -638,17 +638,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               ~{article.targetWordCount} từ (bản sạch)
             </span>
           ) : null}
-          {(article.avoidFormats || "")
-            .split(/[,;\s]+/)
-            .filter(Boolean)
-            .map((f) => (
-              <span
-                key={f}
-                className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
-              >
-                tránh {f}
-              </span>
-            ))}
+          {(article.avoidFormats || "").trim() ? (
+            <span
+              className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
+              title={article.avoidFormats || undefined}
+            >
+              tránh: {(article.avoidFormats || "").length > 48
+                ? `${(article.avoidFormats || "").slice(0, 48)}…`
+                : article.avoidFormats}
+            </span>
+          ) : null}
         </div>
       </section>
 
