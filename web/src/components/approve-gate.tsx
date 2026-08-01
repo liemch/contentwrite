@@ -103,7 +103,7 @@ export function ApproveGate({
             Cổng duyệt
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Checklist nhanh + điểm 1–5 trước khi Approve / Publish. Đối chiếu lại Fail từ Review AI.
+            Checklist nhanh + điểm 1–5 trước khi Approve / Publish. Đối chiếu lại góp ý Review AI.
           </p>
         </div>
       </div>
@@ -136,10 +136,10 @@ export function ApproveGate({
                   />
                   <span className="min-w-0">
                     <span className="block text-sm font-medium text-[var(--ink)]">
-                      Đã xử lý trên bản sạch: {f.label}
+                      Điểm này đã ổn trên bản sạch: {f.label}
                     </span>
                     <span className="mt-0.5 block text-xs text-[var(--ink-faint)]">
-                      Tick khi Fail/Revision đã được sửa hoặc chấp nhận có chủ đích
+                      Tick khi anh thấy AI đã xử lý hoặc anh chủ đích giữ nguyên
                     </span>
                   </span>
                 </label>

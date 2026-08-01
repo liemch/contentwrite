@@ -118,6 +118,7 @@ Dùng `##` tự nhiên. **CẤM** copy tên section Article.md. **CẤM** lặp 
 - Xen câu ngắn chốt sau vài câu dài; tránh mọi đoạn khuôn 3 câu.
 - Cụ thể thắng trừu tượng: tên lớp lỗi, bước pipeline, ràng buộc auth/data — không % bịa, không “YC Survey” không có trong Research.
 - Sáo ngữ CẤM: “trong thời đại ngày nay”, “không thể phủ nhận”, “đóng vai trò quan trọng”, “Trong thế giới…”.
+- Khuôn mở CẤM (lặp giữa bài): “Trong một sprint quan trọng…”, “đội backend/frontend của một công ty fintech/startup…”.
 - Mỗi `##` phải **đẩy** luận điểm đi một bước (cầu nối: “điểm mù…”, “vì vậy…”, “trade-off thật…”).
 - Kết: câu hỏi / hệ quả mở — không bullet “tóm lại những gì đã học”.
 

@@ -19,7 +19,7 @@ Professional · Objective · Educational · Practical · Engineering-oriented. K
 - **Tier 5:** AI-generated content — không dùng làm nguồn.
 
 ## example_strategy
-Case study công ty công nghệ + tình huống dự án thực tế + bài học áp dụng. Ví dụ để minh họa lập luận, không kể thành tích.
+Case study / tình huống kỹ thuật cụ thể (hệ, metric, failure mode) + bài học áp dụng. Neo Research — CẤM invent “một công ty fintech” generic. Ví dụ để minh họa lập luận, không kể thành tích.
 
 ## categories
 AI Engineering, Software Architecture, System Design, Cloud, DevOps, Platform Engineering, Security, Engineering Leadership, Developer Experience, Product Engineering, Engineering Culture, Career Development.

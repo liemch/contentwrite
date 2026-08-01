@@ -26,7 +26,7 @@
 - [ ] N1 Một luận điểm xuyên suốt — không tóm tắt lại từ đầu mỗi mục
 - [ ] N2 Không outline listicle (`1. Hook` / Decision Framework / đánh số checklist marketing)
 - [ ] N3 Không ≥3 khối/heading riêng “khi nào không nên” (gộp một lần)
-- [ ] N4 Hook cụ thể — không sáo ngữ (“Trong thế giới… ngày nay”)
+- [ ] N4 Hook cụ thể — không sáo ngữ (“Trong thế giới… ngày nay”) và không khuôn nhà máy (“Trong một sprint… đội … công ty fintech”)
 - [ ] N5 Ví dụ ≥2 có ràng buộc kỹ thuật — CẤM “Công ty ABC/XYZ”
 - [ ] N6 Tuân thủ writing prefs bài (tránh table / mermaid / numbered_outline nếu có)
 

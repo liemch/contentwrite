@@ -20,6 +20,23 @@ type HumanReviewGateProps = {
   }) => void | Promise<void>;
 };
 
+const DISPOSITIONS: {
+  id: HumanReviewDisposition;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    id: "fixed",
+    label: "Nhờ AI sửa tiếp",
+    hint: "Fact-check / Polish sẽ ưu tiên xử lý điểm này — anh chưa cần sửa tay ở đây",
+  },
+  {
+    id: "accept",
+    label: "Giữ nguyên",
+    hint: "AI có thể sai hoặc điểm không đáng — bài đi tiếp với nội dung hiện tại",
+  },
+];
+
 export function HumanReviewGate({
   knowledgeRecord,
   running,
@@ -50,6 +67,12 @@ export function HumanReviewGate({
     setDispos((prev) => ({ ...prev, [id]: value }));
   }
 
+  function setAll(value: HumanReviewDisposition) {
+    const next: Record<string, HumanReviewDisposition> = {};
+    for (const f of findings) next[f.id] = value;
+    setDispos(next);
+  }
+
   function submit() {
     if (!canSubmit) return;
     const items: HumanReviewItem[] =
@@ -58,7 +81,7 @@ export function HumanReviewGate({
             id: f.id,
             disposition: (dispos[f.id] || "accept") as HumanReviewDisposition,
           }))
-        : [{ id: "ack-pass", disposition: "fixed", note: "Review AI không có Fail rõ — đã đọc" }];
+        : [{ id: "ack-pass", disposition: "fixed", note: "Đã đọc Review AI — không Fail rõ" }];
     void onConfirm({ items, notes });
   }
 
@@ -67,22 +90,58 @@ export function HumanReviewGate({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-[family-name:var(--font-source-serif)] text-lg font-semibold text-[var(--ink)]">
-            Xác nhận Review (người)
+            Chốt Review trước khi đi tiếp
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            AI đã tự review — anh xác nhận từng Fail / Revision trước khi Fact-check tiếp.
+            AI vừa tự chấm nháp. Anh chỉ cần nói với hệ thống: điểm nào nhờ sửa, điểm nào bỏ qua.
           </p>
         </div>
         <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-[var(--ink-muted)] ring-1 ring-[var(--line)]">
-          Bước 8 → người
+          Người · sau bước 8
         </span>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-[var(--line)] bg-white/80 px-3.5 py-3 text-sm leading-relaxed text-[var(--ink-muted)]">
+        <p className="font-medium text-[var(--ink)]">Cách dùng (30 giây)</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-4">
+          <li>Đọc từng góp ý AI bên dưới.</li>
+          <li>
+            Chọn <span className="font-semibold text-[var(--ink)]">Nhờ AI sửa tiếp</span> hoặc{" "}
+            <span className="font-semibold text-[var(--ink)]">Giữ nguyên</span> —{" "}
+            <span className="italic">không phải ô edit bài</span>.
+          </li>
+          <li>
+            Bấm xác nhận → hệ thống chạy Fact-check / Polish theo lựa chọn + ghi chú của anh.
+          </li>
+        </ol>
       </div>
 
       {findings.length > 0 ? (
         <div className="mt-5 space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-            Điểm AI đánh dấu ({findings.length})
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+              AI góp ý ({findings.length})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => setAll("fixed")}
+                className="text-xs font-semibold text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Tất cả: nhờ AI sửa
+              </button>
+              <span className="text-[var(--ink-faint)]">·</span>
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => setAll("accept")}
+                className="text-xs font-semibold text-[var(--ink-muted)] underline-offset-2 hover:underline"
+              >
+                Tất cả: giữ nguyên
+              </button>
+            </div>
+          </div>
           {findings.map((f) => (
             <FindingRow
               key={f.id}
@@ -95,8 +154,8 @@ export function HumanReviewGate({
         </div>
       ) : (
         <div className="mt-4 rounded-xl border border-[var(--line)] bg-white/70 px-3.5 py-3 text-sm text-[var(--ink-muted)]">
-          Không tách được Fail cụ thể từ Review AI — đọc nhanh bản Review bên dưới rồi xác nhận
-          để tiếp tục.
+          AI không tách ra Fail rõ ràng. Anh có thể mở Review đầy đủ bên dưới — nếu ổn thì bấm xác
+          nhận để đi Fact-check.
         </div>
       )}
 
@@ -106,7 +165,7 @@ export function HumanReviewGate({
           className="text-xs font-semibold text-[var(--accent)] underline-offset-2 hover:underline"
           onClick={() => setShowFull((v) => !v)}
         >
-          {showFull ? "Ẩn Review AI" : "Xem Review AI đầy đủ"}
+          {showFull ? "Ẩn Review AI đầy đủ" : "Xem Review AI đầy đủ (tuỳ chọn)"}
         </button>
         {showFull && (
           <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-white/80 p-3 text-xs leading-relaxed text-[var(--ink-muted)]">
@@ -116,35 +175,34 @@ export function HumanReviewGate({
       </div>
 
       <div className="mt-4">
-        <Label htmlFor="human-review-notes">Ghi chú cho Fact-check / Polish</Label>
+        <Label htmlFor="human-review-notes">Ghi chú thêm (tuỳ chọn)</Label>
         <Textarea
           id="human-review-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Vd. Fail G3 đã bổ sung URL; chấp nhận N2 vì shape essay…"
-          rows={3}
+          placeholder="Vd. “Điểm thiếu URL: nhờ bổ sung từ Research” · “Giữ nguyên mở bài vì đúng shape”"
+          rows={2}
           disabled={running}
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button
           variant="success"
           size="sm"
           busy={running}
           disabled={!canSubmit}
           onClick={submit}
-          title={!allResolved ? "Xác nhận hết các điểm Fail/Revision" : "Tiếp tục Fact-check"}
+          title={!allResolved ? "Chọn hết các điểm trước" : "Lưu lựa chọn và chạy Fact-check"}
         >
-          {running ? "Đang lưu..." : "Xác nhận & chạy Fact-check"}
+          {running ? "Đang lưu..." : "Xong — chạy Fact-check"}
         </Button>
+        {!allResolved && (
+          <p className="text-xs text-[var(--warm)]">
+            Còn điểm chưa chọn. Dùng «Tất cả: nhờ AI sửa» nếu muốn nhanh.
+          </p>
+        )}
       </div>
-
-      {!allResolved && (
-        <p className="mt-3 text-xs text-[var(--warm)]">
-          Chọn «Đã sửa» hoặc «Chấp nhận rủi ro» cho từng điểm trước khi tiếp tục.
-        </p>
-      )}
     </section>
   );
 }
@@ -162,10 +220,10 @@ function FindingRow({
 }) {
   const severityLabel =
     finding.severity === "fail"
-      ? "Fail"
+      ? "Cần xem"
       : finding.severity === "decision"
-        ? "Kết luận"
-        : "Revision";
+        ? "Kết luận AI"
+        : "Góp ý";
 
   return (
     <div className="rounded-xl border border-[var(--line)] bg-white/80 px-3.5 py-3">
@@ -175,27 +233,32 @@ function FindingRow({
         </span>
         <p className="min-w-0 flex-1 text-sm font-medium text-[var(--ink)]">{finding.label}</p>
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {(
-          [
-            ["fixed", "Đã sửa"],
-            ["accept", "Chấp nhận rủi ro"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(key)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-              value === key
-                ? "bg-[var(--ink)] text-white"
-                : "bg-[var(--surface-muted)] text-[var(--ink-muted)] hover:text-[var(--ink)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {DISPOSITIONS.map((d) => {
+          const active = value === d.id;
+          return (
+            <button
+              key={d.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(d.id)}
+              className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                active
+                  ? "border-[var(--ink)] bg-[var(--ink)] text-white"
+                  : "border-[var(--line)] bg-[var(--surface-muted)]/60 text-[var(--ink)] hover:border-[var(--line-strong)]"
+              }`}
+            >
+              <span className="block text-sm font-semibold">{d.label}</span>
+              <span
+                className={`mt-0.5 block text-[11px] leading-snug ${
+                  active ? "text-white/75" : "text-[var(--ink-faint)]"
+                }`}
+              >
+                {d.hint}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

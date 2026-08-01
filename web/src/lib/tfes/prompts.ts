@@ -57,6 +57,7 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 ## CẤM (bài sẽ bị coi là FAIL chất lượng)
 - Lặp lại tiêu đề / cùng một câu nhiều đoạn
 - Mở bài kiểu "Trong thế giới… ngày nay", "là một yếu tố quan trọng"
+- Mở bài khuôn nhà máy: "Trong một sprint…", "đội backend của một công ty fintech/startup…" (lặp giữa các bài)
 - Ví dụ bịa "Công ty ABC/DEF/XYZ" không có chi tiết kỹ thuật cụ thể
 - References bịa (tên tác giả giả, paper không tồn tại) — chỉ dùng link/nguồn từ Research Brief
 - Viết meta về "seed_topics / domain profile / Seeding Mode" như thể đó là chủ đề bài
@@ -69,7 +70,8 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 
 ## MỨC HAY (bắt buộc hướng tới)
 - Nếu Domain Profile có mục **gold_samples** — coi đó là chuẩn giọng/nhịp/mở bài; viết gần mức đó (không copy nguyên văn)
-- Hook cảnh hoặc nghịch lý trong 1–3 câu; ≥1 mini-case cụ thể; đúng một chỗ “khi nào KHÔNG”
+- Hook: xoay giữa nghịch lý / failure+metric / quan sát nghề có hậu quả (xem gold_samples) — CẤM mọi bài cùng khuôn “sprint + đội + công ty fintech”
+- ≥1 mini-case cụ thể (đặt sau mở luận điểm); đúng một chỗ “khi nào KHÔNG”
 - Senior đọc xong phải thấy điều kiện ẩn / trade-off — không chỉ checklist best practice`;
 }
 
@@ -205,13 +207,14 @@ const BLOG_NEWS_VOICE = `### Giọng BLOG / TIN TỨC kỹ thuật (bắt buộc
 Viết như bài trên blog kỹ thuật hoặc mục tech news nội bộ — người đọc lướt điện thoại, không như tài liệu nội bộ / slide / paper.
 
 Làm:
-- Mở bằng **cảnh hoặc nghịch lý** (1–3 câu) rồi mới nêu luận điểm — độc giả phải muốn đọc tiếp
+- Mở bằng **nghịch lý / failure+metric / quan sát nghề có hậu quả** (1–3 câu) rồi mới nêu luận điểm — xoay kiểu mở giữa các bài (xem gold_samples)
 - Câu chủ động, gần khẩu ngữ nghề (“đội phải…”, “lúc đó…”, “vấn đề thật là…”) nhưng vẫn chính xác kỹ thuật
 - Mỗi ## ≈ một “màn” trong bài báo: có xung đột nhỏ → giải thích → hệ quả
 - Kết bằng hệ quả hoặc câu hỏi mở — như phóng viên chốt bài, không tóm tắt 4 gạch
 
 Tránh / CẤM trên bản sạch:
 - Giọng giáo trình: “Trong môi trường X ngày càng phức tạp, Y được nhắc đến như…”
+- Khuôn nhà máy lặp bài: “Trong một sprint…”, “đội backend của một công ty fintech/startup…”
 - “Khám phá các điều kiện…”, “Nhận diện rủi ro cần cân nhắc” kiểu phụ đề brochure
 - “Cần áp dụng các biện pháp sau”, “Khuyến nghị thực tiễn” + bullet dài
 - Đoạn toàn định nghĩa / liệt kê nguyên tắc không có người hoặc tình huống
@@ -226,7 +229,7 @@ Vẫn bắt buộc: một luận điểm xuyên suốt · ≥1 tình huống c�
 /** Quy tắc polish “đáng đọc” — bổ sung NARRATIVE */
 const READER_POLISH_RULES = `### Polish đáng đọc (bắt buộc)
 - Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title (phụ đề nghe như câu lead báo, không brochure)
-- Viết lại đoạn mở nếu còn giọng giáo trình / “ngày càng phức tạp… được nhắc đến như…”
+- Viết lại đoạn mở nếu còn giọng giáo trình / “ngày càng phức tạp… được nhắc đến như…” / khuôn “Trong một sprint… đội … công ty fintech”
 - Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện, có chủ ngữ (đội / lead / bạn) — trừ khi ARTICLE_SHAPE là field-note (được phép hành động hẹp rõ ràng, vẫn không listicle Hook/Framework)
 - Nếu ≥4 con số % cụ thể mà CONTEXT Research không có → bớt số, giữ luận điểm điều kiện
 - Thêm/giữ tình huống cụ thể theo shape (postmortem / case / mini-case…) — không ép mọi bài cùng một kiểu case
@@ -328,7 +331,7 @@ Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY) —
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
-- Hook / mở khớp ARTICLE_SHAPE (postmortem = sự cố; question-led = câu hỏi; narrative-case = đội+áp lực…) — CẤM mở chung chung
+- Hook / mở khớp ARTICLE_SHAPE (postmortem = sự cố; question-led = câu hỏi; narrative-case = nghịch lý/áp lực cụ thể…) — CẤM mở chung chung và CẤM khuôn “sprint + đội + công ty fintech”
 - Đặt insight L2/L3 sớm (1–2 câu rõ điều kiện) rồi mới Context / Problem
 - Deep Analysis ≥ 350–500 từ: trade-off có điều kiện; trọng tâm theo draftHint của shape
 - Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
@@ -525,7 +528,7 @@ Với MỖI vai (≤4 dòng/vai):
 - **Còn hỏi gì:** 1 câu hoặc "ổn"
 
 Rồi chấm nhanh (Pass/Fail từng mục):
-- Hook kéo trong ~15 giây? (cảnh/nghịch lý — không mở giáo trình)
+- Hook kéo trong ~15 giây? (nghịch lý / failure cụ thể — không giáo trình, không “sprint + đội fintech”)
 - Đọc như blog/tin tức kỹ thuật hay như tài liệu nội bộ khô?
 - Có ≥1 ví dụ/mini-case đủ cụ thể để hình dung?
 - Có chỗ lặp / reset luận điểm?

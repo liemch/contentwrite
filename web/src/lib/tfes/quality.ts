@@ -25,6 +25,13 @@ const FAKE_COMPANY =
 const SLOP_OPENERS =
   /Trong (thế giới|những năm gần đây|thời đại ngày nay)|không thể phủ nhận|đóng vai trò quan trọng|là một yếu tố quan trọng/i;
 
+/**
+ * Khuôn mở bài “nhà máy” — model hay lặp dù đã cấm sáo ngữ giáo trình.
+ * VD: “Trong một sprint quan trọng, đội backend của một công ty fintech…”
+ */
+const STOCK_SCENE_OPENER =
+  /Trong một\s+(?:sprint|cuộc họp|meeting|incident|on-?call|release|demo|ngày|buổi)\b|đội\s+(?:backend|frontend|platform|devops|SRE|product|engineering|eng)\s+của\s+một\s+công\s+ty|một\s+công\s+ty\s+(?:fintech|startup|e-?commerce|công nghệ|tech|phần mềm)|(?:^|\n)[^\n]{0,120}công ty fintech|(?:^|\n)[^\n]{0,120}công ty startup/i;
+
 const WHEN_NOT = /khi nào\s+KHÔNG|khi nào không nên|KHÔNG nên|không nên dùng|không phù hợp khi/i;
 
 /** Outline blog marketing — bản đăng rời, không cuốn */
@@ -161,13 +168,18 @@ export function isDryOpenerFail(message: string | null | undefined): boolean {
   return Boolean(message && /Đoạn mở|khô\/giáo trình|mở khô|DRY_OPEN/i.test(message));
 }
 
-/** True nếu đoạn mở còn khớp DRY_OPENER / “Trong môi trường|bối cảnh”. */
+/** True nếu đoạn mở khô giáo trình HOẶC khuôn “sprint / đội X / công ty fintech”. */
 export function hasDryOpener(clean: string): boolean {
   const openSample = clean
     .replace(/^#[^\n]+\n+/, "")
     .replace(/^\*[^\n]+\*\n+/, "")
+    .replace(/^!\[[^\]]*\]\([^)]+\)\n+/, "")
     .slice(0, 600);
-  return DRY_OPENER.test(clean) || /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample);
+  return (
+    DRY_OPENER.test(clean) ||
+    /^(?:Trong môi trường|Trong bối cảnh)/m.test(openSample) ||
+    STOCK_SCENE_OPENER.test(openSample)
+  );
 }
 
 /**
@@ -183,9 +195,11 @@ export function buildCleanRepairDirectives(
 
   if (isDryOpenerFail(h) || (body && hasDryOpener(body))) {
     lines.push(
-      "ƯU TIÊN — ĐOẠN MỞ:",
-      "- XÓA mở kiểu “Trong môi trường/bối cảnh/những năm…”, “Không thể phủ nhận”, “Ngày nay,”.",
-      "- Viết lại 1–3 câu đầu thành CẢNH (ai/đội, hệ, áp lực) hoặc NGHỊCH LÝ — rồi mới nêu luận điểm.",
+      "ƯU TIÊN — ĐOẠN MỞ (đổi khuôn, không chỉ đổi wording):",
+      "- XÓA mở giáo trình: “Trong môi trường/bối cảnh/những năm…”, “Không thể phủ nhận”, “Ngày nay,”.",
+      "- XÓA khuôn nhà máy: “Trong một sprint…”, “đội backend/frontend của một công ty fintech/startup…”.",
+      "- Viết lại 1–3 câu đầu theo MỘT kiểu (xoay giữa các bài): nghịch lý vận hành · failure/metric cụ thể từ Research · quan sát nghề có hậu quả — CẤM invent “một công ty X”.",
+      "- Mini-case (nếu cần) đặt SAU mở luận điểm; tên hệ/giai đoạn/metric từ Research, không generic fintech.",
     );
   }
   if (/handbook|brochure/i.test(h) || (body && HANDBOOK_VOICE.test(body))) {
@@ -305,9 +319,9 @@ export function assertWritePhaseQuality(draft: string, phase: "a" | "b"): void {
       "Phát hiện ví dụ/ công ty giả (ABC/DEF/XYZ) hoặc reference nghi bịa. Chạy lại bước Viết với tình huống kỹ thuật cụ thể từ Research.",
     );
   }
-  if (phase === "a" && SLOP_OPENERS.test(draft.slice(0, 800))) {
+  if (phase === "a" && (SLOP_OPENERS.test(draft.slice(0, 800)) || STOCK_SCENE_OPENER.test(draft.slice(0, 800)))) {
     throw new Error(
-      "Mở bài kiểu sáo ngữ (cấm theo BAR VIẾT). Chạy lại bước Viết với hook cụ thể.",
+      "Mở bài kiểu sáo ngữ hoặc khuôn “sprint/đội fintech” (cấm theo BAR VIẾT). Chạy lại bước Viết với hook cụ thể từ Research.",
     );
   }
   if (LISTICLE_OUTLINE.test(draft)) {
@@ -432,7 +446,7 @@ export function assertCleanPublishQuality(
   // Chỉ soi ~600 ký tự đầu body (sau title/phụ đề) — prefix “Bản sạch” để soft-retry nhận diện
   if (hasDryOpener(clean)) {
     throw new Error(
-      "Bản sạch: đoạn mở còn khô/giáo trình — mở bằng cảnh hoặc nghịch lý như bài blog/tin tức.",
+      "Bản sạch: đoạn mở còn khô/giáo trình hoặc khuôn “sprint / đội X / công ty fintech” — đổi sang nghịch lý hoặc failure cụ thể từ Research (xem gold_samples).",
     );
   }
   if (countPercentClaims(clean) >= 6) {
@@ -509,10 +523,14 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (SLOP_OPENERS.test((clean || draft).slice(0, 600))) {
+  if (
+    SLOP_OPENERS.test((clean || draft).slice(0, 600)) ||
+    STOCK_SCENE_OPENER.test((clean || draft).slice(0, 600))
+  ) {
     issues.push({
       code: "HOOK",
-      message: "Hook/mở bài còn sáo ngữ — chưa đạt BAR VIẾT.",
+      message:
+        "Hook/mở bài còn sáo ngữ hoặc khuôn “sprint / đội công ty fintech” — chưa đạt BAR VIẾT.",
     });
   }
 

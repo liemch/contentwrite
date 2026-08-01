@@ -170,7 +170,7 @@ export function formatHumanReviewBlock(payload: HumanReviewPayload, findings: Ed
   const byId = new Map(findings.map((f) => [f.id, f]));
   const lines = payload.items.map((item) => {
     const label = byId.get(item.id)?.label ?? item.id;
-    const disp = item.disposition === "fixed" ? "đã sửa" : "chấp nhận rủi ro";
+    const disp = item.disposition === "fixed" ? "nhờ AI sửa tiếp" : "giữ nguyên";
     const note = item.note?.trim() ? ` — ${item.note.trim()}` : "";
     return `- [${item.id}] ${disp}: ${label}${note}`;
   });

@@ -7,6 +7,8 @@ import { AppShell } from "@/components/app-shell";
 import { ApproveGate } from "@/components/approve-gate";
 import { HumanReviewGate } from "@/components/human-review-gate";
 import { ArticleImageStudio } from "@/components/article-image-studio";
+import { EditorialSummaryPanel } from "@/components/editorial-summary-panel";
+import { PublishPackPanel } from "@/components/publish-pack-panel";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
@@ -46,6 +48,8 @@ type Article = {
   heroPromptUsed: string | null;
   galleryJson?: string | null;
   reviewerNotes: string | null;
+  approvedAt?: string | null;
+  publishedAt?: string | null;
 };
 
 const TABS = [
@@ -55,7 +59,8 @@ const TABS = [
   { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
   { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
   { key: "knowledge", label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
-  { key: "hero", label: "Hero brief", desc: "Ảnh minh hoạ" },
+  { key: "desk", label: "Tóm biên tập", desc: "AI góp ý · người chốt · duyệt" },
+  { key: "pack", label: "Gói đăng", desc: "Excerpt · LinkedIn · X" },
 ] as const;
 
 function timeoutMessage(status: number): string {
@@ -573,7 +578,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     knowledge: article.knowledgeRecord
       ? stripPipelineMarks(article.knowledgeRecord)
       : null,
-    hero: article.heroBrief,
+    desk: article.knowledgeRecord || article.factCheck || article.reviewerNotes || "ready",
+    pack: "ready",
   };
 
   const activeTab = TABS.find((t) => t.key === tab);
@@ -830,7 +836,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             </header>
           )}
 
-          {activeContent ? (
+          {tab === "desk" ? (
+            <EditorialSummaryPanel article={article} />
+          ) : tab === "pack" ? (
+            <PublishPackPanel
+              articleId={article.id}
+              hasClean={Boolean((article.cleanPublish ?? "").trim())}
+              running={running}
+              onLog={(level, message) => pushLog(level, message)}
+            />
+          ) : activeContent && activeContent !== "ready" ? (
             <>
               {tab === "clean" && article.heroImageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element

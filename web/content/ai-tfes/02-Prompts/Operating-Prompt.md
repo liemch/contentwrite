@@ -116,9 +116,10 @@ Cấu trúc đích:
 ## 6. BAR VIẾT (mức HAY — Writing + bản sạch)
 
 - Insight L2/L3 **sớm và bạo dạn** (đoạn mở).
-- Hook: quan sát / nghịch lý / tình huống cụ thể — CẤM “Trong những năm gần đây…”, “Trong môi trường X ngày càng phức tạp…”.
+- Hook: quan sát / nghịch lý / failure+metric cụ thể — CẤM “Trong những năm gần đây…”, “Trong môi trường X ngày càng phức tạp…”.
+- **CẤM khuôn mở lặp giữa các bài:** “Trong một sprint…”, “đội backend của một công ty fintech/startup…”. Mini-case đặt sau luận điểm; neo Research, không invent công ty generic.
 - **Giọng bản sạch = blog / tin tức kỹ thuật** (đọc trên điện thoại), không whitepaper / slide / handbook nội bộ.
-- Story arc bản đăng: Cảnh mở → Tension → Cơ chế → Mini-case → Guardrail → Mở.
+- Story arc bản đăng: có thể Cảnh mở → Tension → Cơ chế → Mini-case → Guardrail → Mở — nhưng **không bắt buộc mọi bài cùng công thức**; xoay cách mở theo gold_samples domain.
 - Nhịp: xen câu ngắn chốt; cụ thể (cơ chế, failure mode) thắng trừu tượng / % bịa.
 - Sáo ngữ CẤM: “thời đại ngày nay”, “không thể phủ nhận”, “đóng vai trò quan trọng”, “được nhắc đến như một giải pháp hứa hẹn”.
 - Trung thực trí tuệ: điều kiện áp dụng + phản biện thật + thừa nhận chưa biết; nêu giới hạn bằng chứng.
