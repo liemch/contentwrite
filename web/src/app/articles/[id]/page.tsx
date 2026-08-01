@@ -692,8 +692,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           running={running}
           notes={notes}
           onNotesChange={setNotes}
-          onApprove={(opts) => callAction("approve", opts)}
-          onPublish={() => callAction("publish")}
+          onApprove={(opts) => {
+            void callAction("approve", opts);
+          }}
+          onPublish={() => {
+            void callAction("publish");
+          }}
         />
       )}
 
