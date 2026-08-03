@@ -30,7 +30,7 @@ Mục tiêu KHÔNG phải "bài đạt chuẩn" mà là "bài HAY": có ít nh�
 
 ## 6. BAR VIẾT (Bước 3 — mức HAY, không phải mức đạt)
 - Đặt insight L2/L3 SỚM và bạo dạn (ngay mở đầu), đừng chôn giữa bài.
-- Hook: mở bằng quan sát/nghịch lý/failure+metric cụ thể. KHÔNG mở kiểu "Trong những năm gần đây…", cũng KHÔNG khuôn "Trong một sprint… đội … công ty fintech".
+- Hook: mở bằng quan sát/nghịch lý/tình huống cụ thể. KHÔNG mở kiểu "Trong những năm gần đây, X ngày càng quan trọng…".
 - Nhịp: đa dạng độ dài câu; một câu ngắn để chốt sau vài câu dài. Tránh mọi đoạn đều đúng 3 câu. Cụ thể (số, tên, tình huống) thắng trừu tượng.
 - Sáo ngữ CẤM: "trong thời đại ngày nay", "không thể phủ nhận", "đóng vai trò quan trọng".
 - Trung thực trí tuệ: có mục "khi nào KHÔNG nên", một phản biện thật (không phải trade-off cho có), và thừa nhận điều chưa biết. Bằng chứng nêu rõ giới hạn/độ tin (vd cảnh báo benchmark do chính vendor công bố).
