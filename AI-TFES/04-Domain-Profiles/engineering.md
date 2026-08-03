@@ -27,6 +27,8 @@ AI Engineering, Software Architecture, System Design, Cloud, DevOps, Platform En
 ## scoring_weights
 Practical Value 25 · Engineering Impact 20 · Learning Value 15 · Evergreen 15 · Discussion 10 · Business Impact 10 · Novelty 5.
 
+> **Dùng ở Bước 5 (Editorial Decision)** để ưu tiên góc/chủ đề khi có nhiều lựa chọn — KHÔNG dùng thay cho rubric chấm bài ở `Review.md` (Operating Prompt mục 9).
+
 ## sensitivity
 Không có ràng buộc đặc biệt ngoài quy tắc chung (không quảng bá, không khẳng định tuyệt đối).
 

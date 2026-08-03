@@ -30,6 +30,8 @@ Communication · Feedback · Conflict & Difficult Conversations · Influence & P
 ## scoring_weights  (điều chỉnh)
 Thêm **Evidence Rigor** (trọng số cao — chặn pseudoscience). Tăng Practical Value & Discussion. Evergreen cao. Thay Engineering Impact bằng **People/Team Impact**.
 
+> **Dùng ở Bước 5 (Editorial Decision)** để ưu tiên góc/chủ đề khi có nhiều lựa chọn — KHÔNG dùng thay cho rubric chấm bài ở `Review.md` (Operating Prompt mục 9). `Evidence Rigor` ở đây bổ trợ cho `pseudoscience_blocklist`, không thay thế Fact Check ở Bước 9.
+
 ## sensitivity  (BẮT BUỘC)
 Tôn trọng đa dạng & bối cảnh văn hóa nơi làm việc Việt Nam. Không chẩn đoán tâm lý cá nhân. Không phán xét đạo đức. Trình bày như lựa chọn có điều kiện, không phải chân lý ứng xử.
 
