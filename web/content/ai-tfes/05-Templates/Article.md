@@ -1,10 +1,14 @@
-# <Title — dưới 80 ký tự, không giật tít, KHÔNG gắn (L2)/(L3)>
+<!-- Cách đếm "nháp 12 phần" (Operating Prompt v1.5, mục 5A):
+Title · Subtitle · Executive Summary · Introduction · Context · Problem Statement ·
+Deep Analysis · Real-world Examples · Practical Recommendations (tính 1 phần dù có
+3 khối con) · Key Takeaways · Discussion Questions · References = 12.
+Metadata KHÔNG tính vào 12 phần (là khai báo, không phải nội dung). -->
+
+# <Title — dưới 80 ký tự, không giật tít>
 
 **Subtitle:** <20–40 từ, nêu giá trị bài viết>
 
 **Metadata:** Domain: <> · Category: <> · Reading time: <>' · Level: <Beginner/Intermediate/Advanced/Leadership>
-
-> Bản làm việc nội bộ (12 phần). Bản đăng tin nằm ở Publish Ready — dạng đọc liền, không dùng các heading bên dưới.
 
 ---
 
@@ -12,27 +16,19 @@
 <100–150 từ: chủ đề, vấn đề, giá trị, đối tượng. Không tiết lộ hết kết luận.>
 
 ## Introduction
-<Hook cụ thể (tình huống / nghịch lý). Nối mượt sang Context — CẤM đóng hook rồi nhảy bullet tóm tắt.>
-
 ## Context
-<Bối cảnh kỹ thuật / tổ chức. Thuật ngữ và ràng buộc thật từ Research.>
-
 ## Problem Statement
-<Vấn đề / câu hỏi cốt lõi còn mở. 2–3 câu hỏi điều hướng Deep Analysis.>
-
 ## Deep Analysis
-<Nguyên nhân · nhiều góc nhìn · trade-off có điều kiện · liên kết insight L2/L3.
-Không liệt kê, không tóm tắt từng nguồn. ≥350–500 từ ở nửa đầu.>
+<Nguyên nhân · nhiều góc nhìn · trade-off · liên kết insight. Không liệt kê, không tóm tắt từng nguồn.>
 
 ## Real-world Examples
-<≥2 ví dụ minh họa lập luận — ràng buộc kỹ thuật cụ thể. CẤM “Công ty ABC”.>
+<≥2 ví dụ, để minh họa lập luận.>
 
 ## Practical Recommendations
 ### Cá nhân
 ### Team
 ### Tổ chức
-<Mỗi mục: làm gì? khi nào áp dụng? khi nào KHÔNG? lợi ích? rủi ro?
-Chỉ MỘT khối “khi nào KHÔNG” — không tách mục trùng.>
+<Mỗi mục: làm gì? khi nào áp dụng? khi nào KHÔNG? lợi ích? rủi ro?>
 
 ## Key Takeaways
 1.
@@ -45,4 +41,4 @@ Chỉ MỘT khối “khi nào KHÔNG” — không tách mục trùng.>
 3.
 
 ## References
-1. <Chỉ nguồn đã dùng trong Research Brief — có URL>
+1.
