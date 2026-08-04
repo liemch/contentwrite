@@ -104,7 +104,23 @@ export function isPublishFormatId(raw: string | null | undefined): raw is Publis
 export function resolveShapeForArticle(input: {
   articleId: string;
   publishFormat?: string | null;
+  articleShapeId?: string | null;
+  articleShapeSnapshot?: string | null;
 }): ArticleShape {
+  if (input.articleShapeSnapshot?.trim()) {
+    try {
+      const snapshot = JSON.parse(input.articleShapeSnapshot) as Partial<ArticleShape>;
+      if (snapshot.id && snapshot.beats?.length && snapshot.opening && snapshot.ending) {
+        const fallback = ARTICLE_SHAPES[snapshot.id as ArticleShapeId] ?? ARTICLE_SHAPES["paradox-deepdive"];
+        return { ...fallback, ...snapshot } as ArticleShape;
+      }
+    } catch {
+      // Bài cũ/snapshot lỗi: fallback registry code để vẫn đọc được.
+    }
+  }
+  if (input.articleShapeId && ARTICLE_SHAPES[input.articleShapeId as ArticleShapeId]) {
+    return ARTICLE_SHAPES[input.articleShapeId as ArticleShapeId];
+  }
   const format = resolvePublishFormat(input.publishFormat);
   if (format.lockShape && ARTICLE_SHAPES[format.lockShape]) {
     return ARTICLE_SHAPES[format.lockShape];
@@ -116,6 +132,8 @@ export function resolveShapeForArticle(input: {
 export function formatPublishShapePrompt(input: {
   articleId: string;
   publishFormat?: string | null;
+  articleShapeId?: string | null;
+  articleShapeSnapshot?: string | null;
 }): string {
   const format = resolvePublishFormat(input.publishFormat);
   const shape = resolveShapeForArticle(input);

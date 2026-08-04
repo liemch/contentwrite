@@ -38,6 +38,9 @@ type Article = {
   currentStep: string | null;
   errorMessage: string | null;
   publishFormat?: string | null;
+  articleShapeId?: string | null;
+  articleShapeVersion?: string | null;
+  articleShapeSnapshot?: string | null;
   seriesId?: string | null;
   seriesOrder?: number | null;
   targetWordCount?: number | null;
@@ -703,6 +706,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             const shape = resolveShapeForArticle({
               articleId: article.id,
               publishFormat: article.publishFormat,
+              articleShapeId: article.articleShapeId,
+              articleShapeSnapshot: article.articleShapeSnapshot,
             });
             return (
               <>
@@ -713,7 +718,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                   className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
                   title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}`}
                 >
-                  Khung: {shape.labelVi}
+                  Khung: {shape.labelVi}{article.articleShapeVersion ? ` · v${article.articleShapeVersion}` : ""}
                 </span>
               </>
             );

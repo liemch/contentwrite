@@ -84,6 +84,7 @@ import {
 } from "@/lib/publish-content";
 import { auditResearchEvidence } from "@/lib/tfes/research-evidence";
 import { bumpContentVersion, TFES_CONTRACT } from "@/lib/tfes/contract";
+import { selectArticleShape } from "@/lib/tfes/article-shape-manager";
 import {
   formatWritingPrefsPrompt,
   resolveWritingPrefs,
@@ -114,10 +115,17 @@ async function writingPrefsForArticle(article: {
   });
 }
 
-function shapeBlockFor(article: { id: string; publishFormat?: string | null }): string {
+function shapeBlockFor(article: {
+  id: string;
+  publishFormat?: string | null;
+  articleShapeId?: string | null;
+  articleShapeSnapshot?: string | null;
+}): string {
   return formatPublishShapePrompt({
     articleId: article.id,
     publishFormat: article.publishFormat,
+    articleShapeId: article.articleShapeId,
+    articleShapeSnapshot: article.articleShapeSnapshot,
   });
 }
 
@@ -773,6 +781,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Decision (bước 5) — context mỏng: timeout thường do Research Brief + reasoning, không do output
       if (phase === "decision") {
+        if (!article.articleShapeSnapshot?.trim()) {
+          const selectedShape = await selectArticleShape({
+            articleId: article.id,
+            domain: article.domain,
+            publishFormat: article.publishFormat,
+            topic: article.topic,
+            insightGate: article.insightGate,
+          });
+          article = await commitPatch({
+            action: "select-article-shape",
+            articlePatch: {
+              articleShapeId: selectedShape.id,
+              articleShapeVersion: selectedShape.version,
+              articleShapeSnapshot: selectedShape.snapshot,
+              openingPattern: selectedShape.openingPattern,
+              narrativePattern: selectedShape.narrativePattern,
+            },
+            details: {
+              shapeId: selectedShape.id,
+              shapeVersion: selectedShape.version,
+            },
+          });
+        }
         const llmStarted = Date.now();
         const gateOnly = stripPipelineMarks(article.insightGate);
         const decision = await chatCompletion(
@@ -1878,6 +1909,11 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
       heroPromptUsed: null,
       galleryJson: null,
       deskJson: null,
+      articleShapeId: null,
+      articleShapeVersion: null,
+      articleShapeSnapshot: null,
+      openingPattern: null,
+      narrativePattern: null,
     },
   });
 }

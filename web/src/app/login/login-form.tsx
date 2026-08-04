@@ -118,8 +118,8 @@ export default function LoginForm() {
                   {error}
                 </div>
               )}
-              <Button type="submit" disabled={loading} className="w-full rounded-full">
-                {loading ? "Đang vào..." : "Vào biên tập"}
+              <Button type="submit" busy={loading} disabled={loading} className="w-full rounded-full">
+                Vào biên tập
               </Button>
             </form>
           </section>

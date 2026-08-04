@@ -36,12 +36,12 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${busy ? "btn-busy pr-9" : ""} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${busy ? "btn-busy" : ""} ${className}`}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       {...props}
     >
-      {children}
+      <span className="btn-label">{children}</span>
     </button>
   );
 }

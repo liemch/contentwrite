@@ -31,13 +31,15 @@ export default function DigestsPage() {
   const [digests, setDigests] = useState<DigestRow[]>([]);
   const [domain, setDomain] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
     fetch("/api/digests")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { digests?: DigestRow[] } | null) => setDigests(data?.digests ?? []))
-      .catch(() => setDigests([]));
+      .catch(() => setDigests([]))
+      .finally(() => setListLoading(false));
   }, []);
 
   useEffect(() => {
@@ -67,6 +69,7 @@ export default function DigestsPage() {
       window.location.href = `/digests/${data.digest.id}`;
       return;
     }
+    setListLoading(true);
     load();
   }
 
@@ -92,15 +95,18 @@ export default function DigestsPage() {
         <Button
           type="button"
           onClick={generate}
+          busy={loading}
           disabled={loading}
           className="rounded-full"
         >
-          {loading ? "Đang sinh…" : "Tạo digest tuần này"}
+          Tạo digest tuần này
         </Button>
         {error && <p className="w-full text-sm text-[var(--danger)]">{error}</p>}
       </div>
 
-      {digests.length === 0 ? (
+      {listLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((item) => <div key={item} className="skeleton-shimmer h-24 rounded-2xl" />)}</div>
+      ) : digests.length === 0 ? (
         <div className="hero-band px-6 py-14 text-center">
           <h2 className="font-[family-name:var(--font-source-serif)] text-xl font-semibold">
             Chưa có digest

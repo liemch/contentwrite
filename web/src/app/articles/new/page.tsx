@@ -67,11 +67,6 @@ export default function NewArticlePage() {
       .catch(() => setSeriesList([]));
   }, []);
 
-  useEffect(() => {
-    const fmt = PUBLISH_FORMATS[publishFormat];
-    if (fmt) setTargetWordCount(fmt.wordHint);
-  }, [publishFormat]);
-
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -156,7 +151,11 @@ export default function NewArticlePage() {
             <Select
               id="format"
               value={publishFormat}
-              onChange={(e) => setPublishFormat(e.target.value as PublishFormatId)}
+              onChange={(e) => {
+                const next = e.target.value as PublishFormatId;
+                setPublishFormat(next);
+                setTargetWordCount(PUBLISH_FORMATS[next].wordHint);
+              }}
             >
               {PUBLISH_FORMAT_IDS.map((id) => (
                 <option key={id} value={id}>
@@ -247,8 +246,8 @@ export default function NewArticlePage() {
             </div>
           )}
 
-          <Button type="submit" disabled={loading || quotaBlocked} className="rounded-full">
-            {loading ? "Đang tạo..." : "Tạo & mở chu trình viết"}
+          <Button type="submit" busy={loading} disabled={loading || quotaBlocked} className="rounded-full">
+            Tạo & mở chu trình viết
           </Button>
         </form>
 

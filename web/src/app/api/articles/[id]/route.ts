@@ -94,6 +94,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           { status: 400 },
         );
       }
+      if (article.articleShapeSnapshot?.trim()) {
+        return NextResponse.json(
+          { error: "Bài đã khóa Article Shape sau Insight Gate — reset workflow để đổi format." },
+          { status: 400 },
+        );
+      }
       data.publishFormat = resolvePublishFormat(body.publishFormat).id;
     }
 

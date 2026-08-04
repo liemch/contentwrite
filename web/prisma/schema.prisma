@@ -96,6 +96,12 @@ model Article {
   source          String         @default("manual")
   /// blog | field-note | postmortem | adr | internal-brief | thread-qa
   publishFormat   String         @default("blog")
+  /// Immutable shape choice for this workflow run; snapshot protects in-flight articles from config edits.
+  articleShapeId      String?
+  articleShapeVersion String?
+  articleShapeSnapshot String?   @db.Text
+  openingPattern      String?
+  narrativePattern    String?
   status          ArticleStatus  @default(DRAFT)
   currentStep     WorkflowStep?
   /// Backend source of truth for AI-TFES v1.6.
@@ -288,4 +294,24 @@ model TfesDocument {
   updatedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Editable article-shape policy. Definition is snapshotted onto Article when selected.
+model ArticleShapeProfile {
+  id                String   @id
+  version           String   @default("1.0")
+  labelVi           String
+  fit               String   @db.Text
+  definitionJson    Json
+  active            Boolean  @default(true)
+  weight            Int      @default(10)
+  cooldownArticles  Int      @default(4)
+  compatibleFormats String   @default("blog")
+  domains           String   @default("*")
+  insightKinds      String   @default("*")
+  updatedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([active, updatedAt])
 }

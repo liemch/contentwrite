@@ -235,7 +235,7 @@ body {
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -268,15 +268,34 @@ body {
 }
 
 .animate-fade-up {
-  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fade-up 0.2s ease-out both;
 }
 
 .animate-fade-up-delay {
-  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+  animation: fade-up 0.22s ease-out 0.03s both;
 }
 
 .animate-pulse-soft {
   animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 78%, var(--surface-muted));
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: skeleton-sweep 1.15s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  to { transform: translateX(100%); }
 }
 
 .nav-progress {
@@ -298,13 +317,8 @@ body {
   transition: width 0.15s ease-out;
 }
 
-.nav-progress-veil {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  pointer-events: none;
-  background: rgba(10, 21, 32, 0.04);
-  animation: fade-up 0.25s ease both;
+html[data-navigation-pending="true"] a[href] {
+  cursor: progress;
 }
 
 .btn-busy {
@@ -316,15 +330,35 @@ body {
 .btn-busy::after {
   content: "";
   position: absolute;
-  right: 0.75rem;
+  left: 50%;
   top: 50%;
   width: 0.7rem;
   height: 0.7rem;
   margin-top: -0.35rem;
+  margin-left: -0.35rem;
   border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
   border-top-color: currentColor;
   border-radius: 999px;
   animation: spin 0.7s linear infinite;
+}
+
+.btn-busy .btn-label {
+  opacity: 0;
+}
+
+.btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-up-delay,
+  .animate-pulse-soft {
+    animation: none;
+  }
+  .skeleton-shimmer::after { animation: none; }
 }
 
 @keyframes spin {

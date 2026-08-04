@@ -16,8 +16,11 @@ function NavigationProgressInner() {
   const routeKey = `${pathname}?${searchParams.toString()}`;
 
   useEffect(() => {
-    setActive(false);
-    setWidth(0);
+    delete document.documentElement.dataset.navigationPending;
+    queueMicrotask(() => {
+      setActive(false);
+      setWidth(0);
+    });
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -51,6 +54,7 @@ function NavigationProgressInner() {
       if (nextKey === currentKey) return;
 
       setActive(true);
+      document.documentElement.dataset.navigationPending = "true";
       setWidth(12);
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -61,6 +65,7 @@ function NavigationProgressInner() {
     document.addEventListener("click", onClick, true);
     return () => {
       document.removeEventListener("click", onClick, true);
+      delete document.documentElement.dataset.navigationPending;
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
@@ -79,7 +84,6 @@ function NavigationProgressInner() {
       >
         <div className="nav-progress-bar" style={{ width: `${width}%` }} />
       </div>
-      <div className="nav-progress-veil" aria-hidden />
     </>
   );
 }

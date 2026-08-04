@@ -31,13 +31,15 @@ export default function SeriesPage() {
   const [description, setDescription] = useState("");
   const [domain, setDomain] = useState("engineering");
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
     fetch("/api/series")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { series?: SeriesRow[] } | null) => setSeries(data?.series ?? []))
-      .catch(() => setSeries([]));
+      .catch(() => setSeries([]))
+      .finally(() => setListLoading(false));
   }, []);
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export default function SeriesPage() {
     }
     setTitle("");
     setDescription("");
+    setListLoading(true);
     load();
   }
 
@@ -107,13 +110,15 @@ export default function SeriesPage() {
           {error && (
             <p className="text-sm text-[var(--danger)]">{error}</p>
           )}
-          <Button type="submit" disabled={loading || !title.trim()} className="rounded-full">
-            {loading ? "Đang tạo…" : "Tạo series"}
+          <Button type="submit" busy={loading} disabled={loading || !title.trim()} className="rounded-full">
+            Tạo series
           </Button>
         </form>
 
         <div className="space-y-4">
-          {series.length === 0 ? (
+          {listLoading ? (
+            [1, 2, 3].map((item) => <div key={item} className="skeleton-shimmer h-36 rounded-2xl" />)
+          ) : series.length === 0 ? (
             <div className="hero-band px-6 py-12 text-center">
               <p className="text-sm text-[var(--ink-muted)]">Chưa có series — tạo một cái bên trái.</p>
             </div>

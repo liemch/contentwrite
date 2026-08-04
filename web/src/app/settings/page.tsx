@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { UsersAdminPanel } from "@/components/users-admin-panel";
 import { TfesDocsEditor } from "@/components/tfes-docs-editor";
+import { ArticleShapeManager } from "@/components/article-shape-manager";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
@@ -407,6 +408,10 @@ export default function SettingsPage() {
 
       <div className="mb-6">
         <TfesDocsEditor />
+      </div>
+
+      <div className="mb-6">
+        <ArticleShapeManager />
       </div>
 
       {loading || !config ? (

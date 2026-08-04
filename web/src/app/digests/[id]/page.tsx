@@ -78,7 +78,7 @@ export default function DigestDetailPage() {
   if (!digest) {
     return (
       <AppShell title="Digest" backHref="/digests" backLabel="Digests">
-        <p className="text-sm text-[var(--ink-faint)]">Đang tải…</p>
+        <div className="space-y-4"><div className="skeleton-shimmer h-20 rounded-2xl" /><div className="skeleton-shimmer h-80 rounded-2xl" /></div>
       </AppShell>
     );
   }

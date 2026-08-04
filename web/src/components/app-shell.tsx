@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/logout-button";
+import { useShellSession } from "@/components/session-provider";
 import { BRAND } from "@/lib/brand";
 
 type AppShellProps = {
@@ -41,23 +41,9 @@ export function AppShell({
   hidePageChrome = false,
 }: AppShellProps) {
   const pathname = usePathname();
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [userLabel, setUserLabel] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { user?: { role?: string; email?: string; name?: string | null } } | null) => {
-        if (cancelled || !data?.user) return;
-        setIsAdmin(data.user.role === "ADMIN");
-        setUserLabel(data.user.name || data.user.email || "");
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { user } = useShellSession();
+  const isAdmin = user?.role === "ADMIN";
+  const userLabel = user?.name || user?.email || "";
 
   const nav = NAV_BASE.filter((item) => !("adminOnly" in item && item.adminOnly) || isAdmin);
   const showTitle = showHeaderTitle && title && !hidePageChrome;

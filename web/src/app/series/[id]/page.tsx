@@ -61,7 +61,7 @@ export default function SeriesDetailPage() {
   if (!series) {
     return (
       <AppShell title="Series" backHref="/series" backLabel="Series">
-        <p className="text-sm text-[var(--ink-faint)]">Đang tải…</p>
+        <div className="space-y-3">{[1, 2, 3].map((item) => <div key={item} className="skeleton-shimmer h-24 rounded-2xl" />)}</div>
       </AppShell>
     );
   }

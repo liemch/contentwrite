@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Be_Vietnam_Pro, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import { NavigationProgress } from "@/components/navigation-progress";
+import { SessionProvider } from "@/components/session-provider";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
@@ -37,8 +38,10 @@ export default function RootLayout({
       className={`${beVietnam.variable} ${sourceSerif.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <NavigationProgress />
-        {children}
+        <SessionProvider>
+          <NavigationProgress />
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );
