@@ -400,7 +400,6 @@ export default function SettingsPage() {
       subtitle="Users, tài liệu AI-TFES (.md), auto-write và kiểm tra API."
       backHref="/dashboard"
       backLabel="Biên tập"
-      wide
     >
       <div className="mb-6">
         <UsersAdminPanel />

@@ -103,8 +103,27 @@ export function unresolvedBadClaims(
 }
 
 export function verificationStatus(factCheck: string | null | undefined): string {
-  const m = (factCheck ?? "").match(
-    /Verification\s*Status\s*[:：]\s*`?([^`\n]+)`?/i,
-  );
-  return (m?.[1] || "").trim();
+  const lines = (factCheck ?? "")
+    .split(/\r?\n/)
+    .filter((candidate) => /Verification[\s_-]*Status/i.test(candidate));
+  const resolved = lines.flatMap((line) => {
+    const statuses = Array.from(
+      line.matchAll(/\b(PASSED|MINOR[\s_-]*ISSUE|MAJOR[\s_-]*ISSUE|FAILED)\b/gi),
+      (match) => match[1].toUpperCase().replace(/[\s-]+/g, "_"),
+    );
+    const uniqueOnLine = [...new Set(statuses)];
+    return uniqueOnLine.length === 1 ? uniqueOnLine : [];
+  });
+  const unique = [...new Set(resolved)];
+
+  // Bỏ qua dòng placeholder chứa nhiều enum; các dòng kết quả phải nhất quán.
+  return unique.length === 1 ? unique[0] : "";
+}
+
+export const MAX_FACT_REMEDIATION_RETRIES = 3;
+
+export function isFactRemediationExhausted(
+  errorMessage: string | null | undefined,
+): boolean {
+  return /Fact Check chưa đạt sau \d+ lần remediation/i.test(errorMessage ?? "");
 }

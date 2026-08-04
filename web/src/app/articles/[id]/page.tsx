@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { resolvePublishFormat, resolveShapeForArticle } from "@/lib/tfes/publish-formats";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
+import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import {
   isCleanBodyQualityFail,
@@ -105,6 +106,10 @@ const BLOCKING_WORKFLOW_STATES = new Set([
 function isWorkflowStopped(article: Article): boolean {
   if (TERMINAL_WORKFLOW_STATES.has(article.workflowState)) return true;
   if (BLOCKING_WORKFLOW_STATES.has(article.workflowState)) return true;
+  if (
+    article.workflowState === "FACT_CHECK_FAILED" &&
+    isFactRemediationExhausted(article.errorMessage)
+  ) return true;
   return article.workflowState === "READER_SIMULATION_FAILED" &&
     /chưa đạt sau/i.test(article.errorMessage ?? "");
 }
@@ -348,7 +353,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       return { article: next, softContinue: true };
     }
 
-    if (next.workflowState === "FACT_CHECK_FAILED" && action === "run-step") {
+    if (
+      next.workflowState === "FACT_CHECK_FAILED" &&
+      action === "run-step" &&
+      !isFactRemediationExhausted(next.errorMessage)
+    ) {
       setActionError(next.errorMessage || "Fact Check chưa đạt");
       setTab("fact");
       pushLog(

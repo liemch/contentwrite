@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Be_Vietnam_Pro, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import { NavigationProgress } from "@/components/navigation-progress";
 import { SessionProvider } from "@/components/session-provider";
+import { SiteFrame } from "@/components/site-frame";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
@@ -40,7 +41,7 @@ export default function RootLayout({
       <body className="min-h-full">
         <SessionProvider>
           <NavigationProgress />
-          {children}
+          <SiteFrame>{children}</SiteFrame>
         </SessionProvider>
       </body>
     </html>

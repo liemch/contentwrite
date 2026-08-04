@@ -402,6 +402,7 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 - Gắn nhãn Opinion / Prediction rõ ràng
 - Số % / survey không có trong Research Brief → FAIL hoặc ghi Opinion
 - Nếu CONTEXT có **Editorial Review** — ưu tiên kiểm tra đúng các Fail / Minor–Major Revision đã nêu (số liệu, tuyệt đối hóa, thiếu bằng chứng)
+- Sau ledger, bắt buộc thêm đúng một dòng máy đọc, không bold: \`VERIFICATION_STATUS: PASSED\` (hoặc một enum MINOR_ISSUE / MAJOR_ISSUE / FAILED). Không chép nguyên danh sách enum.
 
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 

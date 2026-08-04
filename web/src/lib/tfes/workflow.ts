@@ -44,7 +44,10 @@ import {
   assertFinalVerificationPassed,
   inspectFinalVerification,
 } from "@/lib/tfes/final-verification";
-import { verificationStatus } from "@/lib/tfes/fact-ledger";
+import {
+  MAX_FACT_REMEDIATION_RETRIES,
+  verificationStatus,
+} from "@/lib/tfes/fact-ledger";
 import {
   applyHumanReviewToKnowledge,
   humanReviewSupportBlock,
@@ -1189,6 +1192,32 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // FACT_CHECK_FAILED: sửa exact Article revision trước khi kiểm tra lại.
       if (finPhase === "fact-remediate") {
+        const remediationAttempts = await prisma.workflowTransition.count({
+          where: {
+            articleId,
+            workflowRunId: article.workflowRunId,
+            action: "remediate-fact-check",
+          },
+        });
+        if (remediationAttempts >= MAX_FACT_REMEDIATION_RETRIES) {
+          const stopped = await commitPatch({
+            action: "fact-remediation-exhausted",
+            success: false,
+            articlePatch: {
+              errorMessage:
+                `Fact Check chưa đạt sau ${MAX_FACT_REMEDIATION_RETRIES} lần remediation — ` +
+                "cần editor sửa claim/nguồn hoặc làm lại workflow.",
+            },
+            details: {
+              remediationAttempts,
+              verificationStatus: verificationStatus(article.factCheck),
+            },
+          });
+          return withTimings(stopped, {
+            finalizePhase: "fact-remediation-exhausted",
+          });
+        }
+
         const llmStarted = Date.now();
         const previousDraftRevision = await latestArtifactRevision(
           articleId,

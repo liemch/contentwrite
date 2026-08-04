@@ -137,6 +137,9 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
   if (["PUBLISH_READY", "APPROVED", "PUBLISHED", "RETRACTED"].includes(state)) {
     return "Chờ duyệt / đã xong";
   }
+  if (state === "FACT_CHECK_FAILED") {
+    return "9 · Fact Check — sửa claim theo ledger";
+  }
   if (/REJECTED|REQUIRED|FAILED/.test(state)) {
     const idx = resolveTrackerIndex(article);
     const step = TFES_TRACKER_STEPS[Math.min(idx, TFES_TRACKER_STEPS.length - 1)];
