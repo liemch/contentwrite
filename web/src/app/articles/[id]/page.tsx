@@ -19,7 +19,10 @@ import { resolvePublishFormat, resolveShapeForArticle } from "@/lib/tfes/publish
 import { prepareReaderContent } from "@/lib/publish-content";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
-import { isRevisionRemediationExhausted } from "@/lib/tfes/retry-policy";
+import {
+  isFinalVerificationFormatExhausted,
+  isRevisionRemediationExhausted,
+} from "@/lib/tfes/retry-policy";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import {
   isCleanBodyQualityFail,
@@ -108,6 +111,7 @@ function isWorkflowStopped(article: Article): boolean {
   if (TERMINAL_WORKFLOW_STATES.has(article.workflowState)) return true;
   if (BLOCKING_WORKFLOW_STATES.has(article.workflowState)) return true;
   if (isRevisionRemediationExhausted(article.errorMessage)) return true;
+  if (isFinalVerificationFormatExhausted(article.errorMessage)) return true;
   if (
     article.workflowState === "FACT_CHECK_FAILED" &&
     isFactRemediationExhausted(article.errorMessage)
@@ -356,6 +360,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
 
     if (
+      next.workflowState === "FACT_CHECKED" &&
+      action === "run-step" &&
+      /Final Verification output chưa đúng machine format/i.test(next.errorMessage ?? "")
+    ) {
+      setActionError(next.errorMessage || "Final Verification sai định dạng");
+      pushLog("warn", "→ 9b trả sai format — tự chạy lại Khóa Review, không sửa lại bài...");
+      return { article: next, softContinue: true };
+    }
+
+    if (
       next.workflowState === "FACT_CHECK_FAILED" &&
       action === "run-step" &&
       !isFactRemediationExhausted(next.errorMessage)
@@ -434,8 +448,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                             ? "8 · Chờ người xác nhận Review"
                             : finalizePhase === "revision-remediate"
                               ? "8–9b · Sửa draft theo Review"
-                              : finalizePhase === "fact-remediate"
+                            : finalizePhase === "fact-remediate"
                               ? "9 · Sửa claim theo Fact Check"
+                              : finalizePhase === "final-verify"
+                                ? "9b · Khóa Review"
+                              : finalizePhase === "final-verify-fail"
+                                ? "9b · Khóa Review (cần revision)"
+                              : finalizePhase === "final-verify-format-retry"
+                                ? "9b · Khóa Review (retry format)"
                               : finalizePhase === "fact" || finalizePhase === "a"
                                 ? "9 · Fact Check"
                               : finalizePhase === "publish" || finalizePhase === "b"

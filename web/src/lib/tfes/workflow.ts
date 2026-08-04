@@ -49,7 +49,10 @@ import {
   MAX_FACT_REMEDIATION_RETRIES,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
-import { MAX_REVISION_REMEDIATION_RETRIES } from "@/lib/tfes/retry-policy";
+import {
+  MAX_FINAL_VERIFICATION_FORMAT_RETRIES,
+  MAX_REVISION_REMEDIATION_RETRIES,
+} from "@/lib/tfes/retry-policy";
 import {
   applyHumanReviewToKnowledge,
   humanReviewSupportBlock,
@@ -1389,6 +1392,41 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 2200, temperature: 0.2, reasoningEffort: "low" },
         );
         const result = inspectFinalVerification(finalReview, article.factCheck);
+        if (!result.machineReadable) {
+          const formatAttempts = await prisma.workflowTransition.count({
+            where: {
+              articleId,
+              workflowRunId: article.workflowRunId,
+              action: "final-verification-format-invalid",
+            },
+          });
+          const nextAttempt = formatAttempts + 1;
+          const exhausted = nextAttempt >= MAX_FINAL_VERIFICATION_FORMAT_RETRIES;
+          const updated = await commitPatch({
+            action: "final-verification-format-invalid",
+            success: false,
+            articlePatch: {
+              errorMessage: exhausted
+                ? `Final Verification sai định dạng sau ${MAX_FINAL_VERIFICATION_FORMAT_RETRIES} lần — ` +
+                  result.failureReasons.join(" · ")
+                : `Final Verification output chưa đúng machine format ` +
+                  `(lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
+            },
+            details: { ...result, formatAttempt: nextAttempt },
+            artifact: {
+              type: ArtifactType.REVIEW,
+              content: finalReview,
+              sourceRevision: await latestArtifactRevision(articleId, ArtifactType.FACT_CHECK),
+              sourceArtifactType: ArtifactType.FACT_CHECK,
+            },
+          });
+          return withTimings(updated, {
+            llmMs: Date.now() - llmStarted,
+            finalizePhase: exhausted
+              ? "final-verify-format-exhausted"
+              : "final-verify-format-retry",
+          });
+        }
         const nextState = result.publishReady
           ? WorkflowState.FINAL_REVIEWED
           : (result.totalScore ?? 0) < 80 || (result.insightScore ?? 0) < 22
@@ -1405,7 +1443,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             knowledgeRecord: nextKr,
             errorMessage: result.publishReady
               ? null
-              : "Final Verification chưa đạt — cần revision trước khi tạo bản đăng.",
+              : `Final Verification chưa đạt — ${result.failureReasons.join(" · ")}.`,
           },
           details: { ...result },
           artifact: {

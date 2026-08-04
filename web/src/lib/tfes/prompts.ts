@@ -458,6 +458,8 @@ GATES_G1_G8: <PASSED|FAILED>
 OPEN_REQUIRED_ACTIONS: <số nguyên>
 FINAL_DECISION: <FINAL_REVIEWED|MINOR_REVISION_REQUIRED|MAJOR_REVISION_REQUIRED|REWRITE_REQUIRED>
 
+Năm dòng trên phải là plain text: không bullet, không bold, không backtick, không đặt trong code fence.
+
 ${reviewTpl}`,
 
     "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY — BẢN ĐỌC LIỀN (đăng tin)
