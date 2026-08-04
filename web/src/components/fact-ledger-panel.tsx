@@ -18,7 +18,7 @@ type FactLedgerPanelProps = {
   articleId: string;
   factCheck: string | null;
   deskJson?: string | null;
-  status: string;
+  workflowState: string;
   running: boolean;
   onArticleUpdate: (article: Record<string, unknown>) => void;
   onLog: (level: "info" | "success" | "error" | "warn", message: string) => void;
@@ -28,7 +28,7 @@ export function FactLedgerPanel({
   articleId,
   factCheck,
   deskJson,
-  status,
+  workflowState,
   running,
   onArticleUpdate,
   onLog,
@@ -59,7 +59,7 @@ export function FactLedgerPanel({
     return unresolvedBadClaims(claims, human);
   }, [claims, dispos]);
 
-  const canEdit = status !== "PUBLISHED";
+  const canEdit = !["PUBLISHED", "RETRACTED"].includes(workflowState);
 
   async function save() {
     setBusy(true);

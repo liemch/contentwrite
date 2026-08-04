@@ -1,4 +1,4 @@
-import { ArticleStatus, WorkflowStep } from "@/generated/prisma/client";
+import { WorkflowState } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import {
   computeNextRunAt,
@@ -13,6 +13,10 @@ import { isTopicUsed } from "@/lib/auto-write/topic-dedupe";
 import { runWorkflowStep } from "@/lib/tfes/workflow";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { REVIEW_DONE_MARK } from "@/lib/tfes/parser";
+import {
+  deriveLegacyProjection,
+  isWorkflowTerminal,
+} from "@/lib/tfes/state-machine";
 import {
   nextRotatedDomain,
   resolveDomainId,
@@ -31,13 +35,50 @@ const CONFIG_ID = "default";
 async function countAwaitingHumanReview(): Promise<number> {
   const rows = await prisma.article.findMany({
     where: {
-      status: { in: [ArticleStatus.DRAFT, ArticleStatus.RUNNING] },
       knowledgeRecord: { contains: REVIEW_DONE_MARK },
       OR: [{ factCheck: null }, { factCheck: "" }],
     },
     select: { knowledgeRecord: true, factCheck: true },
   });
   return rows.filter((r) => isAwaitingHumanReview(r)).length;
+}
+
+const AUTO_RUNNABLE_STATES: WorkflowState[] = [
+  WorkflowState.IDEA,
+  WorkflowState.MEMORY_CHECKED,
+  WorkflowState.RESEARCHED,
+  WorkflowState.SYNTHESIZED,
+  WorkflowState.INSIGHT_APPROVED,
+  WorkflowState.DECIDED,
+  WorkflowState.PLANNED,
+  WorkflowState.DRAFTED,
+  WorkflowState.EDITORIAL_REVIEWED,
+  WorkflowState.FACT_CHECKED,
+  WorkflowState.FINAL_REVIEWED,
+  WorkflowState.POLISHED,
+  WorkflowState.READER_SIMULATED,
+  WorkflowState.RESEARCH_REQUIRED,
+  WorkflowState.READER_SIMULATION_FAILED,
+  WorkflowState.CORRECTED,
+];
+
+function isAutoWorkflowDone(article: {
+  workflowState: WorkflowState;
+  errorMessage?: string | null;
+  knowledgeRecord?: string | null;
+  factCheck?: string | null;
+}): boolean {
+  if (isWorkflowTerminal(article.workflowState)) return true;
+  if (isAwaitingHumanReview(article)) return true;
+  if (
+    article.workflowState === WorkflowState.INSIGHT_REJECTED ||
+    article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED ||
+    article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED ||
+    article.workflowState === WorkflowState.REWRITE_REQUIRED ||
+    article.workflowState === WorkflowState.FACT_CHECK_FAILED
+  ) return true;
+  return article.workflowState === WorkflowState.READER_SIMULATION_FAILED &&
+    /chưa đạt sau/i.test(article.errorMessage ?? "");
 }
 
 function isRunnableAutoDraft(article: {
@@ -267,9 +308,7 @@ export async function runFullWorkflowToReview(articleId: string) {
   for (let i = 0; i < 24; i++) {
     const article = await runWorkflowStep(articleId);
     if (
-      article.status === ArticleStatus.PUBLISH_READY ||
-      article.status === ArticleStatus.FAILED ||
-      isAwaitingHumanReview(article)
+      isAutoWorkflowDone(article)
     ) {
       return article;
     }
@@ -308,32 +347,8 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
     };
   }
 
-  // Bài kẹt RUNNING sau 504/timeout → về DRAFT để resume
-  const staleCutoff = new Date(Date.now() - 90_000);
-  await prisma.article.updateMany({
-    where: {
-      status: ArticleStatus.RUNNING,
-      updatedAt: { lt: staleCutoff },
-    },
-    data: {
-      status: ArticleStatus.DRAFT,
-      errorMessage: "Recovered after timeout — chạy lại bước hiện tại",
-    },
-  });
-
-  const running = await prisma.article.count({
-    where: {
-      source: "auto",
-      status: ArticleStatus.RUNNING,
-      updatedAt: { gte: staleCutoff },
-    },
-  });
-  if (running > 0) {
-    return { ran: false, skipped: "Đang có bài auto RUNNING" };
-  }
-
   const pendingReady = await prisma.article.count({
-    where: { status: ArticleStatus.PUBLISH_READY },
+    where: { workflowState: WorkflowState.PUBLISH_READY },
   });
   const pendingHuman = await countAwaitingHumanReview();
   const pending = pendingReady + pendingHuman;
@@ -361,7 +376,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
   const autoDrafts = await prisma.article.findMany({
     where: {
       source: "auto",
-      status: { in: [ArticleStatus.DRAFT, ArticleStatus.RUNNING] },
+      workflowState: { in: AUTO_RUNNABLE_STATES },
     },
     orderBy: { updatedAt: "desc" },
     take: 12,
@@ -395,13 +410,15 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
       return { ran: false, skipped: message, domain };
     }
 
+    const legacy = deriveLegacyProjection(WorkflowState.IDEA);
     article = await prisma.article.create({
       data: {
         topic,
         domain,
         source: "auto",
-        status: ArticleStatus.DRAFT,
-        currentStep: WorkflowStep.RESEARCH,
+        workflowState: WorkflowState.IDEA,
+        status: legacy.status,
+        currentStep: legacy.currentStep,
         targetWordCount: config.defaultTargetWordCount ?? 1200,
         avoidFormats: normalizeAvoidFormatsText(
           config.defaultAvoidFormats ?? "table",
@@ -417,10 +434,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
   try {
     const finished = await runWorkflowStep(article.id);
     const awaitingHuman = isAwaitingHumanReview(finished);
-    const done =
-      finished.status === ArticleStatus.PUBLISH_READY ||
-      finished.status === ArticleStatus.FAILED ||
-      awaitingHuman;
+    const done = isAutoWorkflowDone(finished);
 
     // Chưa xong: hẹn lại sớm hơn để cron/client tiếp tục (Hobby cron 1 lần/ngày thì dùng nút Chạy ngay)
     const nextRunAt = done
@@ -440,24 +454,24 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         lastArticleId: finished.id,
         lastDomain: domain,
         lastError:
-          finished.status === ArticleStatus.FAILED
+          !AUTO_RUNNABLE_STATES.includes(finished.workflowState)
             ? finished.errorMessage ?? "Pipeline FAILED"
             : awaitingHuman
               ? "Chờ người xác nhận Review AI — mở bài trên Biên tập"
               : done
                 ? null
-                : `Đang chạy dở (${finished.currentStep ?? finished.status}) — bấm Chạy ngay hoặc đợi tick tiếp`,
+                : `Đang chạy dở (${finished.workflowState}) — bấm Chạy ngay hoặc đợi tick tiếp`,
       },
     });
 
     return {
       ran: true,
       articleId: finished.id,
-      status: awaitingHuman ? "AWAITING_HUMAN_REVIEW" : finished.status,
+      status: awaitingHuman ? "AWAITING_HUMAN_REVIEW" : finished.workflowState,
       topic,
       domain,
       error:
-        finished.status === ArticleStatus.FAILED
+        !AUTO_RUNNABLE_STATES.includes(finished.workflowState)
           ? finished.errorMessage ?? undefined
           : undefined,
     };
@@ -485,17 +499,10 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
           : message.slice(0, 500),
       },
     });
-    await prisma.article.update({
-      where: { id: article.id },
-      data: {
-        status: isTimeout ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
-        errorMessage: message.slice(0, 500),
-      },
-    });
     return {
       ran: true,
       articleId: article.id,
-      status: isTimeout ? "DRAFT" : "FAILED",
+      status: article.workflowState,
       topic,
       domain,
       error: message,

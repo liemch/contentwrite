@@ -87,6 +87,28 @@ type CallActionResult = {
   softContinue?: boolean;
 };
 
+const TERMINAL_WORKFLOW_STATES = new Set([
+  "PUBLISH_READY",
+  "APPROVED",
+  "PUBLISHED",
+  "CORRECTION_REQUIRED",
+  "RETRACTED",
+]);
+const BLOCKING_WORKFLOW_STATES = new Set([
+  "INSIGHT_REJECTED",
+  "MINOR_REVISION_REQUIRED",
+  "MAJOR_REVISION_REQUIRED",
+  "REWRITE_REQUIRED",
+  "FACT_CHECK_FAILED",
+]);
+
+function isWorkflowStopped(article: Article): boolean {
+  if (TERMINAL_WORKFLOW_STATES.has(article.workflowState)) return true;
+  if (BLOCKING_WORKFLOW_STATES.has(article.workflowState)) return true;
+  return article.workflowState === "READER_SIMULATION_FAILED" &&
+    /chưa đạt sau/i.test(article.errorMessage ?? "");
+}
+
 function tabForArticle(a: Article): string {
   const clean = (a.cleanPublish ?? "").trim();
   const draft = stripPipelineMarks(a.draft12);
@@ -221,7 +243,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       // Mạng đứt tạm — full pipeline có thể thử lại
       if (action === "run-step" && /fetch|network|Failed to fetch|aborted/i.test(msg)) {
         const refreshed = await load();
-        if (refreshed && refreshed.status === "DRAFT") {
+        if (refreshed && !isWorkflowStopped(refreshed)) {
           pushLog("warn", "⚠ Mất kết nối tạm — sẽ tự thử lại bước...");
           return { article: refreshed, softContinue: true };
         }
@@ -264,7 +286,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       if (
         action === "run-step" &&
         refreshed &&
-        (refreshed.status === "DRAFT" || refreshed.status === "RUNNING") &&
+        !isWorkflowStopped(refreshed) &&
         (isTimeoutLike(msg, res.status) || softQuality)
       ) {
         const isCleanOnly = isCleanBodyQualityFail(msg);
@@ -292,7 +314,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     const next = data.article;
     setArticle(next);
 
-    if (next.status === "FAILED") {
+    if (BLOCKING_WORKFLOW_STATES.has(next.workflowState)) {
       const msg = next.errorMessage || "Chu trình lỗi";
       setActionError(msg);
       pushLog("error", `✗ Lỗi · ${msg} (${elapsedSec}s)`);
@@ -325,7 +347,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       setTab(tabForArticle(next));
       // Self-check / quality: giữ DRAFT — full pipeline thử lại cùng bước
       if (
-        next.status === "DRAFT" &&
+        !isWorkflowStopped(next) &&
         (isCleanPublishQualityFail(next.errorMessage) ||
           isWritePhaseQualityFail(next.errorMessage))
       ) {
@@ -333,6 +355,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         return { article: next, softContinue: true };
       }
       return { article: next };
+    }
+
+    if (
+      next.workflowState === "READER_SIMULATION_FAILED" &&
+      !/chưa đạt sau/i.test(next.errorMessage ?? "")
+    ) {
+      pushLog("warn", "⚠ Reader Simulation chưa đạt — tự chuyển về Polish để sửa...");
+      return { article: next, softContinue: true };
     }
 
     if (action === "run-step") {
@@ -364,7 +394,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                             : finalizePhase === "fact" || finalizePhase === "a"
                               ? "9 · Fact Check"
                               : finalizePhase === "publish" || finalizePhase === "b"
-                                ? next.status === "PUBLISH_READY"
+                                ? next.workflowState === "PUBLISH_READY"
                                   ? "10 · Publish Ready"
                                   : "10 · Bản sạch (chờ polish)"
                                 : finalizePhase === "polish"
@@ -391,7 +421,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       } else if (data.timings?.llmMs != null) {
         pushLog("info", `·· NVIDIA · ${Math.round((data.timings.llmMs || 0) / 1000)}s`);
       }
-      if (next.status === "PUBLISH_READY") {
+      if (next.workflowState === "PUBLISH_READY") {
         pushLog("success", `✓ Xong ${finished} → Chờ duyệt (PUBLISH_READY) · ${elapsedSec}s`);
       } else if (finalizePhase === "review" || isAwaitingHumanReview(next)) {
         pushLog(
@@ -407,8 +437,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         writePhase === "a" ||
         finalizePhase === "fact" ||
         finalizePhase === "a" ||
-        (finalizePhase === "publish" && next.status === "DRAFT") ||
-        (finalizePhase === "polish" && next.status === "DRAFT") ||
+        finalizePhase === "publish" ||
+        finalizePhase === "polish" ||
         finalizePhase === "await-reader-sim"
       ) {
         pushLog("success", `✓ Xong ${finished} · còn phase tiếp · ${elapsedSec}s`);
@@ -447,10 +477,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     while (
       safety < MAX_STEPS &&
-      current.status !== "PUBLISH_READY" &&
-      current.status !== "FAILED" &&
-      current.status !== "PUBLISHED" &&
-      current.status !== "APPROVED"
+      !isWorkflowStopped(current)
     ) {
       if (isAwaitingHumanReview(current)) {
         pushLog(
@@ -501,13 +528,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         continue;
       }
 
-      if (current.status === "FAILED" || current.status === "PUBLISH_READY") break;
+      if (isWorkflowStopped(current)) break;
       if (current.errorMessage) break;
     }
 
-    if (current.status === "PUBLISH_READY") {
+    if (current.workflowState === "PUBLISH_READY") {
       pushLog("success", "✓ Chu trình xong — xem Bản sạch / Bản nháp 12 phần");
-    } else if (current.status === "FAILED") {
+    } else if (BLOCKING_WORKFLOW_STATES.has(current.workflowState)) {
       pushLog(
         "error",
         current.currentStep === "INSIGHT" ||
@@ -520,7 +547,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       /Gate < L2|nghiên cứu lại/i.test(current.errorMessage)
     ) {
       pushLog("warn", `⚠ ${current.errorMessage} — bấm tiếp để Research lại`);
-    } else if (softRetries > 0 && current.status === "DRAFT") {
+    } else if (softRetries > 0 && !isWorkflowStopped(current)) {
       pushLog(
         "warn",
         `⚠ Dừng giữa chừng sau ${softRetries} lần soft-retry — bấm “Cả chu trình” để tiếp tục`,
@@ -605,7 +632,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const microLabel = resolveMicroStepLabel(article);
   const awaitingHuman = isAwaitingHumanReview(article);
   const isReviewMode =
-    article.status === "PUBLISH_READY" || article.status === "APPROVED";
+    article.workflowState === "PUBLISH_READY" || article.workflowState === "APPROVED";
 
   return (
     <AppShell
@@ -625,7 +652,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={article.status} />
           <DomainBadge domain={article.domain} />
-          {(article.status === "PUBLISHED" || article.status === "APPROVED") && (
+          {article.workflowState === "PUBLISHED" && (
             <Link
               href={`/library/${article.id}`}
               className="rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
@@ -706,7 +733,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         <Button
           size="sm"
           busy={running}
-          disabled={running || article.status === "PUBLISHED" || isReviewMode || awaitingHuman}
+          disabled={running || TERMINAL_WORKFLOW_STATES.has(article.workflowState) || isReviewMode || awaitingHuman}
           onClick={() => callAction("run-step")}
         >
           {running ? "Đang chạy..." : "Chạy bước tiếp"}
@@ -715,7 +742,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           variant="secondary"
           size="sm"
           busy={running}
-          disabled={running || article.status === "PUBLISHED" || isReviewMode || awaitingHuman}
+          disabled={running || TERMINAL_WORKFLOW_STATES.has(article.workflowState) || isReviewMode || awaitingHuman}
           onClick={runFullPipeline}
           title="Timeout/self-check sẽ tự retry đến PUBLISH_READY (giữ tab mở)"
         >
@@ -730,7 +757,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         >
           Làm lại từ đầu
         </Button>
-        {article.status !== "PUBLISHED" && (
+        {article.workflowState !== "PUBLISHED" && article.workflowState !== "RETRACTED" && (
           <Button
             variant="danger"
             size="sm"
@@ -833,7 +860,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         />
       )}
 
-      {(article.status === "PUBLISH_READY" || article.status === "APPROVED") && (
+      {(article.workflowState === "PUBLISH_READY" || article.workflowState === "APPROVED") && (
         <ApproveGate
           status={article.status}
           hasHero={Boolean(article.heroImageUrl)}
@@ -927,7 +954,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               articleId={article.id}
               factCheck={article.factCheck}
               deskJson={article.deskJson}
-              status={article.status}
+              workflowState={article.workflowState}
               running={running}
               onArticleUpdate={(next) => setArticle(next as Article)}
               onLog={(level, message) => pushLog(level, message)}
@@ -937,7 +964,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               <CleanEditPanel
                 articleId={article.id}
                 cleanPublish={article.cleanPublish}
-                status={article.status}
+                workflowState={article.workflowState}
                 running={running}
                 onArticleUpdate={(next) => setArticle(next as Article)}
                 onLog={(level, message) => pushLog(level, message)}
@@ -968,7 +995,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               <p className="mt-1 max-w-sm text-xs text-[var(--ink-faint)]">
                 Chạy chu trình để sinh {activeTab?.label.toLowerCase()}.
               </p>
-              {article.status !== "PUBLISHED" && (
+              {!TERMINAL_WORKFLOW_STATES.has(article.workflowState) && (
                 <Button size="sm" className="mt-4" disabled={running} onClick={() => callAction("run-step")}>
                   Chạy bước tiếp theo
                 </Button>

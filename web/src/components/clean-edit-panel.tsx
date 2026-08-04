@@ -8,7 +8,7 @@ import { stripPipelineMarks } from "@/lib/tfes/parser";
 type CleanEditPanelProps = {
   articleId: string;
   cleanPublish: string | null;
-  status: string;
+  workflowState: string;
   running: boolean;
   onArticleUpdate: (article: Record<string, unknown>) => void;
   onLog: (level: "info" | "success" | "error" | "warn", message: string) => void;
@@ -17,7 +17,7 @@ type CleanEditPanelProps = {
 export function CleanEditPanel({
   articleId,
   cleanPublish,
-  status,
+  workflowState,
   running,
   onArticleUpdate,
   onLog,
@@ -27,7 +27,8 @@ export function CleanEditPanel({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const canEdit = status !== "PUBLISHED" && Boolean((cleanPublish ?? "").trim());
+  const canEdit = !["PUBLISHED", "RETRACTED"].includes(workflowState) &&
+    Boolean((cleanPublish ?? "").trim());
 
   useEffect(() => {
     if (!editing) {

@@ -33,7 +33,7 @@ export type TfesTrackerId = (typeof TFES_TRACKER_STEPS)[number]["id"];
 
 type ArticleLike = {
   status?: string | null;
-  currentStep?: string | null;
+  workflowState?: string | null;
   researchBrief?: string | null;
   insightGate?: string | null;
   draft12?: string | null;
@@ -48,17 +48,17 @@ const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";
  * Sàn tiến độ theo currentStep trên DB.
  * Tránh UI kẹt bước Memory khi artifact (brief) trống/lệch nhưng bước đã sang INSIGHT/WRITE/FINALIZE.
  */
-function floorFromCurrentStep(currentStep: string | null | undefined): number {
-  switch (currentStep) {
-    case "INSIGHT":
-      return 4;
-    case "WRITE":
-      return 7;
-    case "FINALIZE":
-      return 8;
-    default:
-      return 0;
+function floorFromWorkflowState(state: string | null | undefined): number {
+  if (["PUBLISH_READY", "APPROVED", "PUBLISHED", "RETRACTED"].includes(state ?? "")) {
+    return TFES_TRACKER_STEPS.length;
   }
+  if (["DRAFTED", "EDITORIAL_REVIEWED", "FACT_CHECKED", "FINAL_REVIEWED", "POLISHED", "READER_SIMULATED", "MINOR_REVISION_REQUIRED", "MAJOR_REVISION_REQUIRED", "FACT_CHECK_FAILED", "READER_SIMULATION_FAILED", "CORRECTED"].includes(state ?? "")) return 8;
+  if (state === "PLANNED" || state === "REWRITE_REQUIRED") return 7;
+  if (state === "DECIDED") return 6;
+  if (state === "INSIGHT_APPROVED") return 5;
+  if (["SYNTHESIZED", "INSIGHT_REJECTED"].includes(state ?? "")) return 4;
+  if (state === "RESEARCHED") return 2;
+  return 1;
 }
 
 function finalizeArtifactsIndex(article: {
@@ -92,14 +92,14 @@ function finalizeArtifactsIndex(article: {
  * Artifact-first, rồi max với currentStep floor — không tụt lùi về bước 1 oan.
  */
 export function resolveTrackerIndex(article: ArticleLike): number {
-  const status = article.status ?? "";
-  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") {
+  const state = article.workflowState ?? "IDEA";
+  if (["PUBLISH_READY", "APPROVED", "PUBLISHED", "RETRACTED"].includes(state)) {
     return TFES_TRACKER_STEPS.length;
   }
 
   const brief = article.researchBrief ?? "";
   const insight = article.insightGate ?? "";
-  const floor = floorFromCurrentStep(article.currentStep);
+  const floor = floorFromWorkflowState(state);
 
   let byArtifacts: number;
 
@@ -115,11 +115,11 @@ export function resolveTrackerIndex(article: ArticleLike): number {
   } else if (insight.includes(INSIGHT_DECISION_MARK)) {
     byArtifacts = 6; // Planning
   } else if (insight.includes(INSIGHT_GATE_MARK)) {
-    byArtifacts = status === "FAILED" ? 4 : 5; // Decision
+    byArtifacts = state === "INSIGHT_REJECTED" ? 4 : 5; // Decision
   } else if (gateRetryCount(insight) > 0) {
     byArtifacts = 4;
   } else {
-    byArtifacts = status === "FAILED" ? 4 : 5;
+    byArtifacts = state === "INSIGHT_REJECTED" ? 4 : 5;
   }
 
   // Draft đã xong nhưng insight mark lệch — vẫn đẩy Finalize
@@ -133,11 +133,11 @@ export function resolveTrackerIndex(article: ArticleLike): number {
 
 /** Nhãn micro-step cho subtitle / CTA (tiếng Việt) */
 export function resolveMicroStepLabel(article: ArticleLike): string {
-  const status = article.status ?? "";
-  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") {
+  const state = article.workflowState ?? "IDEA";
+  if (["PUBLISH_READY", "APPROVED", "PUBLISHED", "RETRACTED"].includes(state)) {
     return "Chờ duyệt / đã xong";
   }
-  if (status === "FAILED") {
+  if (/REJECTED|REQUIRED|FAILED/.test(state)) {
     const idx = resolveTrackerIndex(article);
     const step = TFES_TRACKER_STEPS[Math.min(idx, TFES_TRACKER_STEPS.length - 1)];
     return `Lỗi tại: ${step.label}`;
@@ -169,7 +169,7 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
   return `${step.label}${retryNote}`;
 }
 
-export function isTrackerStepDone(index: number, activeIndex: number, status: string): boolean {
-  if (status === "PUBLISH_READY" || status === "APPROVED" || status === "PUBLISHED") return true;
+export function isTrackerStepDone(index: number, activeIndex: number, workflowState: string): boolean {
+  if (["PUBLISH_READY", "APPROVED", "PUBLISHED", "RETRACTED"].includes(workflowState)) return true;
   return index < activeIndex;
 }

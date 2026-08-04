@@ -35,6 +35,7 @@ export async function listSeries(domain?: string | null) {
           title: true,
           topic: true,
           status: true,
+          workflowState: true,
           seriesOrder: true,
           publishFormat: true,
           publishedAt: true,

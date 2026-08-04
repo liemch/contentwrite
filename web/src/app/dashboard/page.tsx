@@ -13,6 +13,7 @@ import { BRAND } from "@/lib/brand";
 import { getDeskMetrics } from "@/lib/tfes/editorial-memory";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { prisma } from "@/lib/db";
+import { WorkflowState } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function DashboardPage() {
         domain: true,
         status: true,
         currentStep: true,
+        workflowState: true,
         updatedAt: true,
         publishedAt: true,
         cleanPublish: true,
@@ -46,15 +48,22 @@ export default async function DashboardPage() {
     getDeskMetrics(isAdmin(session) ? {} : { createdById: session.userId }),
   ]);
 
-  const queue = articles.filter((a) => ["DRAFT", "RUNNING", "FAILED"].includes(a.status));
-  const review = articles.filter((a) => a.status === "PUBLISH_READY");
+  const stoppedStates = new Set<WorkflowState>([
+    WorkflowState.PUBLISH_READY,
+    WorkflowState.APPROVED,
+    WorkflowState.PUBLISHED,
+    WorkflowState.CORRECTION_REQUIRED,
+    WorkflowState.RETRACTED,
+  ]);
+  const queue = articles.filter((a) => !stoppedStates.has(a.workflowState));
+  const review = articles.filter((a) => a.workflowState === WorkflowState.PUBLISH_READY);
   const awaitingHuman = articles.filter((a) =>
     isAwaitingHumanReview({
       knowledgeRecord: a.knowledgeRecord,
       factCheck: a.factCheck,
     }),
   ).length;
-  const publishedCount = articles.filter((a) => a.status === "PUBLISHED").length;
+  const publishedCount = articles.filter((a) => a.workflowState === WorkflowState.PUBLISHED).length;
   const admin = isAdmin(session);
   const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
   const greetingName = session.name?.trim() || session.email?.split("@")[0] || "biên tập viên";
@@ -106,7 +115,7 @@ export default async function DashboardPage() {
             value: queue.length,
             hint: "Draft · Running · Failed",
             href: null as string | null,
-            tone: queue.some((a) => a.status === "FAILED") ? ("warm" as const) : undefined,
+            tone: queue.some((a) => a.errorMessage) ? ("warm" as const) : undefined,
           },
           {
             label: "Chờ Review người",

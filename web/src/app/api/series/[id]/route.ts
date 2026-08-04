@@ -18,6 +18,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
             title: true,
             topic: true,
             status: true,
+            workflowState: true,
             domain: true,
             publishFormat: true,
             seriesOrder: true,

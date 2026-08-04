@@ -1,4 +1,4 @@
-import { ArticleStatus } from "@/generated/prisma/client";
+import { WorkflowState } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { domainProfilePath } from "@/lib/tfes/domains";
 import { getTfesDocument, saveTfesDocument } from "@/lib/tfes/tfes-docs";
@@ -59,7 +59,7 @@ export async function getRelatedAngles(input: {
     prisma.article.findMany({
       where: {
         domain: input.domain,
-        status: ArticleStatus.PUBLISHED,
+        workflowState: WorkflowState.PUBLISHED,
       },
       orderBy: { publishedAt: "desc" },
       take: 24,
@@ -148,6 +148,7 @@ export async function getDeskMetrics(whereArticles: {
     select: {
       id: true,
       status: true,
+      workflowState: true,
       knowledgeRecord: true,
       factCheck: true,
     },
@@ -163,11 +164,16 @@ export async function getDeskMetrics(whereArticles: {
     orderBy: { publishedAt: "desc" },
   });
 
-  const queue = articles.filter((a) =>
-    ["DRAFT", "RUNNING", "FAILED"].includes(a.status),
-  ).length;
-  const publishReady = articles.filter((a) => a.status === "PUBLISH_READY").length;
-  const published = articles.filter((a) => a.status === "PUBLISHED").length;
+  const stoppedStates = new Set<WorkflowState>([
+    WorkflowState.PUBLISH_READY,
+    WorkflowState.APPROVED,
+    WorkflowState.PUBLISHED,
+    WorkflowState.CORRECTION_REQUIRED,
+    WorkflowState.RETRACTED,
+  ]);
+  const queue = articles.filter((a) => !stoppedStates.has(a.workflowState)).length;
+  const publishReady = articles.filter((a) => a.workflowState === WorkflowState.PUBLISH_READY).length;
+  const published = articles.filter((a) => a.workflowState === WorkflowState.PUBLISHED).length;
   const awaitingHumanReview = articles.filter((a) =>
     isAwaitingHumanReview({
       knowledgeRecord: a.knowledgeRecord,

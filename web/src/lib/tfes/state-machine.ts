@@ -2,6 +2,7 @@ import {
   ArticleStatus,
   ArtifactType,
   WorkflowState,
+  WorkflowStep,
   Prisma,
   type Article,
 } from "@/generated/prisma/client";
@@ -43,6 +44,64 @@ export function assertTransitionAllowed(from: WorkflowState, to: WorkflowState):
   }
 }
 
+export function deriveLegacyProjection(state: WorkflowState): {
+  status: ArticleStatus;
+  currentStep: WorkflowStep | null;
+} {
+  if (state === WorkflowState.PUBLISH_READY) {
+    return { status: ArticleStatus.PUBLISH_READY, currentStep: null };
+  }
+  if (state === WorkflowState.APPROVED) {
+    return { status: ArticleStatus.APPROVED, currentStep: null };
+  }
+  if (
+    state === WorkflowState.PUBLISHED ||
+    state === WorkflowState.CORRECTION_REQUIRED ||
+    state === WorkflowState.RETRACTED
+  ) {
+    return { status: ArticleStatus.PUBLISHED, currentStep: null };
+  }
+
+  const failed = new Set<WorkflowState>([
+    WorkflowState.INSIGHT_REJECTED,
+    WorkflowState.MINOR_REVISION_REQUIRED,
+    WorkflowState.MAJOR_REVISION_REQUIRED,
+    WorkflowState.REWRITE_REQUIRED,
+    WorkflowState.FACT_CHECK_FAILED,
+    WorkflowState.READER_SIMULATION_FAILED,
+  ]).has(state);
+  const status = failed ? ArticleStatus.FAILED : ArticleStatus.DRAFT;
+
+  if (
+    state === WorkflowState.IDEA ||
+    state === WorkflowState.MEMORY_CHECKED ||
+    state === WorkflowState.RESEARCHED ||
+    state === WorkflowState.RESEARCH_REQUIRED
+  ) {
+    return { status, currentStep: WorkflowStep.RESEARCH };
+  }
+  if (
+    state === WorkflowState.SYNTHESIZED ||
+    state === WorkflowState.INSIGHT_APPROVED ||
+    state === WorkflowState.INSIGHT_REJECTED ||
+    state === WorkflowState.DECIDED
+  ) {
+    return { status, currentStep: WorkflowStep.INSIGHT };
+  }
+  if (state === WorkflowState.PLANNED) {
+    return { status, currentStep: WorkflowStep.WRITE };
+  }
+  return { status, currentStep: WorkflowStep.FINALIZE };
+}
+
+export function isWorkflowTerminal(state: WorkflowState): boolean {
+  return state === WorkflowState.PUBLISH_READY ||
+    state === WorkflowState.APPROVED ||
+    state === WorkflowState.PUBLISHED ||
+    state === WorkflowState.CORRECTION_REQUIRED ||
+    state === WorkflowState.RETRACTED;
+}
+
 export type ArtifactInput = {
   type: ArtifactType;
   content: string;
@@ -51,6 +110,11 @@ export type ArtifactInput = {
   domainProfileVersion?: string | null;
   metadata?: Prisma.InputJsonValue;
 };
+
+export type ArticleWorkflowPatch = Omit<
+  Prisma.ArticleUncheckedUpdateManyInput,
+  "status" | "currentStep" | "workflowState" | "workflowVersion" | "workflowRunId"
+>;
 
 function transitionArtifact(
   to: WorkflowState,
@@ -83,10 +147,45 @@ export async function transitionArticle(input: {
   success?: boolean;
   details?: Prisma.InputJsonValue;
   artifact?: ArtifactInput;
+  articlePatch?: ArticleWorkflowPatch;
+  expectedState?: WorkflowState;
+  expectedVersion?: number;
 }): Promise<Article> {
   return prisma.$transaction(async (tx) => {
     const article = await tx.article.findUniqueOrThrow({ where: { id: input.articleId } });
+    if (input.expectedState && article.workflowState !== input.expectedState) {
+      throw new Error(
+        `Workflow conflict: expected ${input.expectedState}, got ${article.workflowState}`,
+      );
+    }
+    if (
+      input.expectedVersion !== undefined &&
+      article.workflowVersion !== input.expectedVersion
+    ) {
+      throw new Error(
+        `Workflow conflict: expected version ${input.expectedVersion}, got ${article.workflowVersion}`,
+      );
+    }
     assertTransitionAllowed(article.workflowState, input.to);
+
+    const legacy = deriveLegacyProjection(input.to);
+    const claimed = await tx.article.updateMany({
+      where: {
+        id: article.id,
+        workflowState: article.workflowState,
+        workflowVersion: article.workflowVersion,
+      },
+      data: {
+        ...input.articlePatch,
+        workflowState: input.to,
+        workflowVersion: { increment: 1 },
+        status: legacy.status,
+        currentStep: legacy.currentStep,
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new Error("Workflow conflict: article đã được worker khác cập nhật");
+    }
 
     const artifact =
       input.artifact ?? transitionArtifact(input.to, input.action, input.details);
@@ -128,10 +227,70 @@ export async function transitionArticle(input: {
       },
     });
 
-    return tx.article.update({
-      where: { id: article.id },
-      data: { workflowState: input.to },
+    return tx.article.findUniqueOrThrow({ where: { id: article.id } });
+  });
+}
+
+/** Atomic same-state mutation for partial phases that do not advance the canonical state. */
+export async function patchWorkflowArticle(input: {
+  articleId: string;
+  action: string;
+  articlePatch: ArticleWorkflowPatch;
+  actorId?: string | null;
+  details?: Prisma.InputJsonValue;
+  artifact?: ArtifactInput;
+  expectedState?: WorkflowState;
+  expectedVersion?: number;
+  success?: boolean;
+}): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: input.articleId } });
+  return transitionArticle({
+    ...input,
+    to: article.workflowState,
+    expectedState: input.expectedState ?? article.workflowState,
+    expectedVersion: input.expectedVersion ?? article.workflowVersion,
+  });
+}
+
+export async function resetWorkflowArticle(input: {
+  articleId: string;
+  articlePatch: ArticleWorkflowPatch;
+  actorId?: string | null;
+}): Promise<Article> {
+  return prisma.$transaction(async (tx) => {
+    const article = await tx.article.findUniqueOrThrow({ where: { id: input.articleId } });
+    const nextRunId = crypto.randomUUID();
+    const legacy = deriveLegacyProjection(WorkflowState.IDEA);
+    const updated = await tx.article.updateMany({
+      where: {
+        id: article.id,
+        workflowState: article.workflowState,
+        workflowVersion: article.workflowVersion,
+      },
+      data: {
+        ...input.articlePatch,
+        workflowState: WorkflowState.IDEA,
+        workflowRunId: nextRunId,
+        workflowVersion: { increment: 1 },
+        status: legacy.status,
+        currentStep: legacy.currentStep,
+      },
     });
+    if (updated.count !== 1) {
+      throw new Error("Workflow conflict: không thể reset vì article vừa được cập nhật");
+    }
+    await tx.workflowTransition.create({
+      data: {
+        articleId: article.id,
+        workflowRunId: article.workflowRunId,
+        fromState: article.workflowState,
+        toState: WorkflowState.IDEA,
+        action: "reset-workflow",
+        actorId: input.actorId,
+        details: { nextWorkflowRunId: nextRunId },
+      },
+    });
+    return tx.article.findUniqueOrThrow({ where: { id: article.id } });
   });
 }
 
@@ -168,8 +327,19 @@ export async function bootstrapLegacyWorkflowState(articleId: string): Promise<v
   else if ((article.researchBrief ?? "").trim()) inferred = WorkflowState.SYNTHESIZED;
 
   if (inferred === WorkflowState.IDEA) return;
-  await prisma.$transaction([
-    prisma.workflowTransition.create({
+  const legacy = deriveLegacyProjection(inferred);
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.article.updateMany({
+      where: { id: articleId, workflowState: WorkflowState.IDEA, workflowVersion: article.workflowVersion },
+      data: {
+        workflowState: inferred,
+        workflowVersion: { increment: 1 },
+        status: legacy.status,
+        currentStep: legacy.currentStep,
+      },
+    });
+    if (updated.count !== 1) return;
+    await tx.workflowTransition.create({
       data: {
         articleId,
         workflowRunId: article.workflowRunId,
@@ -178,7 +348,6 @@ export async function bootstrapLegacyWorkflowState(articleId: string): Promise<v
         action: "legacy-v1.6-backfill",
         details: { compatibilityBackfill: true },
       },
-    }),
-    prisma.article.update({ where: { id: articleId }, data: { workflowState: inferred } }),
-  ]);
+    });
+  });
 }

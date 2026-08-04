@@ -7,6 +7,7 @@ import { DomainBadge, StatusBadge } from "@/components/status-badge";
 import { readingMinutes } from "@/lib/excerpt";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { prisma } from "@/lib/db";
+import { WorkflowState } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export default async function LibraryArticlePage({
   const { id } = await params;
   const article = await prisma.article.findUnique({ where: { id } });
 
-  if (!article || article.status !== "PUBLISHED") {
+  if (!article || article.workflowState !== WorkflowState.PUBLISHED) {
     notFound();
   }
 

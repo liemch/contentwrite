@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { resolveDomainId } from "@/lib/tfes/domains";
 import { isPublishFormatId, resolvePublishFormat } from "@/lib/tfes/publish-formats";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
+import { WorkflowState } from "@/generated/prisma/client";
+import { deriveLegacyProjection } from "@/lib/tfes/state-machine";
 import {
   DEFAULT_AVOID_FORMATS,
   DEFAULT_TARGET_WORD_COUNT,
@@ -26,6 +28,8 @@ export async function GET() {
         domain: true,
         status: true,
         currentStep: true,
+        workflowState: true,
+        workflowVersion: true,
         publishFormat: true,
         seriesId: true,
         seriesOrder: true,
@@ -113,6 +117,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const legacy = deriveLegacyProjection(WorkflowState.IDEA);
     const article = await prisma.article.create({
       data: {
         topic,
@@ -124,6 +129,9 @@ export async function POST(request: NextRequest) {
         avoidFormats: prefs.avoidFormatsText || DEFAULT_AVOID_FORMATS,
         seriesId,
         seriesOrder,
+        workflowState: WorkflowState.IDEA,
+        status: legacy.status,
+        currentStep: legacy.currentStep,
       },
     });
 

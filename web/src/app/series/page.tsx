@@ -20,6 +20,7 @@ type SeriesRow = {
     title: string | null;
     topic: string | null;
     status: string;
+    workflowState: string;
     seriesOrder: number | null;
   }>;
 };
@@ -150,7 +151,7 @@ export default function SeriesPage() {
                         </span>
                         <Link
                           href={
-                            a.status === "PUBLISHED"
+                            a.workflowState === "PUBLISHED"
                               ? `/library/${a.id}`
                               : `/articles/${a.id}`
                           }

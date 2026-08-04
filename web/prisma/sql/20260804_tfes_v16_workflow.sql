@@ -17,6 +17,7 @@ CREATE TYPE "ArtifactType" AS ENUM (
 ALTER TABLE "Article"
   ADD COLUMN "workflowState" "WorkflowState" NOT NULL DEFAULT 'IDEA',
   ADD COLUMN "workflowRunId" TEXT NOT NULL DEFAULT (gen_random_uuid())::text,
+  ADD COLUMN "workflowVersion" INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN "approvedById" TEXT;
 
 ALTER TABLE "Article"

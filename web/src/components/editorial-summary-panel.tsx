@@ -11,6 +11,7 @@ import { extractEditorialReview, READER_SIM_DONE_MARK } from "@/lib/tfes/parser"
 type EditorialSummaryPanelProps = {
   article: {
     status: string;
+    workflowState: string;
     knowledgeRecord?: string | null;
     factCheck?: string | null;
     reviewerNotes?: string | null;
@@ -40,11 +41,11 @@ export function EditorialSummaryPanel({ article }: EditorialSummaryPanelProps) {
 
   const stageLabel = awaiting
     ? "Đang chờ anh chốt Review"
-    : article.status === "PUBLISHED"
+    : article.workflowState === "PUBLISHED"
       ? "Đã publish"
-      : article.status === "APPROVED"
+      : article.workflowState === "APPROVED"
         ? "Đã duyệt — chờ Publish"
-        : article.status === "PUBLISH_READY"
+        : article.workflowState === "PUBLISH_READY"
           ? "Publish Ready — mở Cổng duyệt"
           : factPreview
             ? "Đã qua Review người · đang / đã Fact-check"
@@ -122,10 +123,10 @@ export function EditorialSummaryPanel({ article }: EditorialSummaryPanelProps) {
       <section className="flex flex-wrap gap-2 text-[11px]">
         <Chip ok={hasReaderSim} label="Reader Sim" />
         <Chip
-          ok={article.status === "APPROVED" || article.status === "PUBLISHED"}
+          ok={["APPROVED", "PUBLISHED"].includes(article.workflowState)}
           label="Approve"
         />
-        <Chip ok={article.status === "PUBLISHED"} label="Published" />
+        <Chip ok={article.workflowState === "PUBLISHED"} label="Published" />
       </section>
     </div>
   );

@@ -18,6 +18,7 @@ type SeriesDetail = {
     title: string | null;
     topic: string | null;
     status: string;
+    workflowState: string;
     domain: string;
     publishFormat: string;
     seriesOrder: number | null;
@@ -105,7 +106,7 @@ export default function SeriesDetailPage() {
                 <div className="min-w-0 flex-1">
                   <Link
                     href={
-                      a.status === "PUBLISHED" ? `/library/${a.id}` : `/articles/${a.id}`
+                      a.workflowState === "PUBLISHED" ? `/library/${a.id}` : `/articles/${a.id}`
                     }
                     className="font-medium text-[var(--ink)] hover:text-[var(--accent)]"
                   >

@@ -101,6 +101,8 @@ model Article {
   /// Backend source of truth for AI-TFES v1.6.
   workflowState   WorkflowState  @default(IDEA)
   workflowRunId   String         @default(uuid())
+  /// Optimistic concurrency token; every workflow mutation increments it.
+  workflowVersion Int            @default(0)
   errorMessage    String?
 
   researchBrief   String?        @db.Text

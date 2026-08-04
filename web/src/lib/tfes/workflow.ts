@@ -1,5 +1,4 @@
 import {
-  ArticleStatus,
   ArtifactType,
   WorkflowState,
   WorkflowStep,
@@ -34,7 +33,11 @@ import {
 } from "@/lib/tfes/parser";
 import {
   bootstrapLegacyWorkflowState,
+  deriveLegacyProjection,
+  isWorkflowTerminal,
   latestArtifactRevision,
+  patchWorkflowArticle,
+  resetWorkflowArticle,
   transitionArticle,
 } from "@/lib/tfes/state-machine";
 import {
@@ -463,16 +466,47 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     throw new Error("Không tìm thấy bài viết");
   }
 
-  if (article.status === ArticleStatus.PUBLISHED) {
-    throw new Error(`Bài đã đăng, không thể chạy lại chu trình`);
+  let cursor = {
+    state: article.workflowState,
+    version: article.workflowVersion,
+  };
+  const commitTransition = async (
+    input: Omit<
+      Parameters<typeof transitionArticle>[0],
+      "articleId" | "expectedState" | "expectedVersion"
+    >,
+  ) => {
+    const next = await transitionArticle({
+      ...input,
+      articleId,
+      expectedState: cursor.state,
+      expectedVersion: cursor.version,
+    });
+    cursor = { state: next.workflowState, version: next.workflowVersion };
+    return next;
+  };
+  const commitPatch = async (
+    input: Omit<
+      Parameters<typeof patchWorkflowArticle>[0],
+      "articleId" | "expectedState" | "expectedVersion"
+    >,
+  ) => {
+    const next = await patchWorkflowArticle({
+      ...input,
+      articleId,
+      expectedState: cursor.state,
+      expectedVersion: cursor.version,
+    });
+    cursor = { state: next.workflowState, version: next.workflowVersion };
+    return next;
+  };
+
+  if (isWorkflowTerminal(article.workflowState)) {
+    throw new Error(`Workflow ${article.workflowState} không thể chạy pipeline`);
   }
 
-  const step = article.currentStep ?? WorkflowStep.RESEARCH;
-
-  await prisma.article.update({
-    where: { id: articleId },
-    data: { status: ArticleStatus.RUNNING, errorMessage: null },
-  });
+  const step =
+    deriveLegacyProjection(article.workflowState).currentStep ?? WorkflowStep.RESEARCH;
 
   try {
     let topic = article.topic?.trim() || "";
@@ -487,9 +521,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         seedTopicsEngineering: config.seedTopicsEngineering,
         seedTopicsSoftSkills: config.seedTopicsSoftSkills,
       });
-      article = await prisma.article.update({
-        where: { id: articleId },
-        data: { topic },
+      article = await commitPatch({
+        action: "select-topic",
+        articlePatch: { topic, errorMessage: null },
       });
     }
 
@@ -500,8 +534,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Phase 1: Tavily — ≥3 nguồn, có góc phản biện (AI-TFES)
       if (!existingBrief.includes(SEARCH_MARK)) {
         const memory = await getEditorialMemory(article.domain, article.seriesId);
-        await transitionArticle({
-          articleId,
+        await commitTransition({
           to: WorkflowState.MEMORY_CHECKED,
           action: "memory-check",
           artifact: {
@@ -540,19 +573,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
         }
 
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            researchBrief: `${SEARCH_MARK}\n${searchBlob}`,
-            currentStep: WorkflowStep.RESEARCH,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: WorkflowState.RESEARCHED,
           action: "research",
+          articlePatch: {
+            researchBrief: `${SEARCH_MARK}\n${searchBlob}`,
+            errorMessage: null,
+          },
           artifact: {
             type: ArtifactType.RESEARCH_BRIEF,
             content: searchBlob,
@@ -595,19 +622,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         { maxTokens: 3500 },
       );
 
-      await prisma.article.update({
-        where: { id: articleId },
-        data: {
-          researchBrief,
-          currentStep: WorkflowStep.INSIGHT,
-          status: ArticleStatus.DRAFT,
-          errorMessage: null,
-        },
-      });
-      const transitioned = await transitionArticle({
-        articleId,
+      const transitioned = await commitTransition({
         to: WorkflowState.SYNTHESIZED,
         action: "synthesis",
+        articlePatch: {
+          researchBrief,
+          errorMessage: null,
+        },
         artifact: {
           type: ArtifactType.RESEARCH_BRIEF,
           content: researchBrief,
@@ -647,21 +668,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
           // Hết lượt research lại → FAILED
           if (nextRetry > MAX_GATE_RESEARCH_RETRIES) {
-            await prisma.article.update({
-              where: { id: articleId },
-              data: {
-                insightGate: withGateRetryMark(retries, insightGate.trim()),
-                status: ArticleStatus.FAILED,
-                currentStep: WorkflowStep.INSIGHT,
-                errorMessage:
-                  `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
-              },
-            });
-            const failed = await transitionArticle({
-              articleId,
+            const failed = await commitTransition({
               to: WorkflowState.INSIGHT_REJECTED,
               action: "insight-gate",
               success: false,
+              articlePatch: {
+                insightGate: withGateRetryMark(retries, insightGate.trim()),
+                errorMessage:
+                  `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
+              },
               details: { retry: nextRetry, reason: "Insight < L2" },
               artifact: { type: ArtifactType.REVIEW, content: insightGate },
             });
@@ -672,9 +687,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           }
 
           // Quay Research: clear brief, giữ phản hồi Gate để đào góc sắc hơn
-          await prisma.article.update({
-            where: { id: articleId },
-            data: {
+          await commitTransition({
+            to: WorkflowState.INSIGHT_REJECTED,
+            action: "insight-gate",
+            success: false,
+            articlePatch: {
               insightGate: withGateRetryMark(
                 nextRetry,
                 `## Gate lần trước — CHƯA ĐẠT ≥ L2\n\n${insightGate.trim()}`,
@@ -685,20 +702,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               knowledgeRecord: null,
               cleanPublish: null,
               heroBrief: null,
-              currentStep: WorkflowStep.RESEARCH,
-              status: ArticleStatus.DRAFT,
               errorMessage: `Gate < L2 — nghiên cứu lại góc sắc hơn (lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
             },
-          });
-          await transitionArticle({
-            articleId,
-            to: WorkflowState.INSIGHT_REJECTED,
-            action: "insight-gate",
-            success: false,
             artifact: { type: ArtifactType.REVIEW, content: insightGate },
           });
-          const retried = await transitionArticle({
-            articleId,
+          const retried = await commitTransition({
             to: WorkflowState.RESEARCH_REQUIRED,
             action: "request-research",
             details: { retry: nextRetry },
@@ -709,22 +717,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
         }
 
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const transitioned = await commitTransition({
+          to: WorkflowState.INSIGHT_APPROVED,
+          action: "insight-gate",
+          articlePatch: {
             insightGate: withGateRetryMark(
               gateRetryCount(article.insightGate),
               `${insightGate.trim()}\n\n${INSIGHT_GATE_MARK}`,
             ),
-            currentStep: WorkflowStep.INSIGHT,
-            status: ArticleStatus.DRAFT,
             errorMessage: null,
           },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
-          to: WorkflowState.INSIGHT_APPROVED,
-          action: "insight-gate",
           artifact: { type: ArtifactType.REVIEW, content: insightGate },
         });
         return withTimings(transitioned, {
@@ -759,19 +761,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const merged = `${gateOnly}\n\n---\n\n${decision.trim()}\n\n${INSIGHT_DECISION_MARK}`;
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            insightGate: merged,
-            currentStep: WorkflowStep.INSIGHT,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: WorkflowState.DECIDED,
           action: "editorial-decision",
+          articlePatch: {
+            insightGate: merged,
+            errorMessage: null,
+          },
           details: { decision },
         });
         return withTimings(transitioned, {
@@ -805,19 +801,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const merged = `${soFar}\n\n---\n\n${planning.trim()}\n\n${INSIGHT_DONE_MARK}`;
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            insightGate: merged,
-            currentStep: WorkflowStep.WRITE,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: WorkflowState.PLANNED,
           action: "planning",
+          articlePatch: {
+            insightGate: merged,
+            errorMessage: null,
+          },
           details: { planning },
         });
         return withTimings(transitioned, {
@@ -827,14 +817,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       // Đã xong insight → sang Write
-      const updated = await prisma.article.update({
-        where: { id: articleId },
-        data: {
+      const updated = await commitPatch({
+        action: "insight-skip",
+        articlePatch: {
           insightGate: article.insightGate?.includes(INSIGHT_DONE_MARK)
             ? article.insightGate
             : `${stripPipelineMarks(article.insightGate)}\n\n${INSIGHT_DONE_MARK}`,
-          currentStep: WorkflowStep.WRITE,
-          status: ArticleStatus.DRAFT,
           errorMessage: null,
         },
       });
@@ -875,14 +863,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         assertWritePhaseQuality(partA, "a");
         const cleanA = sanitizeEditorialBody(partA);
 
-        const updated = await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const updated = await commitPatch({
+          action: "writing-half",
+          articlePatch: {
             draft12: `${cleanA}\n\n${WRITE_HALF_MARK}`,
-            currentStep: WorkflowStep.WRITE,
-            status: ArticleStatus.DRAFT,
             errorMessage: null,
           },
+          artifact: { type: ArtifactType.ARTICLE_DRAFT, content: cleanA },
         });
         return withTimings(updated, {
           llmMs: Date.now() - llmStarted,
@@ -921,23 +908,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const merged = sanitizeEditorialBody(`${partA}\n\n${partB.trim()}`);
         assertFullDraftQuality(merged);
 
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            draft12: `${merged}\n\n${WRITE_DONE_MARK}`,
-            currentStep: WorkflowStep.FINALIZE,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
-        });
         const sourceRevision = await latestArtifactRevision(
           articleId,
           ArtifactType.RESEARCH_BRIEF,
         );
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: WorkflowState.DRAFTED,
           action: "writing",
+          articlePatch: {
+            draft12: `${merged}\n\n${WRITE_DONE_MARK}`,
+            errorMessage: null,
+          },
           artifact: {
             type: ArtifactType.ARTICLE_DRAFT,
             content: merged,
@@ -952,14 +933,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       // Đã có nháp đủ → sang Finalize (không ghi đè)
-      const updated = await prisma.article.update({
-        where: { id: articleId },
-        data: {
-          draft12: draft.includes(WRITE_DONE_MARK) ? draft : `${stripPipelineMarks(draft)}\n\n${WRITE_DONE_MARK}`,
-          currentStep: WorkflowStep.FINALIZE,
-          status: ArticleStatus.DRAFT,
+      const fullDraft = draft.includes(WRITE_DONE_MARK)
+        ? draft
+        : `${stripPipelineMarks(draft)}\n\n${WRITE_DONE_MARK}`;
+      const updated = await commitTransition({
+        to: WorkflowState.DRAFTED,
+        action: "writing-skip",
+        articlePatch: {
+          draft12: fullDraft,
           errorMessage: null,
         },
+        artifact: { type: ArtifactType.ARTICLE_DRAFT, content: stripPipelineMarks(fullDraft) },
       });
       return withTimings(updated, { writePhase: "skip" });
     }
@@ -990,15 +974,6 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
         );
 
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            knowledgeRecord: withHumanReviewPendingMark(reviewOut.trim()),
-            currentStep: WorkflowStep.FINALIZE,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
-        });
         const reviewState = /REWRITE_REQUIRED/i.test(reviewOut)
           ? WorkflowState.REWRITE_REQUIRED
           : /MAJOR_REVISION_REQUIRED/i.test(reviewOut)
@@ -1006,11 +981,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             : /MINOR_REVISION_REQUIRED/i.test(reviewOut)
               ? WorkflowState.MINOR_REVISION_REQUIRED
               : WorkflowState.EDITORIAL_REVIEWED;
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: reviewState,
           action: "editorial-review",
           success: reviewState === WorkflowState.EDITORIAL_REVIEWED,
+          articlePatch: {
+            knowledgeRecord: withHumanReviewPendingMark(reviewOut.trim()),
+            errorMessage: null,
+          },
           artifact: {
             type: ArtifactType.REVIEW,
             content: reviewOut,
@@ -1026,12 +1004,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Chờ người xác nhận AI Review (Fail / Minor–Major) trước Fact-check
       if (finPhase === "await-human") {
-        const updated = await prisma.article.update({
-          where: { id: articleId },
-          data: {
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
-          },
+        const updated = await commitPatch({
+          action: "await-human-review",
+          articlePatch: { errorMessage: null },
         });
         return withTimings(updated, { finalizePhase: "await-human" });
       }
@@ -1066,23 +1041,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const parsed = parseFullOutput(finalizeA);
         const factCheckContent = parsed.factCheck ?? finalizeA;
         const passed = /^PASSED$/i.test(verificationStatus(factCheckContent));
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const transitioned = await commitTransition({
+          to: passed ? WorkflowState.FACT_CHECKED : WorkflowState.FACT_CHECK_FAILED,
+          action: "fact-check",
+          success: passed,
+          articlePatch: {
             factCheck: factCheckContent,
-            // Giữ Editorial Review (có REVIEW_DONE_MARK) đến khi Publish ghi Knowledge Record
-            currentStep: WorkflowStep.FINALIZE,
-            status: passed ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
             errorMessage: passed
               ? null
               : "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check.",
           },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
-          to: passed ? WorkflowState.FACT_CHECKED : WorkflowState.FACT_CHECK_FAILED,
-          action: "fact-check",
-          success: passed,
           details: { verificationStatus: verificationStatus(factCheckContent) },
           artifact: {
             type: ArtifactType.FACT_CHECK,
@@ -1127,22 +1095,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ? WorkflowState.MAJOR_REVISION_REQUIRED
               : WorkflowState.MINOR_REVISION_REQUIRED;
         const nextKr = `${article.knowledgeRecord ?? ""}\n\n## Final Verification (pipeline)\n${finalReview}${result.publishReady ? `\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const transitioned = await commitTransition({
+          to: nextState,
+          action: "final-verification",
+          success: result.publishReady,
+          articlePatch: {
             knowledgeRecord: nextKr,
-            status: result.publishReady ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
-            currentStep: WorkflowStep.FINALIZE,
             errorMessage: result.publishReady
               ? null
               : "Final Verification chưa đạt — cần revision trước khi tạo bản đăng.",
           },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
-          to: nextState,
-          action: "final-verification",
-          success: result.publishReady,
           details: { ...result },
           artifact: {
             type: ArtifactType.REVIEW,
@@ -1225,12 +1187,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          await prisma.article.update({
-            where: { id: articleId },
-            data: {
+          await commitPatch({
+            action: "polish-quality-failed",
+            articlePatch: {
               cleanPublish: polished.length >= 80 ? polished : article.cleanPublish,
-              status: ArticleStatus.DRAFT,
-              currentStep: WorkflowStep.FINALIZE,
               errorMessage: msg.slice(0, 500),
             },
           });
@@ -1247,12 +1207,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         if (polishCheck.length > 0) {
           const detail = polishCheck.map((i) => i.message).join(" · ");
-          const updated = await prisma.article.update({
-            where: { id: articleId },
-            data: {
+          const updated = await commitPatch({
+            action: "polish-self-check-failed",
+            articlePatch: {
               cleanPublish: polished,
-              status: ArticleStatus.DRAFT,
-              currentStep: WorkflowStep.FINALIZE,
               errorMessage: `Polish self-check chưa đạt: ${detail}`.slice(0, 500),
             },
           });
@@ -1290,21 +1248,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ( /HERO IMAGE BRIEF/i.test(heroRaw) ? heroRaw.trim() : null) ||
           article.heroBrief;
 
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const transitioned = await commitTransition({
+          to: WorkflowState.POLISHED,
+          action: "polish",
+          articlePatch: {
             cleanPublish: `${polished}\n\n${CLEAN_POLISH_MARK}`,
             title,
             heroBrief,
-            status: ArticleStatus.DRAFT,
-            currentStep: WorkflowStep.FINALIZE,
             errorMessage: null,
           },
-        });
-        const transitioned = await transitionArticle({
-          articleId,
-          to: WorkflowState.POLISHED,
-          action: "polish",
           artifact: {
             type: ArtifactType.PUBLISH_PACKAGE,
             content: polished,
@@ -1357,21 +1309,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
           // Xóa polish mark → tick sau chạy lại polish kèm feedback
           const cleanWithoutPolish = stripPipelineMarks(article.cleanPublish);
-          await prisma.article.update({
-            where: { id: articleId },
-            data: {
-              cleanPublish: cleanWithoutPolish,
-              knowledgeRecord: krNext,
-              status: ArticleStatus.DRAFT,
-              currentStep: WorkflowStep.FINALIZE,
-              errorMessage: `Reader Sim chưa đạt: ${feedback}`.slice(0, 500),
-            },
-          });
-          const transitioned = await transitionArticle({
-            articleId,
+          const transitioned = await commitTransition({
             to: WorkflowState.READER_SIMULATION_FAILED,
             action: "reader-simulation",
             success: false,
+            articlePatch: {
+              cleanPublish: cleanWithoutPolish,
+              knowledgeRecord: krNext,
+              errorMessage: `Reader Sim chưa đạt: ${feedback}`.slice(0, 500),
+            },
             artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
           });
           return withTimings(transitioned, {
@@ -1382,26 +1328,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const krBase = stripReaderSimSection(article.knowledgeRecord ?? "");
         const krFinal = `${krBase}\n\n## Reader Simulation\n${simOut}\n\n${READER_SIM_DONE_MARK}`.trim();
-        await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const readerPatch = {
             knowledgeRecord: krFinal,
             cleanPublish: article.cleanPublish?.includes(CLEAN_POLISH_MARK)
               ? article.cleanPublish
               : `${cleanBody}\n\n${CLEAN_POLISH_MARK}`,
-            status: failed ? ArticleStatus.FAILED : ArticleStatus.PUBLISH_READY,
-            currentStep: failed ? WorkflowStep.FINALIZE : null,
             errorMessage: failed
               ? `Reader Simulation chưa đạt sau ${MAX_READER_SIM_RETRIES + 1} lần: ${simOut.slice(0, 350)}`
               : null,
-          },
-        });
+          };
         if (failed) {
-          const failedArticle = await transitionArticle({
-            articleId,
+          const failedArticle = await commitTransition({
             to: WorkflowState.READER_SIMULATION_FAILED,
             action: "reader-simulation",
             success: false,
+            articlePatch: readerPatch,
             artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
           });
           return withTimings(failedArticle, {
@@ -1410,14 +1351,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
         }
         assertFinalVerificationPassed(article.knowledgeRecord, article.factCheck);
-        await transitionArticle({
-          articleId,
+        await commitTransition({
           to: WorkflowState.READER_SIMULATED,
           action: "reader-simulation",
+          articlePatch: readerPatch,
           artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
         });
-        const transitioned = await transitionArticle({
-          articleId,
+        const transitioned = await commitTransition({
           to: WorkflowState.PUBLISH_READY,
           action: "package",
           artifact: {
@@ -1457,23 +1397,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               const kr = article.knowledgeRecord ?? "";
               if (!kr.includes(READER_SIM_DONE_MARK)) {
                 // Đã polish nhưng chưa Reader Sim — không skip lên PUBLISH_READY
-                const updated = await prisma.article.update({
-                  where: { id: articleId },
-                  data: {
+                const updated = await commitPatch({
+                  action: "await-reader-simulation",
+                  articlePatch: {
                     cleanPublish: marked,
-                    status: ArticleStatus.DRAFT,
-                    currentStep: WorkflowStep.FINALIZE,
                     errorMessage: null,
                   },
                 });
                 return withTimings(updated, { finalizePhase: "await-reader-sim" });
               }
-              const updated = await prisma.article.update({
-                where: { id: articleId },
-                data: {
+              const updated = await commitTransition({
+                to: WorkflowState.PUBLISH_READY,
+                action: "package-skip",
+                articlePatch: {
                   cleanPublish: marked,
-                  status: ArticleStatus.PUBLISH_READY,
-                  currentStep: null,
                   errorMessage: null,
                 },
               });
@@ -1557,12 +1494,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          await prisma.article.update({
-            where: { id: articleId },
-            data: {
+          await commitPatch({
+            action: "publish-quality-failed",
+            articlePatch: {
               cleanPublish: cleanPublish.length >= 80 ? cleanPublish : article.cleanPublish,
-              status: ArticleStatus.DRAFT,
-              currentStep: WorkflowStep.FINALIZE,
               errorMessage: msg.slice(0, 500),
             },
           });
@@ -1602,9 +1537,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         if (selfCheck.length > 0) {
           const detail = selfCheck.map((i) => i.message).join(" · ");
-          const updated = await prisma.article.update({
-            where: { id: articleId },
-            data: {
+          const updated = await commitPatch({
+            action: "publish-self-check-failed",
+            articlePatch: {
               cleanPublish,
               heroBrief: parsed.heroBrief,
               knowledgeRecord: knowledgeRecord || article.knowledgeRecord,
@@ -1614,8 +1549,6 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               draft12: article.draft12?.includes(WRITE_DONE_MARK)
                 ? article.draft12
                 : `${sanitizeEditorialBody(draftClean)}\n\n${WRITE_DONE_MARK}`,
-              status: ArticleStatus.DRAFT,
-              currentStep: WorkflowStep.FINALIZE,
               errorMessage: `Self-check AI-TFES chưa đạt: ${detail}`.slice(0, 500),
             },
           });
@@ -1631,9 +1564,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         // Giữ DRAFT để tick tiếp chạy polish (10b) — tránh timeout gộp 2 LLM
-        const updated = await prisma.article.update({
-          where: { id: articleId },
-          data: {
+        const updated = await commitPatch({
+          action: "build-publish-package",
+          articlePatch: {
             factCheck: article.factCheck,
             knowledgeRecord:
               knowledgeRecord ||
@@ -1644,9 +1577,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             draft12: article.draft12?.includes(WRITE_DONE_MARK)
               ? article.draft12
               : `${sanitizeEditorialBody(draftClean)}\n\n${WRITE_DONE_MARK}`,
-            status: ArticleStatus.DRAFT,
-            currentStep: WorkflowStep.FINALIZE,
             errorMessage: null,
+          },
+          artifact: {
+            type: ArtifactType.PUBLISH_PACKAGE,
+            content: `${knowledgeRecord}\n\n${cleanPublish}`,
           },
         });
         return withTimings(updated, {
@@ -1670,35 +1605,31 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     // Bản sạch fail → GIỮ cleanPublish để lần sau polish/sửa (không viết lại từ nháp rồi lặp lỗi)
     const isCleanPublishFail = isCleanBodyQualityFail(raw) && !isListicleRewrite;
 
-    await prisma.article.update({
-      where: { id: articleId },
-      data: {
-        status: isTimeout || isQuality ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+    try {
+      await commitPatch({
+        action: "workflow-step-error",
+        success: false,
+        articlePatch: {
         errorMessage: redactSecrets(raw).slice(0, 500),
         ...(isListicleRewrite
           ? {
               draft12: null,
-              currentStep: WorkflowStep.WRITE,
             }
-          : isCleanPublishFail
-            ? {
-                currentStep: WorkflowStep.FINALIZE,
-              }
-            : {}),
-      },
-    });
+          : {}),
+        },
+        details: { isTimeout, isQuality, isCleanPublishFail },
+      });
+    } catch (patchError) {
+      if (!/Workflow conflict/i.test(String(patchError))) throw patchError;
+    }
     throw error instanceof Error ? error : new Error(raw);
   }
 }
 
 export async function resetWorkflow(articleId: string): Promise<Article> {
-  return prisma.article.update({
-    where: { id: articleId },
-    data: {
-      status: ArticleStatus.DRAFT,
-      workflowState: WorkflowState.IDEA,
-      workflowRunId: crypto.randomUUID(),
-      currentStep: WorkflowStep.RESEARCH,
+  return resetWorkflowArticle({
+    articleId,
+    articlePatch: {
       errorMessage: null,
       researchBrief: null,
       insightGate: null,
@@ -1751,11 +1682,14 @@ export async function confirmHumanReview(
     findings,
   );
 
-  await prisma.article.update({
-    where: { id: articleId },
-    data: {
+  return transitionArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    to: WorkflowState.EDITORIAL_REVIEWED,
+    action: "human-review-confirmed",
+    articlePatch: {
       knowledgeRecord: nextKr,
-      status: ArticleStatus.DRAFT,
       errorMessage: null,
       reviewerNotes: notes
         ? [article.reviewerNotes?.trim(), `Review giữa chu trình:\n${notes}`]
@@ -1763,11 +1697,6 @@ export async function confirmHumanReview(
             .join("\n\n")
         : article.reviewerNotes,
     },
-  });
-  return transitionArticle({
-    articleId,
-    to: WorkflowState.EDITORIAL_REVIEWED,
-    action: "human-review-confirmed",
     details: { findings: findings.length },
   });
 }
@@ -1786,7 +1715,6 @@ export async function approveArticle(
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
   if (
-    article.status !== ArticleStatus.PUBLISH_READY ||
     article.workflowState !== WorkflowState.PUBLISH_READY
   ) {
     throw new Error("Chỉ duyệt bài ở trạng thái Publish Ready");
@@ -1844,14 +1772,20 @@ export async function approveArticle(
       : "";
   const mergedNotes = [notes?.trim(), scoreNote, reviewAckNote].filter(Boolean).join("\n");
 
-  const updated = await prisma.article.update({
-    where: { id: articleId },
-    data: {
-      status: ArticleStatus.APPROVED,
+  const approvedAt = new Date();
+  const updated = await transitionArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    to: WorkflowState.APPROVED,
+    action: "human-approval",
+    actorId: approverId,
+    articlePatch: {
       approvedById: approverId,
       reviewerNotes: mergedNotes || null,
-      approvedAt: new Date(),
+      approvedAt,
     },
+    details: { editorialScore: score, approvedAt: approvedAt.toISOString() },
   });
 
   if (article.title) {
@@ -1872,31 +1806,29 @@ export async function approveArticle(
     });
   }
 
-  return transitionArticle({
-    articleId,
-    to: WorkflowState.APPROVED,
-    action: "human-approval",
-    actorId: approverId,
-    details: { editorialScore: score, approvedAt: updated.approvedAt?.toISOString() },
-  });
+  return updated;
 }
 
 export async function publishArticle(articleId: string): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
   if (
-    article.status !== ArticleStatus.APPROVED ||
     article.workflowState !== WorkflowState.APPROVED
   ) {
     throw new Error("Bài cần được duyệt trước khi publish");
   }
 
-  const updated = await prisma.article.update({
-    where: { id: articleId },
-    data: {
-      status: ArticleStatus.PUBLISHED,
-      publishedAt: new Date(),
+  const publishedAt = new Date();
+  const updated = await transitionArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    to: WorkflowState.PUBLISHED,
+    action: "publish",
+    articlePatch: {
+      publishedAt,
     },
+    details: { publishedAt: publishedAt.toISOString() },
   });
 
   // Nuôi gold_samples khi điểm ≥ 4
@@ -1921,12 +1853,7 @@ export async function publishArticle(articleId: string): Promise<Article> {
     /* không chặn publish nếu gold fail */
   }
 
-  return transitionArticle({
-    articleId,
-    to: WorkflowState.PUBLISHED,
-    action: "publish",
-    details: { publishedAt: updated.publishedAt?.toISOString() },
-  });
+  return updated;
 }
 
 export async function requestCorrection(
@@ -1941,6 +1868,8 @@ export async function requestCorrection(
   if (report.trim().length < 8) throw new Error("Correction report quá ngắn");
   return transitionArticle({
     articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
     to: WorkflowState.CORRECTION_REQUIRED,
     action: "correction-audit",
     actorId,
@@ -1964,27 +1893,27 @@ export async function applyCorrection(
     throw new Error("Cần gửi toàn bộ bản Markdown đã correction (tối thiểu 80 ký tự)");
   }
 
-  await prisma.article.update({
-    where: { id: articleId },
-    data: {
+  const corrected = await transitionArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    to: WorkflowState.CORRECTED,
+    action: "apply-correction",
+    actorId,
+    articlePatch: {
       cleanPublish: correctedBody,
       title:
         stripInsightLevelLabels(correctedBody.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "") ||
         article.title,
     },
-  });
-
-  const corrected = await transitionArticle({
-    articleId,
-    to: WorkflowState.CORRECTED,
-    action: "apply-correction",
-    actorId,
     artifact: { type: ArtifactType.CORRECTION, content: correction.trim() },
     details: { meaningChanged },
   });
   if (!meaningChanged) {
     return transitionArticle({
       articleId,
+      expectedState: corrected.workflowState,
+      expectedVersion: corrected.workflowVersion,
       to: WorkflowState.PUBLISHED,
       action: "republish-non-semantic-correction",
       actorId,
@@ -1997,11 +1926,14 @@ export async function applyCorrection(
     .replaceAll(FINAL_REVIEW_DONE_MARK, "")
     .replaceAll(READER_SIM_DONE_MARK, "")
     .trim();
-  await prisma.article.update({
-    where: { id: articleId },
-    data: {
-      status: ArticleStatus.DRAFT,
-      currentStep: WorkflowStep.FINALIZE,
+  return transitionArticle({
+    articleId,
+    expectedState: corrected.workflowState,
+    expectedVersion: corrected.workflowVersion,
+    to: WorkflowState.CORRECTED,
+    action: "corrected-article-revision",
+    actorId,
+    articlePatch: {
       draft12: `${correctedBody}\n\n${WRITE_DONE_MARK}`,
       factCheck: null,
       knowledgeRecord: `${nextKr}\n\n## Correction applied\n${correction.trim()}`.trim(),
@@ -2010,12 +1942,6 @@ export async function applyCorrection(
       approvedById: null,
       publishedAt: null,
     },
-  });
-  return transitionArticle({
-    articleId,
-    to: WorkflowState.CORRECTED,
-    action: "corrected-article-revision",
-    actorId,
     artifact: {
       type: ArtifactType.ARTICLE_DRAFT,
       content: correctedBody,
@@ -2040,6 +1966,8 @@ export async function retractArticle(
   if (reason.trim().length < 8) throw new Error("Lý do retract quá ngắn");
   return transitionArticle({
     articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
     to: WorkflowState.RETRACTED,
     action: "retract",
     actorId,
@@ -2056,10 +1984,14 @@ export async function saveCleanPublishEdit(
   editNote?: string,
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
-  if (article.status === ArticleStatus.PUBLISHED) {
+  if (
+    article.workflowState === WorkflowState.PUBLISHED ||
+    article.workflowState === WorkflowState.RETRACTED ||
+    article.workflowState === WorkflowState.CORRECTION_REQUIRED
+  ) {
     throw new Error("Bài đã publish — không sửa bản sạch");
   }
-  if (article.status === ArticleStatus.APPROVED) {
+  if (article.workflowState === WorkflowState.APPROVED) {
     throw new Error("Bài đã được duyệt — cần thu hồi phê duyệt trước khi sửa");
   }
   const body = cleanMarkdown.trim();
@@ -2092,9 +2024,7 @@ export async function saveCleanPublishEdit(
         .replaceAll(READER_SIM_DONE_MARK, "")
         .trim()
     : article.knowledgeRecord;
-  await prisma.article.update({
-    where: { id: articleId },
-    data: {
+  const articlePatch = {
       cleanPublish: next,
       title: title || article.title,
       deskJson: mergeDeskJson(article.deskJson, {
@@ -2102,22 +2032,27 @@ export async function saveCleanPublishEdit(
         editedAt: new Date().toISOString(),
       }),
       knowledgeRecord,
-      status: invalidatesFinalReview ? ArticleStatus.DRAFT : article.status,
-      currentStep: invalidatesFinalReview ? WorkflowStep.FINALIZE : article.currentStep,
       errorMessage: null,
-    },
-  });
+    };
   if (invalidatesFinalReview) {
     return transitionArticle({
       articleId,
       to: WorkflowState.MINOR_REVISION_REQUIRED,
       action: "human-edit-invalidated-final-review",
       success: false,
+      articlePatch,
       details: { editNote: editNote?.trim() || null },
       artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: next },
     });
   }
-  return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  return patchWorkflowArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    action: "human-edit",
+    articlePatch,
+    artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: next },
+  });
 }
 
 /**
@@ -2129,10 +2064,14 @@ export async function polishFromHumanEdits(
 ): Promise<Article> {
   await hydrateTfesOverrides();
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
-  if (article.status === ArticleStatus.PUBLISHED) {
+  if (
+    article.workflowState === WorkflowState.PUBLISHED ||
+    article.workflowState === WorkflowState.RETRACTED ||
+    article.workflowState === WorkflowState.CORRECTION_REQUIRED
+  ) {
     throw new Error("Bài đã publish");
   }
-  if (article.status === ArticleStatus.APPROVED) {
+  if (article.workflowState === WorkflowState.APPROVED) {
     throw new Error("Bài đã được duyệt — không polish lại trước khi thu hồi phê duyệt");
   }
   const rawClean = stripPipelineMarks(article.cleanPublish);
@@ -2146,11 +2085,6 @@ export async function polishFromHumanEdits(
     editNote?.trim() ||
     (await import("@/lib/tfes/desk-state")).parseDeskJson(article.deskJson).editNote ||
     "";
-
-  await prisma.article.update({
-    where: { id: articleId },
-    data: { status: ArticleStatus.RUNNING, errorMessage: null },
-  });
 
   try {
     const polishedRaw = await chatCompletion(
@@ -2195,21 +2129,16 @@ export async function polishFromHumanEdits(
       .replaceAll(FINAL_REVIEW_DONE_MARK, "")
       .replaceAll(READER_SIM_DONE_MARK, "")
       .trim();
-    await prisma.article.update({
-      where: { id: articleId },
-      data: {
+    const articlePatch = {
         cleanPublish: polished,
         title,
         knowledgeRecord: nextKr,
-        status: ArticleStatus.DRAFT,
-        currentStep: WorkflowStep.FINALIZE,
         errorMessage: null,
         deskJson: mergeDeskJson(article.deskJson, {
           editNote: note || undefined,
           editedAt: new Date().toISOString(),
         }),
-      },
-    });
+      };
     const invalidateStates = new Set<WorkflowState>([
       WorkflowState.FINAL_REVIEWED,
       WorkflowState.POLISHED,
@@ -2220,25 +2149,37 @@ export async function polishFromHumanEdits(
     if (invalidateStates.has(article.workflowState)) {
       return transitionArticle({
         articleId,
+        expectedState: article.workflowState,
+        expectedVersion: article.workflowVersion,
         to: WorkflowState.MINOR_REVISION_REQUIRED,
         action: "human-polish-invalidated-final-review",
         success: false,
+        articlePatch,
         artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: polished },
       });
     }
-    return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+    return patchWorkflowArticle({
+      articleId,
+      expectedState: article.workflowState,
+      expectedVersion: article.workflowVersion,
+      action: "human-polish",
+      articlePatch,
+      artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: polished },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await prisma.article.update({
-      where: { id: articleId },
-      data: {
-        status:
-          article.status === ArticleStatus.PUBLISH_READY
-            ? ArticleStatus.PUBLISH_READY
-            : ArticleStatus.DRAFT,
-        errorMessage: message.slice(0, 500),
-      },
-    });
+    try {
+      await patchWorkflowArticle({
+        articleId,
+        action: "human-polish-error",
+        success: false,
+        expectedState: article.workflowState,
+        expectedVersion: article.workflowVersion,
+        articlePatch: { errorMessage: message.slice(0, 500) },
+      });
+    } catch {
+      // A concurrent transition won the optimistic lock; never overwrite it with stale error state.
+    }
     throw err instanceof Error ? err : new Error(message);
   }
 }
@@ -2250,9 +2191,12 @@ export async function saveFactHumanVerdicts(
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
   const { mergeDeskJson } = await import("@/lib/tfes/desk-state");
-  return prisma.article.update({
-    where: { id: articleId },
-    data: {
+  return patchWorkflowArticle({
+    articleId,
+    expectedState: article.workflowState,
+    expectedVersion: article.workflowVersion,
+    action: "save-fact-human-verdicts",
+    articlePatch: {
       deskJson: mergeDeskJson(article.deskJson, {
         factClaims: claims,
         factAckAt: new Date().toISOString(),

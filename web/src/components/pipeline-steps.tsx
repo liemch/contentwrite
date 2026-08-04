@@ -6,7 +6,7 @@ import {
 
 type ArticleLite = {
   status: string;
-  currentStep: string | null;
+  workflowState: string;
   researchBrief?: string | null;
   insightGate?: string | null;
   draft12?: string | null;
@@ -23,7 +23,7 @@ export function PipelineSteps({
   running?: boolean;
 }) {
   const activeIndex = resolveTrackerIndex(article);
-  const failedIndex = article.status === "FAILED" ? activeIndex : -1;
+  const failedIndex = /REJECTED|REQUIRED|FAILED/.test(article.workflowState) ? activeIndex : -1;
   const complete = activeIndex >= TFES_TRACKER_STEPS.length;
 
   return (
@@ -45,10 +45,10 @@ export function PipelineSteps({
       </div>
       <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {TFES_TRACKER_STEPS.map((step, index) => {
-          const done = isTrackerStepDone(index, activeIndex, article.status);
+          const done = isTrackerStepDone(index, activeIndex, article.workflowState);
           const active =
             !complete &&
-            article.status !== "FAILED" &&
+            failedIndex !== index &&
             index === activeIndex;
           const failed = failedIndex === index;
           const showActive = active && !failed;

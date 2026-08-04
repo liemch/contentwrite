@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
 import { prisma } from "@/lib/db";
+import { WorkflowState } from "@/generated/prisma/client";
 import { DOMAIN_IDS, DOMAIN_META, isDomainId } from "@/lib/tfes/domains";
 import {
   PUBLISH_FORMAT_IDS,
@@ -23,7 +24,7 @@ export default async function LibraryPage({
   const selectedFormat = isPublishFormatId(format) ? format : "all";
 
   const where = {
-    status: "PUBLISHED" as const,
+    workflowState: WorkflowState.PUBLISHED,
     ...(selected !== "all" ? { domain: selected } : {}),
     ...(selectedFormat !== "all" ? { publishFormat: selectedFormat } : {}),
   };
@@ -48,12 +49,12 @@ export default async function LibraryPage({
     }),
     prisma.article.groupBy({
       by: ["domain"],
-      where: { status: "PUBLISHED" },
+      where: { workflowState: WorkflowState.PUBLISHED },
       _count: { _all: true },
     }),
     prisma.article.groupBy({
       by: ["publishFormat"],
-      where: { status: "PUBLISHED" },
+      where: { workflowState: WorkflowState.PUBLISHED },
       _count: { _all: true },
     }),
   ]);

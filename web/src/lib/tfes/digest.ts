@@ -1,4 +1,4 @@
-import { ArticleStatus } from "@/generated/prisma/client";
+import { WorkflowState } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
 import { clipText } from "@/lib/tfes/parser";
@@ -47,7 +47,7 @@ export async function pickDigestSources(input?: {
       await prisma.article.findMany({
         where: {
           id: { in: records.map((r) => r.articleId) },
-          status: ArticleStatus.PUBLISHED,
+          workflowState: WorkflowState.PUBLISHED,
         },
         select: { id: true },
       })
