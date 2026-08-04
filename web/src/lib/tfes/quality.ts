@@ -137,18 +137,18 @@ export { countPercentClaims };
 
 /** Lỗi thuộc bước Viết / nháp — soft-retry WRITE, không ép polish bản sạch. */
 export const WRITE_PHASE_QUALITY_FAIL_RE =
-  /Nháp|bước Viết|Bản 12 phần|BAR VIẾT|Chạy lại bước Viết|Chạy lại Viết|Gate < L2|nghiên cứu lại/i;
+  /Nháp|bước Viết|Bản 12 phần|BAR VIẾT|Chạy lại bước Viết|Chạy lại Viết|Gate < L2|nghiên cứu lại|GOLD_BAR:/i;
 
 /**
  * Lỗi máy chấm bản sạch / self-check / Reader Sim — soft-retry + route polish.
- * Bao phủ assertCleanPublishQuality + editorialSelfCheck (clean) + Reader Sim.
+ * Bao phủ assertCleanPublishQuality + editorialSelfCheck (clean) + Reader Sim + GOLD_BAR.
  */
 export const CLEAN_PUBLISH_QUALITY_FAIL_RE =
-  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|Self-check|Polish self-check|Reader Sim|ngưỡng %|heading biên tập|Introduction\/Context|handbook|brochure|mini-case|tình huống|Subtitle|gạch ngang|thematic break|listicle|outline|BAR VIẾT|sáo ngữ|Hook\/mở|khi nào không nên|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|FACTCHECK|Fact-Check/i;
+  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|Self-check|Polish self-check|Reader Sim|ngưỡng %|heading biên tập|Introduction\/Context|handbook|brochure|mini-case|tình huống|Subtitle|gạch ngang|thematic break|listicle|outline|BAR VIẾT|sáo ngữ|Hook\/mở|khi nào không nên|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|FACTCHECK|Fact-Check|GOLD_BAR:/i;
 
 /** Lỗi gắn thân bài sạch — giữ cleanPublish, ép polish/repair (không FAILED). */
 export const CLEAN_BODY_QUALITY_FAIL_RE =
-  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|heading biên tập|Introduction\/Context|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|gạch ngang|thematic break|Subtitle|handbook|brochure|ngưỡng %|mini-case|tình huống|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|listicle|outline/i;
+  /Bản sạch|Đoạn mở|khô\/giáo trình|mở khô|heading biên tập|Introduction\/Context|điều kiện\/phản biện|không nên|không phù hợp|markdown table|\bTable\b|Mermaid|gạch ngang|thematic break|Subtitle|handbook|brochure|ngưỡng %|mini-case|tình huống|encoding|quá ngắn|quá dài|Rút gọn|dòng “?alt”?|placeholder hero|listicle|outline|GOLD_BAR:/i;
 
 export function isWritePhaseQualityFail(message: string | null | undefined): boolean {
   return Boolean(message && WRITE_PHASE_QUALITY_FAIL_RE.test(message));
@@ -158,7 +158,8 @@ export function isCleanPublishQualityFail(message: string | null | undefined): b
   if (!message) return false;
   // Self-check / Reader Sim luôn soft; còn lại loại trừ lỗi thuần bước Viết
   if (/Self-check|Polish self-check|Reader Sim/i.test(message)) return true;
-  if (isWritePhaseQualityFail(message) && !/Bản sạch/i.test(message)) return false;
+  if (/GOLD_BAR:/i.test(message)) return true;
+  if (isWritePhaseQualityFail(message) && !/Bản sạch|GOLD_BAR:/i.test(message)) return false;
   return CLEAN_PUBLISH_QUALITY_FAIL_RE.test(message);
 }
 
@@ -286,6 +287,15 @@ export function buildCleanRepairDirectives(
   const h = hint;
   const body = clean ?? "";
 
+  if (/GOLD_BAR:/i.test(h)) {
+    lines.push(
+      "ƯU TIÊN — CHUẨN VÀNG ENGINEERING (GOLD_BAR):",
+      "- Đổi đoạn mở: nghịch lý / failure+metric từ Research — CẤM “Trong môi trường/Ngày nay/ngày càng phức tạp” và khuôn sprint–fintech.",
+      "- Thêm ≥1 mini-case vận hành (pipeline/rollback/on-call/latency…) có chủ ngữ đội/người; tín hiệu lấy từ Research, không bịa case generic.",
+      "- Đúng một chỗ “khi nào KHÔNG nên”; Recommendations phải có điều kiện (khi/nếu/trừ khi/chỉ khi).",
+      "- Bỏ checklist handbook (“Cần áp dụng các biện pháp sau…”).",
+    );
+  }
   if (isDryOpenerFail(h) || (body && hasDryOpener(body))) {
     lines.push(
       "ƯU TIÊN — ĐOẠN MỞ (đổi khuôn, không chỉ đổi wording):",

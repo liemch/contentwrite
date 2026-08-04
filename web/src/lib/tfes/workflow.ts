@@ -78,6 +78,7 @@ import {
   isWritePhaseQualityFail,
   rewriteStockOpenerDeterministic,
 } from "@/lib/tfes/quality";
+import { assertEngineeringGoldBar, inspectEngineeringGoldBar } from "@/lib/tfes/engineering-gold-bar";
 import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
@@ -253,6 +254,7 @@ function priorPipelineSupportBlock(article: {
 
 /**
  * Chấm bản sạch; fail → sửa máy → LLM repair (chỉ thị theo lỗi) → nếu còn fail: 1 pass targeted nữa.
+ * Engineering: thêm chuẩn vàng (anti-generic + thực tế) sau quality sạch.
  */
 async function ensureCleanPublishQuality(input: {
   clean: string;
@@ -265,9 +267,18 @@ async function ensureCleanPublishQuality(input: {
   factCheck?: string | null;
   qualityHint?: string | null;
 }): Promise<string> {
+  const assertCleanAndGold = (candidate: string) => {
+    assertCleanPublishQuality(candidate, input.prefs);
+    assertEngineeringGoldBar({
+      domain: input.domain,
+      body: candidate,
+      researchBrief: input.researchBrief,
+    });
+  };
+
   let clean = input.clean;
   try {
-    assertCleanPublishQuality(clean, input.prefs);
+    assertCleanAndGold(clean);
     return clean;
   } catch (first) {
     const hint =
@@ -278,7 +289,7 @@ async function ensureCleanPublishQuality(input: {
     // 1) Sửa máy trước (table / % / --- / Subtitle / alt) — tránh soft-retry vòng với cùng lỗi
     clean = applyDeterministicCleanFixes(clean, input.prefs);
     try {
-      assertCleanPublishQuality(clean, input.prefs);
+      assertCleanAndGold(clean);
       return clean;
     } catch (afterDeterministic) {
       const hint2 =
@@ -319,7 +330,7 @@ async function ensureCleanPublishQuality(input: {
       clean = applyDeterministicCleanFixes(clean, input.prefs);
 
       try {
-        assertCleanPublishQuality(clean, input.prefs);
+        assertCleanAndGold(clean);
         return clean;
       } catch (still) {
         const stillHint =
@@ -361,7 +372,7 @@ async function ensureCleanPublishQuality(input: {
         if (pass2.length >= 80) clean = pass2;
         clean = applyDeterministicCleanFixes(clean, input.prefs);
         try {
-          assertCleanPublishQuality(clean, input.prefs);
+          assertCleanAndGold(clean);
           return clean;
         } catch (last) {
           // Thoát loop opener: sửa máy đoạn mở lần cuối rồi chấm lại
@@ -369,7 +380,7 @@ async function ensureCleanPublishQuality(input: {
           if (isDryOpenerFail(lastHint) || hasDryOpener(clean)) {
             clean = rewriteStockOpenerDeterministic(clean);
             clean = applyDeterministicCleanFixes(clean, input.prefs);
-            assertCleanPublishQuality(clean, input.prefs);
+            assertCleanAndGold(clean);
             return clean;
           }
           throw last instanceof Error ? last : new Error(lastHint);
@@ -1030,6 +1041,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         assertWritePhaseQuality(partB, "b");
         const merged = sanitizeEditorialBody(`${partA}\n\n${partB.trim()}`);
         assertFullDraftQuality(merged);
+        assertEngineeringGoldBar({
+          domain: article.domain,
+          body: merged,
+          researchBrief: article.researchBrief,
+        });
 
         const sourceRevision = await latestArtifactRevision(
           articleId,
@@ -1200,6 +1216,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
+        assertEngineeringGoldBar({
+          domain: article.domain,
+          body: repairedDraft,
+          researchBrief: article.researchBrief,
+        });
         const retainedReview = (article.knowledgeRecord ?? "")
           .replace(/\n+##\s*Final Verification \(pipeline\)[\s\S]*$/i, "")
           .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
@@ -1290,6 +1311,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
+        assertEngineeringGoldBar({
+          domain: article.domain,
+          body: repairedDraft,
+          researchBrief: article.researchBrief,
+        });
         const transitioned = await commitTransition({
           to: WorkflowState.EDITORIAL_REVIEWED,
           action: "remediate-fact-check",
@@ -1372,6 +1398,30 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Bước 9b: khóa Evidence và quyết định cuối trước khi được tạo publish package.
       if (finPhase === "final-verify") {
+        // Chặn trước: draft Engineering chưa đạt GOLD_BAR → đừng gọi LLM 9b (tránh fail điểm rồi đốt Fact-check).
+        try {
+          assertEngineeringGoldBar({
+            domain: article.domain,
+            body: stripPipelineMarks(article.draft12),
+            researchBrief: article.researchBrief,
+          });
+        } catch (preBar) {
+          const msg = preBar instanceof Error ? preBar.message : String(preBar);
+          const transitioned = await commitTransition({
+            to: WorkflowState.MINOR_REVISION_REQUIRED,
+            action: "pre-final-verification-gold-bar",
+            success: false,
+            articlePatch: {
+              errorMessage:
+                `Pre-9b: ${msg} — sửa draft trước Khóa Review (tránh vòng Fact-check oan).`,
+            },
+            details: { phase: "pre-final-verify", goldBar: true },
+          });
+          return withTimings(transitioned, {
+            finalizePhase: "final-verify-precheck-fail",
+          });
+        }
+
         const llmStarted = Date.now();
         const rescoreHint =
           article.errorMessage &&
@@ -1383,8 +1433,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "CẤM xuất FINAL_TOTAL_SCORE: 0 và FINAL_INSIGHT_SCORE: 0.",
                 "Chấm lại theo rubric trên bản nháp + Fact-Check Ledger trong CONTEXT.",
                 "Mỗi trường máy một dòng riêng. FINAL_DECISION phải khớp band điểm",
-                "(FINAL_REVIEWED ≥95; MINOR 90–94; MAJOR 80–89; REWRITE <80 hoặc insight <22).",
+                `(FINAL_REVIEWED ≥${TFES_CONTRACT.finalReview.minimumTotalScore}; MINOR 85–89; MAJOR 75–84; REWRITE <75 hoặc insight <22).`,
                 "Không dùng chữ PUBLISH_READY trong FINAL_DECISION.",
+                "Khi Fact Check PASSED, G1–G8 đạt, 0 open action: ưu tiên chấm thật (thường ≥88), không hạ điểm giả để ép MAJOR.",
               ].join("\n")
             : "";
         const finalReview = await chatCompletion(
@@ -1447,9 +1498,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
         const nextState = result.publishReady
           ? WorkflowState.FINAL_REVIEWED
-          : (result.totalScore ?? 0) < 80 || (result.insightScore ?? 0) < 22
+          : (result.totalScore ?? 0) < 75 ||
+              (result.insightScore ?? 0) < TFES_CONTRACT.finalReview.minimumInsightScore
             ? WorkflowState.REWRITE_REQUIRED
-            : (result.totalScore ?? 0) < 90
+            : (result.totalScore ?? 0) < 85
               ? WorkflowState.MAJOR_REVISION_REQUIRED
               : WorkflowState.MINOR_REVISION_REQUIRED;
         const nextKr = `${article.knowledgeRecord ?? ""}\n\n## Final Verification (pipeline)\n${finalReview}${result.publishReady ? `\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
@@ -1744,6 +1796,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           try {
             const cleanedExisting = toReaderCleanPublish(article.cleanPublish!);
             assertCleanPublishQuality(cleanedExisting, prefs);
+            assertEngineeringGoldBar({
+              domain: article.domain,
+              body: cleanedExisting,
+              researchBrief: article.researchBrief,
+            });
             const skipCheck = editorialSelfCheck({
               researchBrief: article.researchBrief,
               insightGate: article.insightGate,
@@ -2129,6 +2186,7 @@ export async function approveArticle(
     editorialScore?: number;
     checklist?: string[];
     reviewFindingsAck?: string[];
+    goldBarOverride?: boolean;
   },
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
@@ -2184,12 +2242,38 @@ export async function approveArticle(
   }
   assertFinalVerificationPassed(article.knowledgeRecord, article.factCheck);
 
+  const goldBar = inspectEngineeringGoldBar({
+    domain: article.domain,
+    body: article.cleanPublish,
+    researchBrief: article.researchBrief,
+  });
+  if (goldBar.applicable && !goldBar.ok) {
+    if (!opts?.goldBarOverride) {
+      throw new Error(
+        `Chuẩn vàng Engineering chưa đạt (${goldBar.failures.map((f) => f.id).join(", ")}). ` +
+          `Sửa bản sạch hoặc tick Override kèm ghi chú ≥20 ký tự. ` +
+          goldBar.failures.map((f) => f.message).join(" · "),
+      );
+    }
+    if (!(notes?.trim() && notes.trim().length >= 20)) {
+      throw new Error(
+        "Override chuẩn vàng Engineering cần ghi chú ≥20 ký tự (vì sao vẫn duyệt).",
+      );
+    }
+  }
+
   const scoreNote = `Điểm biên tập: ${score}/5`;
   const reviewAckNote =
     findings.length > 0
       ? `Review AI ack: ${findings.map((f) => f.id).join(", ")}`
       : "";
-  const mergedNotes = [notes?.trim(), scoreNote, reviewAckNote].filter(Boolean).join("\n");
+  const goldOverrideNote =
+    goldBar.applicable && !goldBar.ok && opts?.goldBarOverride
+      ? `GOLD_BAR override: ${goldBar.failures.map((f) => f.id).join(", ")}`
+      : "";
+  const mergedNotes = [notes?.trim(), scoreNote, reviewAckNote, goldOverrideNote]
+    .filter(Boolean)
+    .join("\n");
 
   const approvedAt = new Date();
   const updated = await transitionArticle({
@@ -2204,7 +2288,12 @@ export async function approveArticle(
       reviewerNotes: mergedNotes || null,
       approvedAt,
     },
-    details: { editorialScore: score, approvedAt: approvedAt.toISOString() },
+    details: {
+      editorialScore: score,
+      approvedAt: approvedAt.toISOString(),
+      goldBarOverride: Boolean(opts?.goldBarOverride && goldBar.applicable && !goldBar.ok),
+      goldBarFailures: goldBar.failures.map((f) => f.id),
+    },
   });
 
   if (article.title) {

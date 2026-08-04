@@ -6,7 +6,8 @@ export const TFES_CONTRACT = {
   operatingPromptVersion: "1.6",
   artifactSchemaVersion: "1.0",
   finalReview: {
-    minimumTotalScore: 95,
+    /** Pass band: ≥90 (trước đây 95 — quá chặt khiến hầu hết lần đầu rơi MINOR → đốt Fact-check lại). */
+    minimumTotalScore: 90,
     minimumInsightScore: 22,
     requiredGateCount: 8,
   },

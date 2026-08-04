@@ -39,8 +39,19 @@ export function readTfesFile(relativePath: string): string {
  * Operating-Prompt.md (full) + Domain Profile đầy đủ (tông, tier nguồn, sensitivity, seed…).
  */
 export function getSystemPrompt(domain: string): string {
+  const id = resolveDomainId(domain);
   const operating = readTfesFile("02-Prompts/Operating-Prompt.md");
   const domainProfile = resolveAndValidateDomainProfile(domain, readTfesFile).content;
+  const engineeringBar =
+    id === "engineering"
+      ? `
+
+## CHUẨN VÀNG ENGINEERING (bắt buộc khi viết / polish)
+- Anti-generic: CẤM mở “Trong môi trường/Ngày nay/ngày càng phức tạp” và khuôn sprint–fintech.
+- Thực tế: ≥1 mini-case vận hành (pipeline/rollback/on-call/…) có chủ ngữ đội/người; tín hiệu lấy từ Research.
+- Đúng một chỗ “khi nào KHÔNG”; Recommendations luôn có điều kiện (khi/nếu/trừ khi).
+- Bám nhịp gold_samples Engineering — không copy nguyên văn.`
+      : "";
 
   return `${operating}
 
@@ -49,6 +60,7 @@ export function getSystemPrompt(domain: string): string {
 ## DOMAIN PROFILE (active — bắt buộc tuân thủ)
 
 ${domainProfile}
+${engineeringBar}
 
 ---
 
@@ -445,7 +457,7 @@ ${articleTpl}`,
 Đọc đúng Editorial Review, Fact-Check Ledger và bản nháp trong CONTEXT. Khóa điểm Evidence; không suy đoán claim đã được sửa nếu CONTEXT không chứng minh.
 
 Điều kiện duy nhất để đạt (FINAL_REVIEWED):
-- Tổng ≥95/100; Insight Depth ≥22/30
+- Tổng ≥90/100; Insight Depth ≥22/30
 - G1–G8 đều PASSED
 - Verification Status của Fact Check đúng bằng PASSED
 - Không còn Unsupported/Contradicted/Unverifiable blocking claim
@@ -454,12 +466,13 @@ ${articleTpl}`,
 ## Chấm điểm — bắt buộc trung thực
 - Điền rubric thật (Insight/Evidence/Craft/…) rồi cộng TOTAL. CẤM xuất FINAL_TOTAL_SCORE: 0 và FINAL_INSIGHT_SCORE: 0 trừ khi CONTEXT không có bản nháp.
 - Nếu Fact Check trong CONTEXT là PASSED và bài đã có draft: Insight Depth tối thiểu phản ánh Gate L2 đã qua (thường ≥18); không được ghi 0.
+- Khi Fact Check PASSED + G1–G8 đạt + 0 open action: chấm trung thực — bài đạt bar thường ≥88–92; không cố ý hạ điểm để ép MAJOR/REWRITE.
 - FINAL_DECISION phải khớp band điểm (không dùng chữ PUBLISH_READY):
-  - FINAL_REVIEWED — tổng ≥95 và insight ≥22 và G1–G8 PASSED
-  - MINOR_REVISION_REQUIRED — tổng 90–94
-  - MAJOR_REVISION_REQUIRED — tổng 80–89
-  - REWRITE_REQUIRED — tổng <80 hoặc insight <22
-- Nếu kết luận narrative là MAJOR thì TOTAL phải nằm 80–89, không ghi 0.
+  - FINAL_REVIEWED — tổng ≥90 và insight ≥22 và G1–G8 PASSED
+  - MINOR_REVISION_REQUIRED — tổng 85–89
+  - MAJOR_REVISION_REQUIRED — tổng 75–84
+  - REWRITE_REQUIRED — tổng <75 hoặc insight <22
+- Nếu kết luận narrative là MAJOR thì TOTAL phải nằm 75–84, không ghi 0.
 
 Xuất Review.md pha FINAL_VERIFICATION và BẮT BUỘC kết thúc bằng đúng 5 dòng máy đọc, **mỗi trường một dòng riêng**:
 FINAL_TOTAL_SCORE: <0-100>

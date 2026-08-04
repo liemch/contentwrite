@@ -61,3 +61,19 @@ Nhịp: quyết định mất dấu → ADR như hợp đồng với tương lai
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Engineering):
+
+**CẤM**
+- Mở giáo trình: “Trong môi trường/bối cảnh…”, “Ngày nay,”, “ngày càng phức tạp…”
+- Khuôn nhà máy lặp: “Trong một sprint…”, “đội … của một công ty fintech/startup”
+- Checklist brochure: “Cần áp dụng các biện pháp sau”, liệt kê 7 lợi ích không điều kiện
+- Mini-case bịa không có tín hiệu trong Research Brief
+
+**BẮT BUỘC**
+- Hook theo nhịp gold_samples (nghịch lý vận hành / failure+metric / quyết định mất dấu)
+- ≥1 mini-case vận hành cụ thể (pipeline, rollback, on-call, latency, ADR…) có chủ ngữ đội/người
+- Đúng **một** chỗ “khi nào KHÔNG nên”
+- Practical recommendations luôn kèm điều kiện (khi / nếu / trừ khi / chỉ khi)
+- Case và số liệu neo Research — không bịa tên công ty / incident cho “có vẻ thật”

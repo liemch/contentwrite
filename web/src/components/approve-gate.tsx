@@ -4,6 +4,11 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { parseEditorialFindings } from "@/lib/tfes/human-review";
+import {
+  GOLD_BAR_CHECK_LABELS,
+  inspectEngineeringGoldBar,
+  type GoldBarCheckId,
+} from "@/lib/tfes/engineering-gold-bar";
 
 const SCORE_LABELS: Record<number, string> = {
   1: "Yếu — nên sửa / rewrite trước khi đăng",
@@ -19,11 +24,15 @@ type ApproveGateProps = {
   notes: string;
   onNotesChange: (value: string) => void;
   knowledgeRecord?: string | null;
+  domain?: string | null;
+  cleanPublish?: string | null;
+  researchBrief?: string | null;
   onApprove: (opts: {
     allowWithoutHero?: boolean;
     editorialScore: number;
     checklist?: string[];
     reviewFindingsAck?: string[];
+    goldBarOverride?: boolean;
   }) => void | Promise<void>;
   onPublish: () => void | Promise<void>;
   status: "PUBLISH_READY" | "APPROVED" | string;
@@ -35,11 +44,16 @@ export function ApproveGate({
   notes,
   onNotesChange,
   knowledgeRecord,
+  domain,
+  cleanPublish,
+  researchBrief,
   onApprove,
   onPublish,
   status,
 }: ApproveGateProps) {
   const [reviewAck, setReviewAck] = useState<Record<string, boolean>>({});
+  const [goldAck, setGoldAck] = useState<Record<string, boolean>>({});
+  const [goldBarOverride, setGoldBarOverride] = useState(false);
   const [score, setScore] = useState<number>(0);
 
   const findings = useMemo(
@@ -47,22 +61,53 @@ export function ApproveGate({
     [knowledgeRecord],
   );
 
+  const goldBar = useMemo(
+    () =>
+      inspectEngineeringGoldBar({
+        domain,
+        body: cleanPublish,
+        researchBrief,
+      }),
+    [domain, cleanPublish, researchBrief],
+  );
+
+  const goldFailures = goldBar.applicable ? goldBar.failures : [];
+  const goldNeedsAttention = goldFailures.length > 0;
+  const allGoldAck =
+    !goldNeedsAttention || goldFailures.every((f) => goldAck[f.id]);
+  const overrideNotesOk = !goldBarOverride || notes.trim().length >= 20;
+
   const allFindingsAck =
     findings.length === 0 || findings.every((f) => reviewAck[f.id]);
-  const notesOk = score >= 3 || notes.trim().length >= 8;
+  const notesOk =
+    (score >= 3 || notes.trim().length >= 8) && overrideNotesOk;
+  // Khi còn fail: phải override + ack từng mục + ghi chú
+  const goldGateOk =
+    !goldNeedsAttention || (goldBarOverride && allGoldAck && overrideNotesOk);
   const canApprove =
-    allFindingsAck && score >= 1 && score <= 5 && notesOk && !running;
+    allFindingsAck &&
+    goldGateOk &&
+    score >= 1 &&
+    score <= 5 &&
+    notesOk &&
+    !running;
 
   function toggleFinding(id: string) {
     setReviewAck((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  function toggleGold(id: GoldBarCheckId) {
+    setGoldAck((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
   function submit(allowWithoutHero?: boolean) {
-    if (!canApprove) return;
+    if (!allFindingsAck || !goldGateOk || score < 1 || score > 5 || !notesOk) return;
     void onApprove({
       allowWithoutHero,
       editorialScore: score,
       reviewFindingsAck: findings.filter((f) => reviewAck[f.id]).map((f) => f.id),
+      goldBarOverride: goldNeedsAttention ? goldBarOverride : undefined,
+      checklist: goldFailures.filter((f) => goldAck[f.id]).map((f) => f.id),
     });
   }
 
@@ -74,7 +119,8 @@ export function ApproveGate({
             Cổng duyệt
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            Quyết định thật: chấm điểm + (nếu có) đối chiếu Review AI. Hook / case / fact đã do
+            Quyết định thật: chấm điểm + (nếu có) đối chiếu Review AI
+            {goldBar.applicable ? " + chuẩn vàng Engineering" : ""}. Hook / case / fact đã do
             pipeline + tab Fact chặn trước.
           </p>
         </div>
@@ -87,6 +133,56 @@ export function ApproveGate({
               Chưa có hero image — gen FLUX/Qwen ở panel trên trước khi duyệt (hoặc Duyệt không
               ảnh).
             </div>
+          )}
+
+          {goldBar.applicable && goldNeedsAttention && (
+            <div className="mt-5 space-y-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+                Chuẩn vàng Engineering — chưa đạt ({goldFailures.length})
+              </p>
+              <p className="text-xs text-[var(--ink-muted)]">
+                Sửa bản sạch (Polish) rồi duyệt lại, hoặc tick từng mục + Override kèm ghi chú ≥20
+                ký tự.
+              </p>
+              {goldFailures.map((f) => (
+                <label
+                  key={f.id}
+                  className="flex cursor-pointer gap-3 rounded-xl border border-[var(--line)] bg-white/80 px-3.5 py-3 transition hover:border-[var(--line-strong)]"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 accent-[var(--accent)]"
+                    checked={Boolean(goldAck[f.id])}
+                    onChange={() => toggleGold(f.id)}
+                    disabled={running}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-[var(--ink)]">
+                      {GOLD_BAR_CHECK_LABELS[f.id]}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-[var(--ink-faint)]">{f.message}</span>
+                  </span>
+                </label>
+              ))}
+              <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-[rgba(180,83,9,0.35)] bg-white/70 px-3.5 py-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-[var(--accent)]"
+                  checked={goldBarOverride}
+                  onChange={(e) => setGoldBarOverride(e.target.checked)}
+                  disabled={running || !allGoldAck}
+                />
+                <span className="text-sm text-[var(--ink)]">
+                  Override — vẫn duyệt dù chưa đạt chuẩn vàng (bắt buộc ghi chú ≥20 ký tự)
+                </span>
+              </label>
+            </div>
+          )}
+
+          {goldBar.applicable && !goldNeedsAttention && (
+            <p className="mt-4 text-xs font-medium text-[var(--success,#166534)]">
+              Chuẩn vàng Engineering: đạt (máy)
+            </p>
           )}
 
           {findings.length > 0 && (
@@ -151,16 +247,23 @@ export function ApproveGate({
 
       <div className="mt-4">
         <Label htmlFor="notes">
-          Ghi chú reviewer{score > 0 && score <= 2 ? " (bắt buộc khi điểm ≤2)" : " (tuỳ chọn)"}
+          Ghi chú reviewer
+          {goldBarOverride
+            ? " (bắt buộc ≥20 ký tự khi Override chuẩn vàng)"
+            : score > 0 && score <= 2
+              ? " (bắt buộc khi điểm ≤2)"
+              : " (tuỳ chọn)"}
         </Label>
         <Textarea
           id="notes"
           value={notes}
           onChange={(e) => onNotesChange(e.target.value)}
           placeholder={
-            score > 0 && score <= 2
-              ? "Vì sao điểm thấp — cần sửa gì trước khi đăng?"
-              : "Strength / lý do điểm / lưu ý cho lần sau…"
+            goldBarOverride
+              ? "Vì sao vẫn duyệt dù chưa đạt chuẩn vàng Engineering?"
+              : score > 0 && score <= 2
+                ? "Vì sao điểm thấp — cần sửa gì trước khi đăng?"
+                : "Strength / lý do điểm / lưu ý cho lần sau…"
           }
           rows={3}
           disabled={running}
@@ -174,18 +277,22 @@ export function ApproveGate({
               variant="success"
               size="sm"
               busy={running}
-              disabled={!canApprove || !hasHero}
+              disabled={!canApprove || !hasHero || !goldGateOk}
               onClick={() => submit(false)}
               title={
                 !allFindingsAck
                   ? "Tick đủ điểm Review AI còn sót"
-                  : score < 1
-                    ? "Chọn điểm 1–5"
-                    : !notesOk
-                      ? "Ghi chú bắt buộc khi điểm ≤2"
-                      : hasHero
-                        ? "Duyệt bài có hero"
-                        : "Gen hero trước, hoặc dùng «Duyệt không ảnh»"
+                  : goldNeedsAttention && !goldBarOverride
+                    ? "Sửa bản sạch hoặc tick Override chuẩn vàng"
+                    : !goldGateOk
+                      ? "Tick đủ mục GOLD_BAR + ghi chú override"
+                      : score < 1
+                        ? "Chọn điểm 1–5"
+                        : !notesOk
+                          ? "Ghi chú chưa đủ"
+                          : hasHero
+                            ? "Duyệt bài có hero"
+                            : "Gen hero trước, hoặc dùng «Duyệt không ảnh»"
               }
             >
               {running ? "Đang duyệt..." : "Duyệt (Approve)"}
@@ -195,7 +302,7 @@ export function ApproveGate({
                 variant="secondary"
                 size="sm"
                 busy={running}
-                disabled={!canApprove}
+                disabled={!canApprove || !goldGateOk}
                 onClick={() => {
                   if (
                     !window.confirm(
@@ -219,15 +326,21 @@ export function ApproveGate({
         )}
       </div>
 
-      {status === "PUBLISH_READY" && (!canApprove || score < 1) && (
+      {status === "PUBLISH_READY" && (!canApprove || score < 1 || !goldGateOk) && (
         <p className="mt-3 text-xs text-[var(--warm)]">
-          {!allFindingsAck
-            ? `Còn ${findings.filter((f) => !reviewAck[f.id]).length} góp ý Review chưa xác nhận.`
-            : score < 1
-              ? "Chọn điểm biên tập 1–5 — đây là quyết định duyệt."
-              : !notesOk
-                ? "Điểm ≤2 cần ghi chú ngắn (vì sao / cần sửa gì)."
-                : null}
+          {goldNeedsAttention && !goldBarOverride
+            ? `Chuẩn vàng Engineering còn ${goldFailures.length} mục — sửa bản sạch hoặc Override.`
+            : goldBarOverride && !allGoldAck
+              ? "Tick xác nhận từng mục chuẩn vàng trước khi Override."
+              : goldBarOverride && !overrideNotesOk
+                ? "Override cần ghi chú ≥20 ký tự."
+                : !allFindingsAck
+                  ? `Còn ${findings.filter((f) => !reviewAck[f.id]).length} góp ý Review chưa xác nhận.`
+                  : score < 1
+                    ? "Chọn điểm biên tập 1–5 — đây là quyết định duyệt."
+                    : !notesOk
+                      ? "Điểm ≤2 cần ghi chú ngắn (vì sao / cần sửa gì)."
+                      : null}
         </p>
       )}
       {status === "APPROVED" && (

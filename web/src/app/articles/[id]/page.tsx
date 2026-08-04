@@ -197,6 +197,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       editorialScore?: number;
       checklist?: string[];
       reviewFindingsAck?: string[];
+      goldBarOverride?: boolean;
       items?: { id: string; disposition: "fixed" | "accept"; note?: string }[];
       notes?: string;
       correction?: string;
@@ -240,6 +241,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           editorialScore: opts?.editorialScore,
           checklist: opts?.checklist,
           reviewFindingsAck: opts?.reviewFindingsAck,
+          goldBarOverride: opts?.goldBarOverride || undefined,
           items: opts?.items,
           correction: opts?.correction,
           meaningChanged: opts?.meaningChanged,
@@ -398,6 +400,19 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       !isRevisionRemediationExhausted(next.errorMessage)
     ) {
       setActionError(next.errorMessage || "Bài cần revision");
+      // 9b / pre-9b fail: dừng — không tự đốt vòng sửa draft → Fact-check lại.
+      if (
+        /Final Verification chưa đạt|Pre-9b:/i.test(next.errorMessage ?? "")
+      ) {
+        setTab(/Pre-9b|GOLD_BAR/i.test(next.errorMessage ?? "") ? "draft" : "review");
+        pushLog(
+          "warn",
+          /Pre-9b:/i.test(next.errorMessage ?? "")
+            ? "⏸ Pre-9b: draft chưa đạt chuẩn vàng — dừng để sửa trước Khóa Review. Bấm «Chạy bước tiếp» nếu muốn hệ thống tự sửa."
+            : "⏸ Khóa Review (9b) chưa đạt — dừng để anh xem Required Revisions. Bấm «Chạy bước tiếp» nếu muốn hệ thống tự sửa draft (sẽ chạy lại Fact-check).",
+        );
+        return { article: next };
+      }
       pushLog("warn", "→ Tự sửa draft theo Required Revisions rồi chạy lại Review/Fact Check...");
       return { article: next, softContinue: true };
     }
@@ -412,7 +427,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         (isCleanPublishQualityFail(next.errorMessage) ||
           isWritePhaseQualityFail(next.errorMessage))
       ) {
-        pushLog("warn", "⚠ Chất lượng chưa đạt — tự chạy lại bước hiện tại...");
+        pushLog(
+          "warn",
+          /GOLD_BAR:/i.test(next.errorMessage ?? "")
+            ? "⚠ Chuẩn vàng Engineering chưa đạt — tự sửa/chạy lại bước hiện tại..."
+            : "⚠ Chất lượng chưa đạt — tự chạy lại bước hiện tại...",
+        );
         return { article: next, softContinue: true };
       }
       return { article: next };
@@ -966,6 +986,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           notes={notes}
           onNotesChange={setNotes}
           knowledgeRecord={article.knowledgeRecord}
+          domain={article.domain}
+          cleanPublish={article.cleanPublish}
+          researchBrief={article.researchBrief}
           onApprove={(opts) => {
             void callAction("approve", opts);
           }}

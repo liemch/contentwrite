@@ -51,10 +51,10 @@ generated_at: <ISO-8601>
 ## Decision
 > Runtime đọc `FINAL_DECISION` (machine lines). Dùng đúng enum dưới — **không** ghi `PUBLISH_READY` ở bước 9b (`PUBLISH_READY` là state sau Polish + Reader Sim).
 
-- `FINAL_REVIEWED`: tổng ≥95, Insight Depth ≥22, G1–G8 đạt, Fact Check `PASSED`, không còn action mở.
-- `MINOR_REVISION_REQUIRED`: 90–94 hoặc chỉ còn lỗi không đổi luận điểm.
-- `MAJOR_REVISION_REQUIRED`: 80–89 hoặc Fact Check `MINOR_ISSUE/MAJOR_ISSUE`.
-- `REWRITE_REQUIRED`: <80, Insight <22, hoặc Fact Check `FAILED`.
+- `FINAL_REVIEWED`: tổng ≥90, Insight Depth ≥22, G1–G8 đạt, Fact Check `PASSED`, không còn action mở.
+- `MINOR_REVISION_REQUIRED`: 85–89 hoặc chỉ còn lỗi không đổi luận điểm.
+- `MAJOR_REVISION_REQUIRED`: 75–84 hoặc Fact Check `MINOR_ISSUE/MAJOR_ISSUE`.
+- `REWRITE_REQUIRED`: <75, Insight <22, hoặc Fact Check `FAILED`.
 
 Machine lines (mỗi trường một dòng, cuối file; CẤM TOTAL=0 và INSIGHT=0 khi đã có draft + Fact Check PASSED):
 ```

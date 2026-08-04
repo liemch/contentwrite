@@ -45,6 +45,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       editorialScore?: number;
       checklist?: string[];
       reviewFindingsAck?: string[];
+      goldBarOverride?: boolean;
       items?: HumanReviewItem[];
       factClaims?: Array<{
         id: string;
@@ -92,6 +93,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           editorialScore: body.editorialScore,
           checklist: body.checklist,
           reviewFindingsAck: body.reviewFindingsAck,
+          goldBarOverride: Boolean(body.goldBarOverride),
         });
         return NextResponse.json({ article: next });
       }

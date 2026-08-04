@@ -71,12 +71,13 @@ function decisionConsistentWithScores(
         insightScore >= TFES_CONTRACT.finalReview.minimumInsightScore
       );
     case "MINOR_REVISION_REQUIRED":
-      return totalScore >= 90 && totalScore < TFES_CONTRACT.finalReview.minimumTotalScore;
+      // 85–89: lỗi nhỏ không đổi luận điểm
+      return totalScore >= 85 && totalScore < TFES_CONTRACT.finalReview.minimumTotalScore;
     case "MAJOR_REVISION_REQUIRED":
-      return totalScore >= 80 && totalScore < 90;
+      return totalScore >= 75 && totalScore < 85;
     case "REWRITE_REQUIRED":
       return (
-        totalScore < 80 ||
+        totalScore < 75 ||
         insightScore < TFES_CONTRACT.finalReview.minimumInsightScore
       );
     default:
