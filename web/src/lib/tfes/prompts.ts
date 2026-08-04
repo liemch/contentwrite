@@ -175,6 +175,7 @@ type PipelineStep =
   | "write-b"
   | "finalize-review"
   | "finalize-a"
+  | "finalize-verify"
   | "finalize-b"
   | "finalize-polish"
   | "finalize-human-polish"
@@ -370,14 +371,14 @@ ${BLOG_NEWS_VOICE}
 
 ${articleTpl}`,
 
-    "finalize-review": `## Nhiệm vụ bước 8: REVIEW (AI-TFES Operating Prompt §6)
-Tự review bản nháp 12 phần theo tiêu chí — CHƯA Fact-Check Ledger / Bản sạch / Hero.
+    "finalize-review": `## Nhiệm vụ bước 8: EDITORIAL REVIEW (AI-TFES v1.6)
+Tự review bản nháp theo pha EDITORIAL_REVIEW — CHƯA Fact-Check Ledger / Bản sạch / Hero. Evidence bắt buộc ghi PROVISIONAL.
 
 Phải đạt hết (ghi Pass/Fail từng mục):
 - Cấu trúc đầy đủ (12 phần Article.md)
 - Không lỗi logic
 - Đủ bằng chứng
-- ≥3 insight + ≥1 trade-off + ≥1 góc phản biện + ≥1 bài học
+- Một insight trung tâm ≥L2 + ≥1 trade-off + ≥1 góc phản biện + ≥1 bài học
 - Giá trị thực tiễn (biết nên / không nên làm gì)
 - Có câu hỏi thảo luận — chỉ Fail nếu shape bắt buộc discussion mà thiếu
 - Không quảng bá · Không sao chép
@@ -385,7 +386,7 @@ Phải đạt hết (ghi Pass/Fail từng mục):
 - **Nhịp đọc:** Fail nếu listicle đánh số (Hook/Khi nào nên/Framework…), mục “không nên” lặp, hoặc các phần không nối với nhau
 - **Đa dạng format:** Pass nếu nháp chuẩn bị được bản sạch theo ARTICLE_SHAPE
 
-Xuất theo template Review.md. Kết luận: Publish / Minor Revision / Major Revision / Rewrite.
+Xuất theo template Review.md với review_phase: EDITORIAL_REVIEW. Kết luận dùng đúng enum EDITORIAL_REVIEWED / MINOR_REVISION_REQUIRED / MAJOR_REVISION_REQUIRED / REWRITE_REQUIRED.
 Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist).
 
 ${shape}
@@ -402,6 +403,25 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 
 ${factTpl}`,
+
+    "finalize-verify": `## Nhiệm vụ bước 9b: FINAL VERIFICATION GATE (AI-TFES v1.6)
+Đọc đúng Editorial Review, Fact-Check Ledger và bản nháp trong CONTEXT. Khóa điểm Evidence; không suy đoán claim đã được sửa nếu CONTEXT không chứng minh.
+
+Điều kiện duy nhất để đạt:
+- Tổng ≥95/100; Insight Depth ≥22/30
+- G1–G8 đều PASSED
+- Verification Status của Fact Check đúng bằng PASSED
+- Không còn Unsupported/Contradicted/Unverifiable blocking claim
+- Không còn required action mở
+
+Xuất Review.md pha FINAL_VERIFICATION và BẮT BUỘC kết thúc bằng đúng 5 dòng máy đọc:
+FINAL_TOTAL_SCORE: <0-100>
+FINAL_INSIGHT_SCORE: <0-30>
+GATES_G1_G8: <PASSED|FAILED>
+OPEN_REQUIRED_ACTIONS: <số nguyên>
+FINAL_DECISION: <FINAL_REVIEWED|MINOR_REVISION_REQUIRED|MAJOR_REVISION_REQUIRED|REWRITE_REQUIRED>
+
+${reviewTpl}`,
 
     "finalize-b": `## Nhiệm vụ bước 10: PUBLISH READY — BẢN ĐỌC LIỀN (đăng tin)
 Viết LẠI từ nháp 12 phần thành bài hoàn chỉnh cho mọi người đọc. Không copy skeleton Article.md / listicle.

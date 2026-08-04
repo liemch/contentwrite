@@ -1,5 +1,8 @@
 # Domain Profile: AI / ML ứng dụng (LLM systems)
 
+## profile_version
+1.6
+
 Chỉ khai báo phần khác biệt so với `engineering.md`.
 
 ## identity
@@ -50,3 +53,7 @@ Tránh: liệt kê “5 dấu hiệu nên dùng agent” kiểu checklist.
 Mở: “Retrieval trả về đúng document — nhưng sai đoạn, vì chunk cắt ngang giữa câu điều kiện. Không ai biết, vì eval chỉ đo có tìm ra document hay không.”
 Nhịp: câu trả lời sai nhưng metric xanh → cơ chế (chunking boundary mất ngữ cảnh) → mini-case incident trả lời sai nhưng retrieval “pass” → trade-off chunk lớn (giữ ngữ cảnh) vs nhỏ (retrieval chính xác hơn) → guardrail: eval phải đo tận câu trả lời, không chỉ retrieval → câu hỏi mở cho team.
 Tránh: liệt kê “3 chiến lược chunking” như tutorial.
+
+
+## gold_sample_guardrail
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

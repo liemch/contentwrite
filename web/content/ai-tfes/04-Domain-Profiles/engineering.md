@@ -1,5 +1,8 @@
 # Domain Profile: Engineering (mặc định)
 
+## profile_version
+1.6
+
 Hồ sơ miền gốc của AI-TFES. Đây là giá trị mặc định — các hồ sơ khác chỉ cần khai báo phần khác biệt so với hồ sơ này.
 
 ## identity
@@ -54,3 +57,7 @@ Tránh: liệt kê “3 trụ logs/metrics/traces” như giáo trình.
 ### Sample C — ADR
 Mở: “Cuộc họp kiến trúc kết thúc bằng ‘mọi người đồng ý’ — sáu tháng sau không ai nhớ đã từ chối phương án nào.”
 Nhịp: quyết định mất dấu → ADR như hợp đồng với tương lai → case team 8 người → khi ADR trở thành nghi lễ → hành động hẹp.
+
+
+## gold_sample_guardrail
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

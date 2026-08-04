@@ -2,6 +2,7 @@ import {
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
+  FINAL_REVIEW_DONE_MARK,
   READER_SIM_DONE_MARK,
   REVIEW_DONE_MARK,
   WRITE_DONE_MARK,
@@ -22,7 +23,10 @@ export const TFES_TRACKER_STEPS = [
   { id: "7", label: "7. Writing", short: "Viết bài" },
   { id: "8", label: "8. Review (AI + người)", short: "Review" },
   { id: "9", label: "9. Fact Check", short: "Fact-check" },
-  { id: "10", label: "10. Publish Ready", short: "Xuất bản" },
+  { id: "9b", label: "9b. Final Verification", short: "Khóa review" },
+  { id: "10", label: "10. Publish Package", short: "Bản đăng" },
+  { id: "10b", label: "10b. Polish", short: "Polish" },
+  { id: "10c", label: "10c. Reader Simulation", short: "Độc giả" },
 ] as const;
 
 export type TfesTrackerId = (typeof TFES_TRACKER_STEPS)[number]["id"];
@@ -76,9 +80,10 @@ function finalizeArtifactsIndex(article: {
   if (!reviewDone) return 8;
   if (isAwaitingHumanReview({ knowledgeRecord: knowledge, factCheck: fact })) return 8;
   if (!fact.trim()) return 9;
-  if (clean.length < 80) return 10;
-  if (!clean.includes("<!--TFES_CLEAN_POLISHED-->")) return 10;
-  if (!knowledge.includes(READER_SIM_DONE_MARK)) return 10;
+  if (!knowledge.includes(FINAL_REVIEW_DONE_MARK)) return 10;
+  if (clean.length < 80) return 11;
+  if (!clean.includes("<!--TFES_CLEAN_POLISHED-->")) return 12;
+  if (!knowledge.includes(READER_SIM_DONE_MARK)) return 13;
   return TFES_TRACKER_STEPS.length;
 }
 
@@ -146,8 +151,6 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
   }
 
   const brief = article.researchBrief ?? "";
-  const clean = article.cleanPublish ?? "";
-  const knowledge = article.knowledgeRecord ?? "";
   const retries = gateRetryCount(article.insightGate);
   const retryNote = retries > 0 && idx <= 4 ? ` · sau Gate fail lần ${retries}` : "";
 
@@ -157,14 +160,10 @@ export function resolveMicroStepLabel(article: ArticleLike): string {
   if (brief.includes(SEARCH_MARK)) {
     return "3–4 · Verification + Synthesis";
   }
-  if (idx === 10 && clean.trim().length >= 80) {
-    if (!clean.includes("<!--TFES_CLEAN_POLISHED-->")) {
-      return "10b · Polish bản sạch";
-    }
-    if (!knowledge.includes(READER_SIM_DONE_MARK)) {
-      return "10c · Reader Simulation";
-    }
-  }
+  if (idx === 10) return "9b · Final Verification — khóa Evidence";
+  if (idx === 11) return "10 · Tạo Publish Package";
+  if (idx === 12) return "10b · Polish bản sạch";
+  if (idx === 13) return "10c · Reader Simulation";
 
   const step = TFES_TRACKER_STEPS[idx];
   return `${step.label}${retryNote}`;

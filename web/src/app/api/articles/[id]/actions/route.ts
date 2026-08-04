@@ -4,9 +4,12 @@ import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   approveArticle,
+  applyCorrection,
   confirmHumanReview,
   polishFromHumanEdits,
   publishArticle,
+  requestCorrection,
+  retractArticle,
   resetWorkflow,
   runWorkflowStep,
   saveFactHumanVerdicts,
@@ -33,7 +36,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         | "publish"
         | "confirm-human-review"
         | "polish-human-edits"
-        | "save-fact-verdicts";
+        | "save-fact-verdicts"
+        | "request-correction"
+        | "apply-correction"
+        | "retract";
       notes?: string;
       allowWithoutHero?: boolean;
       editorialScore?: number;
@@ -45,6 +51,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         humanDisposition: "fixed" | "accept" | "pending";
         note?: string;
       }>;
+      correction?: string;
+      meaningChanged?: boolean;
     };
 
     switch (body.action) {
@@ -79,7 +87,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ article: next });
       }
       case "approve": {
-        const next = await approveArticle(id, body.notes, {
+        const next = await approveArticle(id, user.userId, body.notes, {
           allowWithoutHero: Boolean(body.allowWithoutHero),
           editorialScore: body.editorialScore,
           checklist: body.checklist,
@@ -89,6 +97,23 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
       case "publish": {
         const next = await publishArticle(id);
+        return NextResponse.json({ article: next });
+      }
+      case "request-correction": {
+        const next = await requestCorrection(id, body.correction ?? "", user.userId);
+        return NextResponse.json({ article: next });
+      }
+      case "apply-correction": {
+        const next = await applyCorrection(
+          id,
+          body.correction ?? "",
+          Boolean(body.meaningChanged),
+          user.userId,
+        );
+        return NextResponse.json({ article: next });
+      }
+      case "retract": {
+        const next = await retractArticle(id, body.correction ?? "", user.userId);
         return NextResponse.json({ article: next });
       }
       default:

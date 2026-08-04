@@ -11,6 +11,8 @@ export const INSIGHT_DECISION_MARK = "<!--TFES_INSIGHT_DECISION-->";
 export const INSIGHT_DONE_MARK = "<!--TFES_INSIGHT_DONE-->";
 /** Review checklist xong (bước 8) — lưu kèm knowledgeRecord tạm (giữ sau Publish để Polish đọc) */
 export const REVIEW_DONE_MARK = "<!--TFES_REVIEW_DONE-->";
+/** Final Verification đã khóa Evidence và đạt mọi điều kiện v1.6. */
+export const FINAL_REVIEW_DONE_MARK = "<!--TFES_FINAL_REVIEW_DONE-->";
 /** AI Review xong — chờ người xác nhận Fail/Minor trước Fact-check */
 export const HUMAN_REVIEW_PENDING_MARK = "<!--TFES_HUMAN_REVIEW_PENDING-->";
 /** Người đã xác nhận Review (kèm ## Human Review bên dưới) */
@@ -188,12 +190,20 @@ export function mergeKnowledgeWithPriorReview(
   knowledgeRecord: string | null | undefined,
   priorReview: string | null | undefined,
 ): string {
+  const existing = knowledgeRecord ?? "";
+  const finalVerification = existing.match(
+    /##\s*Final Verification \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i,
+  )?.[0]?.trim();
   const base = stripPipelineMarks(knowledgeRecord)
     .replace(/\n+##\s*Editorial Review \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i, "")
     .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
     .trim();
   const rev = (priorReview ?? "").trim();
-  if (!rev) return base;
+  if (!rev) {
+    return finalVerification
+      ? `${base}\n\n${finalVerification}\n\n${FINAL_REVIEW_DONE_MARK}`.trim()
+      : base;
+  }
   const clipped = rev.length > 2_800 ? `${rev.slice(0, 2_800)}\n…` : rev;
-  return `${base}\n\n${PRIOR_REVIEW_HEADING}\n${clipped}\n\n${REVIEW_DONE_MARK}`.trim();
+  return `${base}\n\n${PRIOR_REVIEW_HEADING}\n${clipped}\n\n${REVIEW_DONE_MARK}${finalVerification ? `\n\n${finalVerification}\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
 }

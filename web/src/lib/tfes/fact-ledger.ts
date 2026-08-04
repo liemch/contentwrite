@@ -37,7 +37,7 @@ export function parseFactClaims(factCheck: string | null | undefined): FactClaim
   for (const line of lines) {
     const t = line.trim();
     if (!t.startsWith("|")) continue;
-    if (/^\|\s*-+/.test(t) || /\|\s*#\s*\|/i.test(t) || /Khẳng định/i.test(t)) continue;
+    if (/^\|\s*-+/.test(t) || /Claim ID/i.test(t) || /Khẳng định/i.test(t)) continue;
 
     const cells = t
       .replace(/^\|/, "")
@@ -46,18 +46,19 @@ export function parseFactClaims(factCheck: string | null | undefined): FactClaim
       .map((c) => c.trim());
 
     if (cells.length < 5) continue;
-    const index = Number(cells[0]) || claims.length + 1;
-    const claim = cells[1];
+    const isV16 = cells.length >= 10 && /^C[-_ ]?\d+/i.test(cells[0]);
+    const index = Number(cells[0].match(/\d+/)?.[0]) || claims.length + 1;
+    const claim = isV16 ? cells[2] : cells[1];
     if (!claim || claim.length < 8) continue;
 
     claims.push({
       id: slugClaim(claim, index),
       index,
       claim,
-      kind: cells[2] || "",
-      source: cells[3] || "",
-      aiVerdict: cells[4] || "",
-      action: cells[5] || "",
+      kind: cells[isV16 ? 3 : 2] || "",
+      source: cells[isV16 ? 5 : 3] || "",
+      aiVerdict: cells[isV16 ? 8 : 4] || "",
+      action: cells[isV16 ? 10 : 5] || "",
     });
   }
 

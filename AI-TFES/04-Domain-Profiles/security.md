@@ -1,5 +1,8 @@
 # Domain Profile: Security (AppSec & secure engineering)
 
+## profile_version
+1.6
+
 Chỉ khai báo phần khác biệt so với `engineering.md`.
 
 ## identity
@@ -50,3 +53,7 @@ Tránh: liệt kê “5 lớp phòng thủ” như slide compliance.
 Mở: “Secret được rotate đúng lịch — nhưng log CI vẫn in ra giá trị cũ mỗi lần build, vì không ai kiểm tra lại sau khi thêm bước debug.”
 Nhịp: tưởng rotation đã xong → cơ chế (leak qua kênh phụ: log, cache, artifact) → mini-case phát hiện qua audit ngẫu nhiên → khi nào chấp nhận rủi ro thấp hơn (môi trường nội bộ, không internet-facing) → hệ quả: rotation không đủ, phải audit cả đường đi của secret.
 Tránh: liệt kê “best practice quản lý secrets” chung chung.
+
+
+## gold_sample_guardrail
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

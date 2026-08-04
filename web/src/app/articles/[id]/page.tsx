@@ -32,6 +32,8 @@ type Article = {
   topic: string | null;
   domain: string;
   status: string;
+  workflowState: string;
+  workflowRunId: string;
   currentStep: string | null;
   errorMessage: string | null;
   publishFormat?: string | null;
@@ -148,7 +150,15 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   }, [load]);
 
   async function callAction(
-    action: "run-step" | "reset" | "approve" | "publish" | "confirm-human-review",
+    action:
+      | "run-step"
+      | "reset"
+      | "approve"
+      | "publish"
+      | "confirm-human-review"
+      | "request-correction"
+      | "apply-correction"
+      | "retract",
     opts?: {
       allowWithoutHero?: boolean;
       editorialScore?: number;
@@ -156,6 +166,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       reviewFindingsAck?: string[];
       items?: { id: string; disposition: "fixed" | "accept"; note?: string }[];
       notes?: string;
+      correction?: string;
+      meaningChanged?: boolean;
     },
   ): Promise<CallActionResult> {
     if (!id) return { article: null };
@@ -196,6 +208,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           checklist: opts?.checklist,
           reviewFindingsAck: opts?.reviewFindingsAck,
           items: opts?.items,
+          correction: opts?.correction,
+          meaningChanged: opts?.meaningChanged,
         }),
       });
     } catch (err) {
@@ -658,6 +672,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               ~{article.targetWordCount} từ (bản sạch)
             </span>
           ) : null}
+          <span
+            className="rounded-full bg-[#eef2ff] px-2.5 py-1 font-semibold text-[#4338ca]"
+            title={`Workflow run: ${article.workflowRunId}`}
+          >
+            v1.6 · {article.workflowState}
+          </span>
           {(article.avoidFormats || "").trim() ? (
             <span
               className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]"
@@ -734,6 +754,51 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           >
             Xoá bài
           </Button>
+        )}
+        {article.workflowState === "PUBLISHED" && (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={running}
+            onClick={() => {
+              const report = window.prompt("Mô tả bằng chứng mới hoặc lỗi cần correction audit:");
+              if (report?.trim()) void callAction("request-correction", { correction: report });
+            }}
+          >
+            Mở correction audit
+          </Button>
+        )}
+        {article.workflowState === "CORRECTION_REQUIRED" && (
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={running}
+              onClick={() => {
+                const correction = window.prompt(
+                  "Dán TOÀN BỘ bản Markdown đã correction (bắt đầu bằng # Title):",
+                );
+                if (!correction?.trim()) return;
+                const meaningChanged = window.confirm(
+                  "Correction này có thay đổi meaning/claim không? OK = có, phải chạy lại Fact Check + Final Verification.",
+                );
+                void callAction("apply-correction", { correction, meaningChanged });
+              }}
+            >
+              Ghi correction
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={running}
+              onClick={() => {
+                const reason = window.prompt("Lý do retract bài:");
+                if (reason?.trim()) void callAction("retract", { correction: reason });
+              }}
+            >
+              Retract
+            </Button>
+          </>
         )}
         <p className="w-full text-[11px] text-[var(--ink-faint)] sm:w-auto sm:ml-auto">
           Timeout / self-check: hệ thống tự chạy lại bước (tối đa ~16 lần). Giữ tab mở khi dùng

@@ -1,5 +1,8 @@
 # Domain Profile: Soft Skills cho đội ngũ kỹ thuật
 
+## profile_version
+1.6
+
 Chỉ khai báo phần khác biệt so với `engineering.md`. Xem Phụ lục C của bộ đặc tả để biết đầy đủ.
 
 ## identity
@@ -27,8 +30,10 @@ Tình huống công sở · hội thoại mẫu · bài tập tự đánh giá �
 ## categories
 Communication · Feedback · Conflict & Difficult Conversations · Influence & Persuasion · Collaboration · Decision-making · Focus & Wellbeing · Career & Growth · Leadership & Mentoring.
 
-## scoring_weights  (điều chỉnh)
-Thêm **Evidence Rigor** (trọng số cao — chặn pseudoscience). Tăng Practical Value & Discussion. Evergreen cao. Thay Engineering Impact bằng **People/Team Impact**.
+## scoring_weights
+Practical Value 20 · Evidence Rigor 20 · People/Team Impact 20 · Evergreen 15 · Learning Value 10 · Discussion 10 · Novelty 5.
+
+> Tổng bắt buộc = 100.
 
 > **Dùng ở Bước 5 (Editorial Decision)** để ưu tiên góc/chủ đề khi có nhiều lựa chọn — KHÔNG dùng thay cho rubric chấm bài ở `Review.md` (Operating Prompt mục 9). `Evidence Rigor` ở đây bổ trợ cho `pseudoscience_blocklist`, không thay thế Fact Check ở Bước 9.
 
@@ -51,3 +56,7 @@ Nhịp: feedback mơ → cơ chế hành vi quan sát được → mini-case 1:1
 ### Sample B — Quyết định
 Mở: “Team bàn 45 phút rồi chọn phương án ‘an toàn nhất’ — không phải vì đúng, vì không ai muốn sở hữu rủi ro của phương án sắc.”
 Nhịp: quyết định ủy thác sợ hãi → khung sở hữu rủi ro → case sprint planning → guardrail → hệ quả.
+
+
+## gold_sample_guardrail
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

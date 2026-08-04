@@ -19,7 +19,7 @@ export const STEP_HINTS: Record<string, string> = {
   RESEARCH: "1–4: Memory → Research → Verification → Synthesis",
   INSIGHT: "Gate L2 → 5 Decision → 6 Planning",
   WRITE: "7 Writing: nửa đầu → nửa sau (12 phần)",
-  FINALIZE: "8 Review → 9 Fact Check → 10 Publish Ready",
+  FINALIZE: "8 Editorial Review → 9 Fact Check → 9b Final Verification → Polish → Reader Simulation",
 };
 
 const STATUS_STYLES: Record<string, string> = {

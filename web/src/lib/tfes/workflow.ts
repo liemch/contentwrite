@@ -1,4 +1,10 @@
-import { ArticleStatus, WorkflowStep, type Article } from "@/generated/prisma/client";
+import {
+  ArticleStatus,
+  ArtifactType,
+  WorkflowState,
+  WorkflowStep,
+  type Article,
+} from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { chatCompletion } from "@/lib/nvidia";
 import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
@@ -10,6 +16,7 @@ import {
   extractEditorialReview,
   gateRetryCount,
   HUMAN_EDIT_MARK,
+  FINAL_REVIEW_DONE_MARK,
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
@@ -25,6 +32,16 @@ import {
   WRITE_DONE_MARK,
   WRITE_HALF_MARK,
 } from "@/lib/tfes/parser";
+import {
+  bootstrapLegacyWorkflowState,
+  latestArtifactRevision,
+  transitionArticle,
+} from "@/lib/tfes/state-machine";
+import {
+  assertFinalVerificationPassed,
+  inspectFinalVerification,
+} from "@/lib/tfes/final-verification";
+import { verificationStatus } from "@/lib/tfes/fact-ledger";
 import {
   applyHumanReviewToKnowledge,
   humanReviewSupportBlock,
@@ -395,14 +412,16 @@ function finalizePhaseOf(article: {
   factCheck?: string | null;
   cleanPublish?: string | null;
   errorMessage?: string | null;
-}): "review" | "await-human" | "fact" | "publish" | "polish" | "reader-sim" | "done" {
+  workflowState?: WorkflowState;
+}): "review" | "await-human" | "fact" | "final-verify" | "publish" | "polish" | "reader-sim" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
   const clean = (article.cleanPublish ?? "").trim();
   const reviewDone = kr.includes(REVIEW_DONE_MARK) || Boolean(fc.trim());
   if (!reviewDone) return "review";
   if (isAwaitingHumanReview(article)) return "await-human";
-  if (!fc.trim()) return "fact";
+  if (!fc.trim() || article.workflowState === WorkflowState.FACT_CHECK_FAILED) return "fact";
+  if (!kr.includes(FINAL_REVIEW_DONE_MARK)) return "final-verify";
   if (clean.length < 80) return "publish";
   // Reader Sim fail → polish lại kèm feedback
   if (article.errorMessage && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
@@ -437,6 +456,7 @@ function failedInsightGate(text: string): boolean {
 
 export async function runWorkflowStep(articleId: string): Promise<Article> {
   await hydrateTfesOverrides();
+  await bootstrapLegacyWorkflowState(articleId);
 
   let article = await prisma.article.findUnique({ where: { id: articleId } });
   if (!article) {
@@ -479,6 +499,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Phase 1: Tavily — ≥3 nguồn, có góc phản biện (AI-TFES)
       if (!existingBrief.includes(SEARCH_MARK)) {
+        const memory = await getEditorialMemory(article.domain, article.seriesId);
+        await transitionArticle({
+          articleId,
+          to: WorkflowState.MEMORY_CHECKED,
+          action: "memory-check",
+          artifact: {
+            type: ArtifactType.MEMORY_CHECK,
+            content: memory || "Không có Knowledge Record gần đây.",
+            domainProfileVersion: `${resolveDomainId(article.domain)}@1.6`,
+          },
+        });
         const queries = [
           `${topic} official documentation architecture best practices`,
           `${topic} trade-offs limitations decisions`,
@@ -509,7 +540,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
         }
 
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             researchBrief: `${SEARCH_MARK}\n${searchBlob}`,
@@ -518,7 +549,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.RESEARCHED,
+          action: "research",
+          artifact: {
+            type: ArtifactType.RESEARCH_BRIEF,
+            content: searchBlob,
+            metadata: { searchHits: hitCount, uniqueUrls: uniqueUrls.size },
+          },
+        });
+        return withTimings(transitioned, {
           searchMs,
           llmMs: 0,
           searchHits: hitCount,
@@ -554,7 +595,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         { maxTokens: 3500 },
       );
 
-      const updated = await prisma.article.update({
+      await prisma.article.update({
         where: { id: articleId },
         data: {
           researchBrief,
@@ -563,7 +604,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           errorMessage: null,
         },
       });
-      return withTimings(updated, {
+      const transitioned = await transitionArticle({
+        articleId,
+        to: WorkflowState.SYNTHESIZED,
+        action: "synthesis",
+        artifact: {
+          type: ArtifactType.RESEARCH_BRIEF,
+          content: researchBrief,
+          domainProfileVersion: `${resolveDomainId(article.domain)}@1.6`,
+        },
+      });
+      return withTimings(transitioned, {
         searchMs: 0,
         llmMs: Date.now() - llmStarted,
         researchPhase: "llm",
@@ -596,7 +647,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
           // Hết lượt research lại → FAILED
           if (nextRetry > MAX_GATE_RESEARCH_RETRIES) {
-            const failed = await prisma.article.update({
+            await prisma.article.update({
               where: { id: articleId },
               data: {
                 insightGate: withGateRetryMark(retries, insightGate.trim()),
@@ -606,6 +657,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
               },
             });
+            const failed = await transitionArticle({
+              articleId,
+              to: WorkflowState.INSIGHT_REJECTED,
+              action: "insight-gate",
+              success: false,
+              details: { retry: nextRetry, reason: "Insight < L2" },
+              artifact: { type: ArtifactType.REVIEW, content: insightGate },
+            });
             return withTimings(failed, {
               llmMs: Date.now() - llmStarted,
               insightPhase: "gate-fail",
@@ -613,7 +672,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           }
 
           // Quay Research: clear brief, giữ phản hồi Gate để đào góc sắc hơn
-          const retried = await prisma.article.update({
+          await prisma.article.update({
             where: { id: articleId },
             data: {
               insightGate: withGateRetryMark(
@@ -631,13 +690,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               errorMessage: `Gate < L2 — nghiên cứu lại góc sắc hơn (lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
             },
           });
+          await transitionArticle({
+            articleId,
+            to: WorkflowState.INSIGHT_REJECTED,
+            action: "insight-gate",
+            success: false,
+            artifact: { type: ArtifactType.REVIEW, content: insightGate },
+          });
+          const retried = await transitionArticle({
+            articleId,
+            to: WorkflowState.RESEARCH_REQUIRED,
+            action: "request-research",
+            details: { retry: nextRetry },
+          });
           return withTimings(retried, {
             llmMs: Date.now() - llmStarted,
             insightPhase: "gate-retry",
           });
         }
 
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             insightGate: withGateRetryMark(
@@ -649,7 +721,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.INSIGHT_APPROVED,
+          action: "insight-gate",
+          artifact: { type: ArtifactType.REVIEW, content: insightGate },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           insightPhase: "gate",
         });
@@ -681,7 +759,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const merged = `${gateOnly}\n\n---\n\n${decision.trim()}\n\n${INSIGHT_DECISION_MARK}`;
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             insightGate: merged,
@@ -690,7 +768,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.DECIDED,
+          action: "editorial-decision",
+          details: { decision },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           insightPhase: "decision",
         });
@@ -721,7 +805,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const merged = `${soFar}\n\n---\n\n${planning.trim()}\n\n${INSIGHT_DONE_MARK}`;
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             insightGate: merged,
@@ -730,7 +814,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.PLANNED,
+          action: "planning",
+          details: { planning },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           insightPhase: "planning",
         });
@@ -831,7 +921,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const merged = sanitizeEditorialBody(`${partA}\n\n${partB.trim()}`);
         assertFullDraftQuality(merged);
 
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             draft12: `${merged}\n\n${WRITE_DONE_MARK}`,
@@ -840,7 +930,22 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const sourceRevision = await latestArtifactRevision(
+          articleId,
+          ArtifactType.RESEARCH_BRIEF,
+        );
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.DRAFTED,
+          action: "writing",
+          artifact: {
+            type: ArtifactType.ARTICLE_DRAFT,
+            content: merged,
+            sourceRevision,
+            sourceArtifactType: ArtifactType.RESEARCH_BRIEF,
+          },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           writePhase: "b",
         });
@@ -885,7 +990,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
         );
 
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             knowledgeRecord: withHumanReviewPendingMark(reviewOut.trim()),
@@ -894,7 +999,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const reviewState = /REWRITE_REQUIRED/i.test(reviewOut)
+          ? WorkflowState.REWRITE_REQUIRED
+          : /MAJOR_REVISION_REQUIRED/i.test(reviewOut)
+            ? WorkflowState.MAJOR_REVISION_REQUIRED
+            : /MINOR_REVISION_REQUIRED/i.test(reviewOut)
+              ? WorkflowState.MINOR_REVISION_REQUIRED
+              : WorkflowState.EDITORIAL_REVIEWED;
+        const transitioned = await transitionArticle({
+          articleId,
+          to: reviewState,
+          action: "editorial-review",
+          success: reviewState === WorkflowState.EDITORIAL_REVIEWED,
+          artifact: {
+            type: ArtifactType.REVIEW,
+            content: reviewOut,
+            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.ARTICLE_DRAFT),
+            sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+          },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           finalizePhase: "review",
         });
@@ -940,19 +1064,96 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         const parsed = parseFullOutput(finalizeA);
-        const updated = await prisma.article.update({
+        const factCheckContent = parsed.factCheck ?? finalizeA;
+        const passed = /^PASSED$/i.test(verificationStatus(factCheckContent));
+        await prisma.article.update({
           where: { id: articleId },
           data: {
-            factCheck: parsed.factCheck ?? finalizeA,
+            factCheck: factCheckContent,
             // Giữ Editorial Review (có REVIEW_DONE_MARK) đến khi Publish ghi Knowledge Record
             currentStep: WorkflowStep.FINALIZE,
-            status: ArticleStatus.DRAFT,
-            errorMessage: null,
+            status: passed ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+            errorMessage: passed
+              ? null
+              : "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check.",
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: passed ? WorkflowState.FACT_CHECKED : WorkflowState.FACT_CHECK_FAILED,
+          action: "fact-check",
+          success: passed,
+          details: { verificationStatus: verificationStatus(factCheckContent) },
+          artifact: {
+            type: ArtifactType.FACT_CHECK,
+            content: factCheckContent,
+            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.ARTICLE_DRAFT),
+            sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+          },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
-          finalizePhase: "fact",
+          finalizePhase: passed ? "fact" : "fact-fail",
+        });
+      }
+
+      // Bước 9b: khóa Evidence và quyết định cuối trước khi được tạo publish package.
+      if (finPhase === "final-verify") {
+        const llmStarted = Date.now();
+        const finalReview = await chatCompletion(
+          [
+            { role: "system", content: getSystemPromptLite(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-verify",
+                appendContext(
+                  clipText(extractEditorialReview(article.knowledgeRecord), 3_000),
+                  clipText(article.factCheck, 4_000),
+                  clipText(stripPipelineMarks(article.draft12), 7_000),
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 2200, temperature: 0.2, reasoningEffort: "low" },
+        );
+        const result = inspectFinalVerification(finalReview, article.factCheck);
+        const nextState = result.publishReady
+          ? WorkflowState.FINAL_REVIEWED
+          : (result.totalScore ?? 0) < 80 || (result.insightScore ?? 0) < 22
+            ? WorkflowState.REWRITE_REQUIRED
+            : (result.totalScore ?? 0) < 90
+              ? WorkflowState.MAJOR_REVISION_REQUIRED
+              : WorkflowState.MINOR_REVISION_REQUIRED;
+        const nextKr = `${article.knowledgeRecord ?? ""}\n\n## Final Verification (pipeline)\n${finalReview}${result.publishReady ? `\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
+        await prisma.article.update({
+          where: { id: articleId },
+          data: {
+            knowledgeRecord: nextKr,
+            status: result.publishReady ? ArticleStatus.DRAFT : ArticleStatus.FAILED,
+            currentStep: WorkflowStep.FINALIZE,
+            errorMessage: result.publishReady
+              ? null
+              : "Final Verification chưa đạt — cần revision trước khi tạo bản đăng.",
+          },
+        });
+        const transitioned = await transitionArticle({
+          articleId,
+          to: nextState,
+          action: "final-verification",
+          success: result.publishReady,
+          details: { ...result },
+          artifact: {
+            type: ArtifactType.REVIEW,
+            content: finalReview,
+            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.FACT_CHECK),
+            sourceArtifactType: ArtifactType.FACT_CHECK,
+          },
+        });
+        return withTimings(transitioned, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: result.publishReady ? "final-verify" : "final-verify-fail",
         });
       }
 
@@ -1089,7 +1290,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ( /HERO IMAGE BRIEF/i.test(heroRaw) ? heroRaw.trim() : null) ||
           article.heroBrief;
 
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             cleanPublish: `${polished}\n\n${CLEAN_POLISH_MARK}`,
@@ -1100,7 +1301,18 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
         });
-        return withTimings(updated, {
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.POLISHED,
+          action: "polish",
+          artifact: {
+            type: ArtifactType.PUBLISH_PACKAGE,
+            content: polished,
+            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.REVIEW),
+            sourceArtifactType: ArtifactType.REVIEW,
+          },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
           finalizePhase: "polish",
         });
@@ -1145,7 +1357,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
           // Xóa polish mark → tick sau chạy lại polish kèm feedback
           const cleanWithoutPolish = stripPipelineMarks(article.cleanPublish);
-          const updated = await prisma.article.update({
+          await prisma.article.update({
             where: { id: articleId },
             data: {
               cleanPublish: cleanWithoutPolish,
@@ -1155,7 +1367,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               errorMessage: `Reader Sim chưa đạt: ${feedback}`.slice(0, 500),
             },
           });
-          return withTimings(updated, {
+          const transitioned = await transitionArticle({
+            articleId,
+            to: WorkflowState.READER_SIMULATION_FAILED,
+            action: "reader-simulation",
+            success: false,
+            artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
+          });
+          return withTimings(transitioned, {
             llmMs: Date.now() - llmStarted,
             finalizePhase: "reader-sim-fail",
           });
@@ -1163,21 +1382,54 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const krBase = stripReaderSimSection(article.knowledgeRecord ?? "");
         const krFinal = `${krBase}\n\n## Reader Simulation\n${simOut}\n\n${READER_SIM_DONE_MARK}`.trim();
-        const updated = await prisma.article.update({
+        await prisma.article.update({
           where: { id: articleId },
           data: {
             knowledgeRecord: krFinal,
             cleanPublish: article.cleanPublish?.includes(CLEAN_POLISH_MARK)
               ? article.cleanPublish
               : `${cleanBody}\n\n${CLEAN_POLISH_MARK}`,
-            status: ArticleStatus.PUBLISH_READY,
-            currentStep: null,
-            errorMessage: null,
+            status: failed ? ArticleStatus.FAILED : ArticleStatus.PUBLISH_READY,
+            currentStep: failed ? WorkflowStep.FINALIZE : null,
+            errorMessage: failed
+              ? `Reader Simulation chưa đạt sau ${MAX_READER_SIM_RETRIES + 1} lần: ${simOut.slice(0, 350)}`
+              : null,
           },
         });
-        return withTimings(updated, {
+        if (failed) {
+          const failedArticle = await transitionArticle({
+            articleId,
+            to: WorkflowState.READER_SIMULATION_FAILED,
+            action: "reader-simulation",
+            success: false,
+            artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
+          });
+          return withTimings(failedArticle, {
+            llmMs: Date.now() - llmStarted,
+            finalizePhase: "reader-sim-fail",
+          });
+        }
+        assertFinalVerificationPassed(article.knowledgeRecord, article.factCheck);
+        await transitionArticle({
+          articleId,
+          to: WorkflowState.READER_SIMULATED,
+          action: "reader-simulation",
+          artifact: { type: ArtifactType.READER_SIMULATION, content: simOut },
+        });
+        const transitioned = await transitionArticle({
+          articleId,
+          to: WorkflowState.PUBLISH_READY,
+          action: "package",
+          artifact: {
+            type: ArtifactType.PUBLISH_PACKAGE,
+            content: `${krFinal}\n\n${cleanBody}`,
+            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.REVIEW),
+            sourceArtifactType: ArtifactType.REVIEW,
+          },
+        });
+        return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
-          finalizePhase: failed ? "reader-sim-soft" : "reader-sim",
+          finalizePhase: "reader-sim",
         });
       }
 
@@ -1327,7 +1579,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
 
         // Giữ Review trong KR để Polish vẫn đọc được sau khi có Knowledge Record thật
-        const knowledgeRecord = mergeKnowledgeWithPriorReview(
+        let knowledgeRecord = mergeKnowledgeWithPriorReview(
           parsed.knowledgeRecord ??
             (priorReview
               ? null
@@ -1336,6 +1588,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 : article.knowledgeRecord),
           priorReview,
         );
+        if (
+          (article.knowledgeRecord ?? "").includes(FINAL_REVIEW_DONE_MARK) &&
+          !knowledgeRecord.includes(FINAL_REVIEW_DONE_MARK)
+        ) {
+          const finalBlock = (article.knowledgeRecord ?? "").match(
+            /##\s*Final Verification \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i,
+          )?.[0]?.trim();
+          if (finalBlock) {
+            knowledgeRecord = `${knowledgeRecord}\n\n${finalBlock}\n\n${FINAL_REVIEW_DONE_MARK}`.trim();
+          }
+        }
 
         if (selfCheck.length > 0) {
           const detail = selfCheck.map((i) => i.message).join(" · ");
@@ -1433,6 +1696,8 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
     where: { id: articleId },
     data: {
       status: ArticleStatus.DRAFT,
+      workflowState: WorkflowState.IDEA,
+      workflowRunId: crypto.randomUUID(),
       currentStep: WorkflowStep.RESEARCH,
       errorMessage: null,
       researchBrief: null,
@@ -1486,7 +1751,7 @@ export async function confirmHumanReview(
     findings,
   );
 
-  return prisma.article.update({
+  await prisma.article.update({
     where: { id: articleId },
     data: {
       knowledgeRecord: nextKr,
@@ -1499,10 +1764,17 @@ export async function confirmHumanReview(
         : article.reviewerNotes,
     },
   });
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.EDITORIAL_REVIEWED,
+    action: "human-review-confirmed",
+    details: { findings: findings.length },
+  });
 }
 
 export async function approveArticle(
   articleId: string,
+  approverId: string,
   notes?: string,
   opts?: {
     allowWithoutHero?: boolean;
@@ -1513,7 +1785,10 @@ export async function approveArticle(
 ): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
-  if (article.status !== ArticleStatus.PUBLISH_READY) {
+  if (
+    article.status !== ArticleStatus.PUBLISH_READY ||
+    article.workflowState !== WorkflowState.PUBLISH_READY
+  ) {
     throw new Error("Chỉ duyệt bài ở trạng thái Publish Ready");
   }
 
@@ -1560,6 +1835,7 @@ export async function approveArticle(
       `Còn ${unresolved.length} claim Fact-check (Unsupported/Contradicted…) chưa chốt ở tab Fact-check`,
     );
   }
+  assertFinalVerificationPassed(article.knowledgeRecord, article.factCheck);
 
   const scoreNote = `Điểm biên tập: ${score}/5`;
   const reviewAckNote =
@@ -1572,6 +1848,7 @@ export async function approveArticle(
     where: { id: articleId },
     data: {
       status: ArticleStatus.APPROVED,
+      approvedById: approverId,
       reviewerNotes: mergedNotes || null,
       approvedAt: new Date(),
     },
@@ -1595,13 +1872,22 @@ export async function approveArticle(
     });
   }
 
-  return updated;
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.APPROVED,
+    action: "human-approval",
+    actorId: approverId,
+    details: { editorialScore: score, approvedAt: updated.approvedAt?.toISOString() },
+  });
 }
 
 export async function publishArticle(articleId: string): Promise<Article> {
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 
-  if (article.status !== ArticleStatus.APPROVED && article.status !== ArticleStatus.PUBLISH_READY) {
+  if (
+    article.status !== ArticleStatus.APPROVED ||
+    article.workflowState !== WorkflowState.APPROVED
+  ) {
     throw new Error("Bài cần được duyệt trước khi publish");
   }
 
@@ -1635,7 +1921,130 @@ export async function publishArticle(articleId: string): Promise<Article> {
     /* không chặn publish nếu gold fail */
   }
 
-  return updated;
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.PUBLISHED,
+    action: "publish",
+    details: { publishedAt: updated.publishedAt?.toISOString() },
+  });
+}
+
+export async function requestCorrection(
+  articleId: string,
+  report: string,
+  actorId: string,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  if (article.workflowState !== WorkflowState.PUBLISHED) {
+    throw new Error("Chỉ mở correction audit cho bài đã PUBLISHED");
+  }
+  if (report.trim().length < 8) throw new Error("Correction report quá ngắn");
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.CORRECTION_REQUIRED,
+    action: "correction-audit",
+    actorId,
+    success: false,
+    artifact: { type: ArtifactType.CORRECTION, content: report.trim() },
+  });
+}
+
+export async function applyCorrection(
+  articleId: string,
+  correction: string,
+  meaningChanged: boolean,
+  actorId: string,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  if (article.workflowState !== WorkflowState.CORRECTION_REQUIRED) {
+    throw new Error("Bài không ở trạng thái CORRECTION_REQUIRED");
+  }
+  const correctedBody = stripPipelineMarks(correction);
+  if (correctedBody.length < 80) {
+    throw new Error("Cần gửi toàn bộ bản Markdown đã correction (tối thiểu 80 ký tự)");
+  }
+
+  await prisma.article.update({
+    where: { id: articleId },
+    data: {
+      cleanPublish: correctedBody,
+      title:
+        stripInsightLevelLabels(correctedBody.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "") ||
+        article.title,
+    },
+  });
+
+  const corrected = await transitionArticle({
+    articleId,
+    to: WorkflowState.CORRECTED,
+    action: "apply-correction",
+    actorId,
+    artifact: { type: ArtifactType.CORRECTION, content: correction.trim() },
+    details: { meaningChanged },
+  });
+  if (!meaningChanged) {
+    return transitionArticle({
+      articleId,
+      to: WorkflowState.PUBLISHED,
+      action: "republish-non-semantic-correction",
+      actorId,
+    });
+  }
+
+  const nextKr = (corrected.knowledgeRecord ?? "")
+    .replace(/\n*##\s*Final Verification \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i, "")
+    .replace(/\n*##\s*Reader Simulation[\s\S]*$/i, "")
+    .replaceAll(FINAL_REVIEW_DONE_MARK, "")
+    .replaceAll(READER_SIM_DONE_MARK, "")
+    .trim();
+  await prisma.article.update({
+    where: { id: articleId },
+    data: {
+      status: ArticleStatus.DRAFT,
+      currentStep: WorkflowStep.FINALIZE,
+      draft12: `${correctedBody}\n\n${WRITE_DONE_MARK}`,
+      factCheck: null,
+      knowledgeRecord: `${nextKr}\n\n## Correction applied\n${correction.trim()}`.trim(),
+      errorMessage: "Correction đổi meaning — bắt buộc chạy lại Fact Check và Final Verification.",
+      approvedAt: null,
+      approvedById: null,
+      publishedAt: null,
+    },
+  });
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.CORRECTED,
+    action: "corrected-article-revision",
+    actorId,
+    artifact: {
+      type: ArtifactType.ARTICLE_DRAFT,
+      content: correctedBody,
+      sourceRevision: await latestArtifactRevision(articleId, ArtifactType.CORRECTION),
+      sourceArtifactType: ArtifactType.CORRECTION,
+    },
+  });
+}
+
+export async function retractArticle(
+  articleId: string,
+  reason: string,
+  actorId: string,
+): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
+  if (
+    article.workflowState !== WorkflowState.PUBLISHED &&
+    article.workflowState !== WorkflowState.CORRECTION_REQUIRED
+  ) {
+    throw new Error("Chỉ retract bài đã publish hoặc đang correction audit");
+  }
+  if (reason.trim().length < 8) throw new Error("Lý do retract quá ngắn");
+  return transitionArticle({
+    articleId,
+    to: WorkflowState.RETRACTED,
+    action: "retract",
+    actorId,
+    artifact: { type: ArtifactType.CORRECTION, content: reason.trim() },
+  });
 }
 
 /**
@@ -1649,6 +2058,9 @@ export async function saveCleanPublishEdit(
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
   if (article.status === ArticleStatus.PUBLISHED) {
     throw new Error("Bài đã publish — không sửa bản sạch");
+  }
+  if (article.status === ArticleStatus.APPROVED) {
+    throw new Error("Bài đã được duyệt — cần thu hồi phê duyệt trước khi sửa");
   }
   const body = cleanMarkdown.trim();
   if (body.length < 80) {
@@ -1665,7 +2077,22 @@ export async function saveCleanPublishEdit(
     stripInsightLevelLabels(next.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "") ||
     article.title;
 
-  return prisma.article.update({
+  const invalidatingStates = new Set<WorkflowState>([
+    WorkflowState.FINAL_REVIEWED,
+    WorkflowState.POLISHED,
+    WorkflowState.READER_SIMULATED,
+    WorkflowState.PUBLISH_READY,
+  ]);
+  const invalidatesFinalReview = invalidatingStates.has(article.workflowState);
+  const knowledgeRecord = invalidatesFinalReview
+    ? (article.knowledgeRecord ?? "")
+        .replace(/\n*##\s*Final Verification \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i, "")
+        .replace(/\n*##\s*Reader Simulation[\s\S]*$/i, "")
+        .replaceAll(FINAL_REVIEW_DONE_MARK, "")
+        .replaceAll(READER_SIM_DONE_MARK, "")
+        .trim()
+    : article.knowledgeRecord;
+  await prisma.article.update({
     where: { id: articleId },
     data: {
       cleanPublish: next,
@@ -1674,9 +2101,23 @@ export async function saveCleanPublishEdit(
         editNote: editNote?.trim() || undefined,
         editedAt: new Date().toISOString(),
       }),
+      knowledgeRecord,
+      status: invalidatesFinalReview ? ArticleStatus.DRAFT : article.status,
+      currentStep: invalidatesFinalReview ? WorkflowStep.FINALIZE : article.currentStep,
       errorMessage: null,
     },
   });
+  if (invalidatesFinalReview) {
+    return transitionArticle({
+      articleId,
+      to: WorkflowState.MINOR_REVISION_REQUIRED,
+      action: "human-edit-invalidated-final-review",
+      success: false,
+      details: { editNote: editNote?.trim() || null },
+      artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: next },
+    });
+  }
+  return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
 }
 
 /**
@@ -1690,6 +2131,9 @@ export async function polishFromHumanEdits(
   const article = await prisma.article.findUniqueOrThrow({ where: { id: articleId } });
   if (article.status === ArticleStatus.PUBLISHED) {
     throw new Error("Bài đã publish");
+  }
+  if (article.status === ArticleStatus.APPROVED) {
+    throw new Error("Bài đã được duyệt — không polish lại trước khi thu hồi phê duyệt");
   }
   const rawClean = stripPipelineMarks(article.cleanPublish);
   if (rawClean.length < 80) {
@@ -1741,21 +2185,23 @@ export async function polishFromHumanEdits(
     const { mergeDeskJson } = await import("@/lib/tfes/desk-state");
     polished = `${polished}\n\n${CLEAN_POLISH_MARK}\n${HUMAN_EDIT_MARK}`.trim();
 
-    const keepReady =
-      article.status === ArticleStatus.PUBLISH_READY ||
-      article.status === ArticleStatus.APPROVED ||
-      (article.knowledgeRecord ?? "").includes(READER_SIM_DONE_MARK);
-
     const title = stripInsightLevelLabels(
       polished.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? article.topic ?? "Untitled",
     );
 
-    return prisma.article.update({
+    const nextKr = (article.knowledgeRecord ?? "")
+      .replace(/\n*##\s*Final Verification \(pipeline\)[\s\S]*?(?=\n##\s*Reader Simulation|$)/i, "")
+      .replace(/\n*##\s*Reader Simulation[\s\S]*$/i, "")
+      .replaceAll(FINAL_REVIEW_DONE_MARK, "")
+      .replaceAll(READER_SIM_DONE_MARK, "")
+      .trim();
+    await prisma.article.update({
       where: { id: articleId },
       data: {
         cleanPublish: polished,
         title,
-        status: keepReady ? ArticleStatus.PUBLISH_READY : ArticleStatus.DRAFT,
+        knowledgeRecord: nextKr,
+        status: ArticleStatus.DRAFT,
         currentStep: WorkflowStep.FINALIZE,
         errorMessage: null,
         deskJson: mergeDeskJson(article.deskJson, {
@@ -1764,6 +2210,23 @@ export async function polishFromHumanEdits(
         }),
       },
     });
+    const invalidateStates = new Set<WorkflowState>([
+      WorkflowState.FINAL_REVIEWED,
+      WorkflowState.POLISHED,
+      WorkflowState.READER_SIMULATED,
+      WorkflowState.PUBLISH_READY,
+      WorkflowState.MINOR_REVISION_REQUIRED,
+    ]);
+    if (invalidateStates.has(article.workflowState)) {
+      return transitionArticle({
+        articleId,
+        to: WorkflowState.MINOR_REVISION_REQUIRED,
+        action: "human-polish-invalidated-final-review",
+        success: false,
+        artifact: { type: ArtifactType.PUBLISH_PACKAGE, content: polished },
+      });
+    }
+    return prisma.article.findUniqueOrThrow({ where: { id: articleId } });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await prisma.article.update({

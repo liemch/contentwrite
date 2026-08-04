@@ -1,5 +1,8 @@
 # Domain Profile: Product (discovery & product engineering)
 
+## profile_version
+1.6
+
 Chỉ khai báo phần khác biệt so với `engineering.md`.
 
 ## identity
@@ -50,3 +53,7 @@ Tránh: liệt kê “cách chọn North Star đúng” dạng framework slide.
 Mở: “Feature đã ship 2 sprint trước khi ai đó hỏi: ‘Nếu số liệu này không đạt, mình có dừng không?’ — không ai trả lời được, vì chưa từng định nghĩa.”
 Nhịp: build trước, hỏi sau → cơ chế (thiếu kill criteria = sunk cost tự động) → mini-case rollback đau vì đã cam kết public → khi nào không cần kill criteria (thử nghiệm rẻ, dễ đảo ngược) → hệ quả cho roadmap.
 Tránh: liệt kê “checklist trước khi build” kiểu template.
+
+
+## gold_sample_guardrail
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

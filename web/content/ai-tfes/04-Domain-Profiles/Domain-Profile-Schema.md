@@ -1,4 +1,4 @@
-# Domain Profile — Schema chuẩn (checklist)
+# Domain Profile — Schema chuẩn v1.6 (checklist)
 
 > Mọi Domain Profile mới (kể cả 5 domain hiện có) phải khai đủ các trường dưới đây, theo đúng thứ tự, để agent web parse nhất quán. `engineering.md` là hồ sơ gốc — domain khác chỉ khai phần **khác biệt**; nếu một trường không khác, domain đó kế thừa nguyên văn từ `engineering.md`.
 
@@ -38,3 +38,12 @@ Khuyến nghị ≥2 mẫu/domain để có đủ đa dạng giọng khi Writing
 | `ai-ml.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
 | `product.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
 | `security.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
+
+
+## Runtime contract v1.6
+
+- Backend phải resolve inheritance trước khi gọi LLM và gắn `domain_profile_version`.
+- `scoring_weights` phải là số nguyên, không âm, tổng đúng 100.
+- `gold_samples` chỉ dùng để học nhịp; cấm sao chép số liệu, cấu trúc câu, incident hoặc thứ tự story arc.
+- Không dùng số cụ thể trong hook nếu không đến từ research hoặc dữ liệu người dùng.
+- Validator phải fail khi thiếu field bắt buộc, enum sai hoặc tổng trọng số khác 100.

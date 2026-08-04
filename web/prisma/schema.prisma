@@ -23,6 +23,48 @@ enum WorkflowStep {
   FINALIZE
 }
 
+/// Canonical AI-TFES v1.6 state. `status`/`currentStep` remain as UI compatibility fields.
+enum WorkflowState {
+  IDEA
+  MEMORY_CHECKED
+  RESEARCHED
+  SYNTHESIZED
+  INSIGHT_APPROVED
+  DECIDED
+  PLANNED
+  DRAFTED
+  EDITORIAL_REVIEWED
+  FACT_CHECKED
+  FINAL_REVIEWED
+  POLISHED
+  READER_SIMULATED
+  PUBLISH_READY
+  APPROVED
+  PUBLISHED
+  RESEARCH_REQUIRED
+  INSIGHT_REJECTED
+  MINOR_REVISION_REQUIRED
+  MAJOR_REVISION_REQUIRED
+  REWRITE_REQUIRED
+  FACT_CHECK_FAILED
+  READER_SIMULATION_FAILED
+  CORRECTION_REQUIRED
+  CORRECTED
+  RETRACTED
+}
+
+enum ArtifactType {
+  MEMORY_CHECK
+  RESEARCH_BRIEF
+  ARTICLE_DRAFT
+  REVIEW
+  FACT_CHECK
+  KNOWLEDGE_RECORD
+  PUBLISH_PACKAGE
+  READER_SIMULATION
+  CORRECTION
+}
+
 enum UserRole {
   ADMIN
   EDITOR
@@ -40,7 +82,8 @@ model User {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  articles          Article[]
+  articles          Article[] @relation("ArticleCreator")
+  approvedArticles  Article[] @relation("ArticleApprover")
   ownedAutoWrite    AutoWriteConfig[] @relation("AutoWriteOwner")
 }
 
@@ -55,6 +98,9 @@ model Article {
   publishFormat   String         @default("blog")
   status          ArticleStatus  @default(DRAFT)
   currentStep     WorkflowStep?
+  /// Backend source of truth for AI-TFES v1.6.
+  workflowState   WorkflowState  @default(IDEA)
+  workflowRunId   String         @default(uuid())
   errorMessage    String?
 
   researchBrief   String?        @db.Text
@@ -74,6 +120,8 @@ model Article {
   deskJson        String?        @db.Text
 
   reviewerNotes   String?        @db.Text
+  approvedById    String?
+  approvedBy      User?          @relation("ArticleApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   approvedAt      DateTime?
   publishedAt     DateTime?
 
@@ -88,7 +136,10 @@ model Article {
   seriesOrder     Int?
 
   createdById     String?
-  createdBy       User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy       User?          @relation("ArticleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  artifacts       WorkflowArtifact[]
+  transitions     WorkflowTransition[]
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -97,6 +148,47 @@ model Article {
   @@index([seriesId])
   @@index([publishFormat])
   @@index([status, publishFormat])
+  @@index([workflowState, updatedAt])
+}
+
+/// Immutable artifact revisions. Never update an existing row; append the next revision.
+model WorkflowArtifact {
+  id                    String       @id @default(cuid())
+  articleId             String
+  article               Article      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  workflowRunId         String
+  type                  ArtifactType
+  revision              Int
+  sourceRevision        Int?
+  sourceArtifactType    ArtifactType?
+  schemaVersion         String       @default("1.0")
+  operatingPromptVersion String      @default("1.6")
+  domainProfileVersion  String?
+  state                 WorkflowState
+  content               String       @db.Text
+  metadata              Json?
+  createdAt             DateTime     @default(now())
+
+  @@unique([articleId, workflowRunId, type, revision])
+  @@index([articleId, type, createdAt])
+}
+
+/// Append-only audit log for every canonical state transition.
+model WorkflowTransition {
+  id            String        @id @default(cuid())
+  articleId     String
+  article       Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  workflowRunId String
+  fromState     WorkflowState
+  toState       WorkflowState
+  action        String
+  success       Boolean       @default(true)
+  actorId       String?
+  details       Json?
+  createdAt     DateTime      @default(now())
+
+  @@index([articleId, createdAt])
+  @@index([workflowRunId, createdAt])
 }
 
 /// Chuyên đề / series — nhóm bài cùng mạch
