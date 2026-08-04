@@ -1,5 +1,6 @@
 export const MAX_REVISION_REMEDIATION_RETRIES = 3;
-export const MAX_FINAL_VERIFICATION_FORMAT_RETRIES = 2;
+/** Gồm cả retry khi LLM dump điểm thoái hoá 0/0 — cần thêm lượt để chấm lại. */
+export const MAX_FINAL_VERIFICATION_FORMAT_RETRIES = 3;
 
 export function isRevisionRemediationExhausted(
   errorMessage: string | null | undefined,

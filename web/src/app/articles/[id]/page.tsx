@@ -362,10 +362,16 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     if (
       next.workflowState === "FACT_CHECKED" &&
       action === "run-step" &&
-      /Final Verification output chưa đúng machine format/i.test(next.errorMessage ?? "")
+      /Final Verification output chưa đúng machine format/i.test(next.errorMessage ?? "") &&
+      !isFinalVerificationFormatExhausted(next.errorMessage)
     ) {
       setActionError(next.errorMessage || "Final Verification sai định dạng");
-      pushLog("warn", "→ 9b trả sai format — tự chạy lại Khóa Review, không sửa lại bài...");
+      pushLog(
+        "warn",
+        /điểm thoái hoá|0\/0/i.test(next.errorMessage ?? "")
+          ? "→ 9b chấm 0/0 (không hợp lệ) — tự chấm lại Khóa Review, giữ nguyên Fact-check..."
+          : "→ 9b trả sai format — tự chạy lại Khóa Review, không sửa lại bài...",
+      );
       return { article: next, softContinue: true };
     }
 

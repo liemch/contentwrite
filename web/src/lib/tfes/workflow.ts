@@ -1373,6 +1373,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 9b: khóa Evidence và quyết định cuối trước khi được tạo publish package.
       if (finPhase === "final-verify") {
         const llmStarted = Date.now();
+        const rescoreHint =
+          article.errorMessage &&
+          /Final Verification output chưa đúng machine format|điểm thoái hoá|không khớp band điểm/i.test(
+            article.errorMessage,
+          )
+            ? [
+                "## LẦN CHẤM LẠI (bắt buộc — lần trước sai format / điểm thoái hoá)",
+                "CẤM xuất FINAL_TOTAL_SCORE: 0 và FINAL_INSIGHT_SCORE: 0.",
+                "Chấm lại theo rubric trên bản nháp + Fact-Check Ledger trong CONTEXT.",
+                "Mỗi trường máy một dòng riêng. FINAL_DECISION phải khớp band điểm",
+                "(FINAL_REVIEWED ≥95; MINOR 90–94; MAJOR 80–89; REWRITE <80 hoặc insight <22).",
+                "Không dùng chữ PUBLISH_READY trong FINAL_DECISION.",
+              ].join("\n")
+            : "";
         const finalReview = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
@@ -1385,6 +1399,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   clipText(article.factCheck, 4_000),
                   clipText(stripPipelineMarks(article.draft12), 7_000),
                   `Chủ đề: ${topic}`,
+                  rescoreHint,
                 ),
               ),
             },
@@ -1402,6 +1417,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
           const nextAttempt = formatAttempts + 1;
           const exhausted = nextAttempt >= MAX_FINAL_VERIFICATION_FORMAT_RETRIES;
+          const reasonHint = result.degenerateScores
+            ? "điểm thoái hoá 0/0"
+            : result.failureReasons[0] || "sai format";
           const updated = await commitPatch({
             action: "final-verification-format-invalid",
             success: false,
@@ -1410,7 +1428,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 ? `Final Verification sai định dạng sau ${MAX_FINAL_VERIFICATION_FORMAT_RETRIES} lần — ` +
                   result.failureReasons.join(" · ")
                 : `Final Verification output chưa đúng machine format ` +
-                  `(lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
+                  `(${reasonHint}; lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
             },
             details: { ...result, formatAttempt: nextAttempt },
             artifact: {
