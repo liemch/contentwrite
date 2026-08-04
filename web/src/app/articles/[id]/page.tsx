@@ -34,6 +34,7 @@ type Article = {
   status: string;
   workflowState: string;
   workflowRunId: string;
+  contentVersion: string;
   currentStep: string | null;
   errorMessage: string | null;
   publishFormat?: string | null;
@@ -96,10 +97,6 @@ const TERMINAL_WORKFLOW_STATES = new Set([
 ]);
 const BLOCKING_WORKFLOW_STATES = new Set([
   "INSIGHT_REJECTED",
-  "MINOR_REVISION_REQUIRED",
-  "MAJOR_REVISION_REQUIRED",
-  "REWRITE_REQUIRED",
-  "FACT_CHECK_FAILED",
 ]);
 
 function isWorkflowStopped(article: Article): boolean {
@@ -341,6 +338,35 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       return { article: next, softContinue: true };
     }
 
+    if (next.workflowState === "RESEARCH_REQUIRED" && action === "run-step") {
+      setActionError(next.errorMessage || "Research chưa đạt contract");
+      setTab("research");
+      pushLog("warn", "→ Evidence/Decision chưa đạt — tự chạy lại Research với source set mới...");
+      return { article: next, softContinue: true };
+    }
+
+    if (next.workflowState === "FACT_CHECK_FAILED" && action === "run-step") {
+      setActionError(next.errorMessage || "Fact Check chưa đạt");
+      setTab("fact");
+      pushLog(
+        "warn",
+        "→ Tự sửa claim theo ledger, tạo draft revision mới rồi Fact Check lại...",
+      );
+      return { article: next, softContinue: true };
+    }
+
+    if (
+      action === "run-step" &&
+      ["MINOR_REVISION_REQUIRED", "MAJOR_REVISION_REQUIRED", "REWRITE_REQUIRED"].includes(
+        next.workflowState,
+      ) &&
+      !isAwaitingHumanReview(next)
+    ) {
+      setActionError(next.errorMessage || "Bài cần revision");
+      pushLog("warn", "→ Tự sửa draft theo Required Revisions rồi chạy lại Review/Fact Check...");
+      return { article: next, softContinue: true };
+    }
+
     if (next.errorMessage && action === "run-step") {
       setActionError(next.errorMessage);
       pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
@@ -391,8 +417,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                           ? "8 · Review AI"
                           : finalizePhase === "await-human"
                             ? "8 · Chờ người xác nhận Review"
-                            : finalizePhase === "fact" || finalizePhase === "a"
-                              ? "9 · Fact Check"
+                            : finalizePhase === "revision-remediate"
+                              ? "8–9b · Sửa draft theo Review"
+                              : finalizePhase === "fact-remediate"
+                              ? "9 · Sửa claim theo Fact Check"
+                              : finalizePhase === "fact" || finalizePhase === "a"
+                                ? "9 · Fact Check"
                               : finalizePhase === "publish" || finalizePhase === "b"
                                 ? next.workflowState === "PUBLISH_READY"
                                   ? "10 · Publish Ready"
@@ -436,6 +466,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         insightPhase === "decision" ||
         writePhase === "a" ||
         finalizePhase === "fact" ||
+        finalizePhase === "fact-remediate" ||
+        finalizePhase === "revision-remediate" ||
         finalizePhase === "a" ||
         finalizePhase === "publish" ||
         finalizePhase === "polish" ||
@@ -704,6 +736,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             title={`Workflow run: ${article.workflowRunId}`}
           >
             v1.6 · {article.workflowState}
+          </span>
+          <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-semibold text-[var(--ink-muted)]">
+            Content {article.contentVersion}
           </span>
           {(article.avoidFormats || "").trim() ? (
             <span

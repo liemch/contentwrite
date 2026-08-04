@@ -53,6 +53,10 @@ const AUTO_RUNNABLE_STATES: WorkflowState[] = [
   WorkflowState.PLANNED,
   WorkflowState.DRAFTED,
   WorkflowState.EDITORIAL_REVIEWED,
+  WorkflowState.MINOR_REVISION_REQUIRED,
+  WorkflowState.MAJOR_REVISION_REQUIRED,
+  WorkflowState.REWRITE_REQUIRED,
+  WorkflowState.FACT_CHECK_FAILED,
   WorkflowState.FACT_CHECKED,
   WorkflowState.FINAL_REVIEWED,
   WorkflowState.POLISHED,
@@ -71,11 +75,7 @@ function isAutoWorkflowDone(article: {
   if (isWorkflowTerminal(article.workflowState)) return true;
   if (isAwaitingHumanReview(article)) return true;
   if (
-    article.workflowState === WorkflowState.INSIGHT_REJECTED ||
-    article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED ||
-    article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED ||
-    article.workflowState === WorkflowState.REWRITE_REQUIRED ||
-    article.workflowState === WorkflowState.FACT_CHECK_FAILED
+    article.workflowState === WorkflowState.INSIGHT_REJECTED
   ) return true;
   return article.workflowState === WorkflowState.READER_SIMULATION_FAILED &&
     /chưa đạt sau/i.test(article.errorMessage ?? "");

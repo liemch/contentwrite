@@ -82,6 +82,8 @@ import {
   stripInsightLevelLabels,
   toReaderCleanPublish,
 } from "@/lib/publish-content";
+import { auditResearchEvidence } from "@/lib/tfes/research-evidence";
+import { bumpContentVersion, TFES_CONTRACT } from "@/lib/tfes/contract";
 import {
   formatWritingPrefsPrompt,
   resolveWritingPrefs,
@@ -416,14 +418,20 @@ function finalizePhaseOf(article: {
   cleanPublish?: string | null;
   errorMessage?: string | null;
   workflowState?: WorkflowState;
-}): "review" | "await-human" | "fact" | "final-verify" | "publish" | "polish" | "reader-sim" | "done" {
+}): "review" | "await-human" | "revision-remediate" | "fact-remediate" | "fact" | "final-verify" | "publish" | "polish" | "reader-sim" | "done" {
   const kr = article.knowledgeRecord ?? "";
   const fc = article.factCheck ?? "";
   const clean = (article.cleanPublish ?? "").trim();
   const reviewDone = kr.includes(REVIEW_DONE_MARK) || Boolean(fc.trim());
-  if (!reviewDone) return "review";
   if (isAwaitingHumanReview(article)) return "await-human";
-  if (!fc.trim() || article.workflowState === WorkflowState.FACT_CHECK_FAILED) return "fact";
+  if (
+    article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED ||
+    article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED ||
+    article.workflowState === WorkflowState.REWRITE_REQUIRED
+  ) return "revision-remediate";
+  if (!reviewDone) return "review";
+  if (article.workflowState === WorkflowState.FACT_CHECK_FAILED) return "fact-remediate";
+  if (!fc.trim()) return "fact";
   if (!kr.includes(FINAL_REVIEW_DONE_MARK)) return "final-verify";
   if (clean.length < 80) return "publish";
   // Reader Sim fail → polish lại kèm feedback
@@ -622,6 +630,33 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         { maxTokens: 3500 },
       );
 
+      const evidenceAudit = auditResearchEvidence(researchBrief);
+      if (!evidenceAudit.passed) {
+        const failed = await commitTransition({
+          to: WorkflowState.RESEARCH_REQUIRED,
+          action: "research-evidence-validation",
+          success: false,
+          articlePatch: {
+            researchBrief: null,
+            errorMessage: `Research Brief chưa đạt evidence contract: ${evidenceAudit.issues.join(" · ")}`.slice(0, 500),
+          },
+          details: {
+            issues: evidenceAudit.issues,
+            lineageCount: evidenceAudit.lineages.length,
+            urlCount: evidenceAudit.urls.length,
+          },
+          artifact: {
+            type: ArtifactType.RESEARCH_BRIEF,
+            content: researchBrief,
+            metadata: { evidenceAudit },
+          },
+        });
+        return withTimings(failed, {
+          llmMs: Date.now() - llmStarted,
+          researchPhase: "evidence-fail",
+        });
+      }
+
       const transitioned = await commitTransition({
         to: WorkflowState.SYNTHESIZED,
         action: "synthesis",
@@ -633,6 +668,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           type: ArtifactType.RESEARCH_BRIEF,
           content: researchBrief,
           domainProfileVersion: `${resolveDomainId(article.domain)}@1.6`,
+          metadata: { evidenceAudit },
         },
       });
       return withTimings(transitioned, {
@@ -760,6 +796,31 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 700, temperature: 0.3, reasoningEffort: "low" },
         );
 
+        const decisionComplete = [
+          /Góc chốt/i,
+          /Category/i,
+          /Audience/i,
+          /Lý do chọn/i,
+          /Rủi ro editorial/i,
+        ].every((rule) => rule.test(decision));
+        if (!decisionComplete) {
+          const failed = await commitTransition({
+            to: WorkflowState.RESEARCH_REQUIRED,
+            action: "editorial-decision-validation",
+            success: false,
+            articlePatch: {
+              researchBrief: null,
+              insightGate: null,
+              errorMessage: "Editorial Decision thiếu trường bắt buộc — quay lại Research/Decision.",
+            },
+            artifact: { type: ArtifactType.REVIEW, content: decision },
+          });
+          return withTimings(failed, {
+            llmMs: Date.now() - llmStarted,
+            insightPhase: "decision-fail",
+          });
+        }
+
         const merged = `${gateOnly}\n\n---\n\n${decision.trim()}\n\n${INSIGHT_DECISION_MARK}`;
         const transitioned = await commitTransition({
           to: WorkflowState.DECIDED,
@@ -799,6 +860,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ],
           { maxTokens: 1400, temperature: 0.35, reasoningEffort: "low" },
         );
+
+        const planningComplete = [
+          /Objective/i,
+          /Audience/i,
+          /Core Message/i,
+          /Story Flow/i,
+          /không/i,
+        ].every((rule) => rule.test(planning));
+        if (!planningComplete) {
+          const failed = await commitTransition({
+            to: WorkflowState.MAJOR_REVISION_REQUIRED,
+            action: "planning-validation",
+            success: false,
+            articlePatch: {
+              errorMessage: "Planning thiếu contract bắt buộc — cần tạo revision kế hoạch/bản nháp.",
+            },
+            artifact: { type: ArtifactType.REVIEW, content: planning },
+          });
+          return withTimings(failed, {
+            llmMs: Date.now() - llmStarted,
+            insightPhase: "planning-fail",
+          });
+        }
 
         const merged = `${soFar}\n\n---\n\n${planning.trim()}\n\n${INSIGHT_DONE_MARK}`;
         const transitioned = await commitTransition({
@@ -1009,6 +1093,120 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           articlePatch: { errorMessage: null },
         });
         return withTimings(updated, { finalizePhase: "await-human" });
+      }
+
+      if (finPhase === "revision-remediate") {
+        const llmStarted = Date.now();
+        const previousDraftRevision = await latestArtifactRevision(
+          articleId,
+          ArtifactType.ARTICLE_DRAFT,
+        );
+        const repairedRaw = await chatCompletion(
+          [
+            { role: "system", content: getSystemPromptLite(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-revision-remediate",
+                appendContext(
+                  `Revision state: ${article.workflowState}`,
+                  clipText(article.researchBrief, 4_000),
+                  clipText(article.insightGate, 2_000),
+                  clipText(stripPipelineMarks(article.draft12), 12_000),
+                  clipText(article.knowledgeRecord, 6_000),
+                  clipText(article.factCheck, 5_000),
+                  `Chủ đề: ${topic}`,
+                ),
+                undefined,
+                shapeBlockFor(article),
+              ),
+            },
+          ],
+          { maxTokens: 5600, temperature: 0.25, reasoningEffort: "low" },
+        );
+        const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        assertFullDraftQuality(repairedDraft);
+        const transitioned = await commitTransition({
+          to: WorkflowState.DRAFTED,
+          action: "remediate-required-revision",
+          articlePatch: {
+            draft12: `${repairedDraft}\n\n${WRITE_DONE_MARK}`,
+            factCheck: null,
+            knowledgeRecord: null,
+            cleanPublish: null,
+            heroBrief: null,
+            errorMessage: null,
+          },
+          details: {
+            revisionSeverity: article.workflowState,
+            invalidatedFactCheck: Boolean(article.factCheck?.trim()),
+            invalidatedFinalReview: Boolean(article.knowledgeRecord?.includes(FINAL_REVIEW_DONE_MARK)),
+            previousDraftRevision,
+          },
+          artifact: {
+            type: ArtifactType.ARTICLE_DRAFT,
+            content: repairedDraft,
+            sourceRevision: previousDraftRevision,
+            sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+          },
+        });
+        return withTimings(transitioned, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "revision-remediate",
+        });
+      }
+
+      // FACT_CHECK_FAILED: sửa exact Article revision trước khi kiểm tra lại.
+      if (finPhase === "fact-remediate") {
+        const llmStarted = Date.now();
+        const previousDraftRevision = await latestArtifactRevision(
+          articleId,
+          ArtifactType.ARTICLE_DRAFT,
+        );
+        const repairedRaw = await chatCompletion(
+          [
+            { role: "system", content: getSystemPromptLite(article.domain) },
+            {
+              role: "user",
+              content: buildPipelinePrompt(
+                "finalize-fact-remediate",
+                appendContext(
+                  clipText(article.researchBrief, 3_500),
+                  clipText(stripPipelineMarks(article.draft12), 12_000),
+                  clipText(article.factCheck, 6_000),
+                  `Chủ đề: ${topic}`,
+                ),
+              ),
+            },
+          ],
+          { maxTokens: 5200, temperature: 0.2, reasoningEffort: "low" },
+        );
+        const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        assertFullDraftQuality(repairedDraft);
+        const transitioned = await commitTransition({
+          to: WorkflowState.EDITORIAL_REVIEWED,
+          action: "remediate-fact-check",
+          articlePatch: {
+            draft12: `${repairedDraft}\n\n${WRITE_DONE_MARK}`,
+            factCheck: null,
+            errorMessage: null,
+          },
+          details: {
+            failedVerificationStatus: verificationStatus(article.factCheck),
+            invalidatedFactCheck: true,
+            previousDraftRevision,
+          },
+          artifact: {
+            type: ArtifactType.ARTICLE_DRAFT,
+            content: repairedDraft,
+            sourceRevision: previousDraftRevision,
+            sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+          },
+        });
+        return withTimings(transitioned, {
+          llmMs: Date.now() - llmStarted,
+          finalizePhase: "fact-remediate",
+        });
       }
 
       // Bước 9: Fact Check
@@ -1562,6 +1760,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const title = stripInsightLevelLabels(
           titleMatch?.[1]?.trim() ?? article.topic ?? "Untitled",
         );
+        const nextPublishRevision =
+          ((await latestArtifactRevision(articleId, ArtifactType.PUBLISH_PACKAGE)) ?? 0) + 1;
 
         // Giữ DRAFT để tick tiếp chạy polish (10b) — tránh timeout gộp 2 LLM
         const updated = await commitPatch({
@@ -1579,10 +1779,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               : `${sanitizeEditorialBody(draftClean)}\n\n${WRITE_DONE_MARK}`,
             errorMessage: null,
           },
-          artifact: {
-            type: ArtifactType.PUBLISH_PACKAGE,
-            content: `${knowledgeRecord}\n\n${cleanPublish}`,
-          },
+          artifacts: [
+            {
+              type: ArtifactType.PUBLISH_PACKAGE,
+              content: `${knowledgeRecord}\n\n${cleanPublish}`,
+              sourceRevision: await latestArtifactRevision(articleId, ArtifactType.REVIEW),
+              sourceArtifactType: ArtifactType.REVIEW,
+            },
+            {
+              type: ArtifactType.KNOWLEDGE_RECORD,
+              content: knowledgeRecord || "",
+              sourceRevision: nextPublishRevision,
+              sourceArtifactType: ArtifactType.PUBLISH_PACKAGE,
+            },
+          ],
         });
         return withTimings(updated, {
           llmMs: Date.now() - llmStarted,
@@ -1604,6 +1814,30 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     const isListicleRewrite = /listicle|outline listicle/i.test(raw);
     // Bản sạch fail → GIỮ cleanPublish để lần sau polish/sửa (không viết lại từ nháp rồi lặp lỗi)
     const isCleanPublishFail = isCleanBodyQualityFail(raw) && !isListicleRewrite;
+
+    if (
+      isWritePhaseQualityFail(raw) &&
+      new Set<WorkflowState>([
+        WorkflowState.PLANNED,
+        WorkflowState.DRAFTED,
+        WorkflowState.MINOR_REVISION_REQUIRED,
+        WorkflowState.MAJOR_REVISION_REQUIRED,
+        WorkflowState.REWRITE_REQUIRED,
+      ]).has(cursor.state)
+    ) {
+      try {
+        const rewritten = await commitTransition({
+          to: WorkflowState.REWRITE_REQUIRED,
+          action: "writing-quality-validation",
+          success: false,
+          articlePatch: { errorMessage: raw.slice(0, 500) },
+          details: { isQuality: true },
+        });
+        return withTimings(rewritten, { writePhase: "rewrite-required" });
+      } catch (transitionError) {
+        if (!/Workflow conflict/i.test(String(transitionError))) throw transitionError;
+      }
+    }
 
     try {
       await commitPatch({
@@ -1682,15 +1916,23 @@ export async function confirmHumanReview(
     findings,
   );
 
+  const requiresRevision = new Set<WorkflowState>([
+    WorkflowState.MINOR_REVISION_REQUIRED,
+    WorkflowState.MAJOR_REVISION_REQUIRED,
+    WorkflowState.REWRITE_REQUIRED,
+  ]).has(article.workflowState);
+
   return transitionArticle({
     articleId,
     expectedState: article.workflowState,
     expectedVersion: article.workflowVersion,
-    to: WorkflowState.EDITORIAL_REVIEWED,
+    to: requiresRevision ? article.workflowState : WorkflowState.EDITORIAL_REVIEWED,
     action: "human-review-confirmed",
     articlePatch: {
       knowledgeRecord: nextKr,
-      errorMessage: null,
+      errorMessage: requiresRevision
+        ? "Review đã được người xác nhận — hệ thống sẽ tạo draft revision mới."
+        : null,
       reviewerNotes: notes
         ? [article.reviewerNotes?.trim(), `Review giữa chu trình:\n${notes}`]
             .filter(Boolean)
@@ -1789,6 +2031,11 @@ export async function approveArticle(
   });
 
   if (article.title) {
+    const freshnessDays =
+      TFES_CONTRACT.freshnessReviewDays[resolveDomainId(article.domain)];
+    const nextFreshnessReviewAt = new Date(
+      approvedAt.getTime() + freshnessDays * 24 * 60 * 60 * 1000,
+    );
     await prisma.knowledgeRecord.upsert({
       where: { articleId },
       create: {
@@ -1797,11 +2044,19 @@ export async function approveArticle(
         domain: article.domain,
         coreMessage: article.knowledgeRecord ?? undefined,
         editorialScore: score ?? undefined,
+        currentVersion: article.contentVersion,
+        retractionStatus: "none",
+        lastVerifiedAt: approvedAt,
+        nextFreshnessReviewAt,
       },
       update: {
         title: article.title,
         coreMessage: article.knowledgeRecord ?? undefined,
         ...(score != null ? { editorialScore: score } : {}),
+        currentVersion: article.contentVersion,
+        retractionStatus: "none",
+        lastVerifiedAt: approvedAt,
+        nextFreshnessReviewAt,
       },
     });
   }
@@ -1893,6 +2148,22 @@ export async function applyCorrection(
     throw new Error("Cần gửi toàn bộ bản Markdown đã correction (tối thiểu 80 ký tự)");
   }
 
+  const nextContentVersion = bumpContentVersion(
+    article.contentVersion,
+    meaningChanged ? "major" : "patch",
+  );
+  const existingKnowledge = await prisma.knowledgeRecord.findUnique({ where: { articleId } });
+  const historyEntry = JSON.stringify({
+    fromVersion: article.contentVersion,
+    toVersion: nextContentVersion,
+    meaningChanged,
+    correctedAt: new Date().toISOString(),
+    actorId,
+  });
+  const correctionHistory = [existingKnowledge?.correctionHistory?.trim(), historyEntry]
+    .filter(Boolean)
+    .join("\n");
+
   const corrected = await transitionArticle({
     articleId,
     expectedState: article.workflowState,
@@ -1901,10 +2172,17 @@ export async function applyCorrection(
     action: "apply-correction",
     actorId,
     articlePatch: {
+      contentVersion: nextContentVersion,
       cleanPublish: correctedBody,
       title:
         stripInsightLevelLabels(correctedBody.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "") ||
         article.title,
+    },
+    knowledgeRecordPatch: {
+      currentVersion: nextContentVersion,
+      retractionStatus: "corrected",
+      correctionHistory,
+      lastVerifiedAt: meaningChanged ? null : new Date(),
     },
     artifact: { type: ArtifactType.CORRECTION, content: correction.trim() },
     details: { meaningChanged },
@@ -1917,6 +2195,11 @@ export async function applyCorrection(
       to: WorkflowState.PUBLISHED,
       action: "republish-non-semantic-correction",
       actorId,
+      knowledgeRecordPatch: {
+        currentVersion: nextContentVersion,
+        retractionStatus: "corrected",
+        correctionHistory,
+      },
     });
   }
 
@@ -1942,6 +2225,12 @@ export async function applyCorrection(
       approvedById: null,
       publishedAt: null,
     },
+    knowledgeRecordPatch: {
+      currentVersion: nextContentVersion,
+      retractionStatus: "corrected",
+      correctionHistory,
+      lastVerifiedAt: null,
+    },
     artifact: {
       type: ArtifactType.ARTICLE_DRAFT,
       content: correctedBody,
@@ -1964,6 +2253,13 @@ export async function retractArticle(
     throw new Error("Chỉ retract bài đã publish hoặc đang correction audit");
   }
   if (reason.trim().length < 8) throw new Error("Lý do retract quá ngắn");
+  const existingKnowledge = await prisma.knowledgeRecord.findUnique({ where: { articleId } });
+  const retractionEntry = JSON.stringify({
+    version: article.contentVersion,
+    retractedAt: new Date().toISOString(),
+    actorId,
+    reason: reason.trim(),
+  });
   return transitionArticle({
     articleId,
     expectedState: article.workflowState,
@@ -1971,6 +2267,12 @@ export async function retractArticle(
     to: WorkflowState.RETRACTED,
     action: "retract",
     actorId,
+    knowledgeRecordPatch: {
+      retractionStatus: "retracted",
+      correctionHistory: [existingKnowledge?.correctionHistory?.trim(), retractionEntry]
+        .filter(Boolean)
+        .join("\n"),
+    },
     artifact: { type: ArtifactType.CORRECTION, content: reason.trim() },
   });
 }

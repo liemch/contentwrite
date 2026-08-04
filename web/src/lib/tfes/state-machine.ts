@@ -7,6 +7,7 @@ import {
   type Article,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { TFES_CONTRACT } from "@/lib/tfes/contract";
 
 const ALLOWED: Record<WorkflowState, readonly WorkflowState[]> = {
   IDEA: [WorkflowState.MEMORY_CHECKED],
@@ -147,7 +148,9 @@ export async function transitionArticle(input: {
   success?: boolean;
   details?: Prisma.InputJsonValue;
   artifact?: ArtifactInput;
+  artifacts?: ArtifactInput[];
   articlePatch?: ArticleWorkflowPatch;
+  knowledgeRecordPatch?: Prisma.KnowledgeRecordUncheckedUpdateManyInput;
   expectedState?: WorkflowState;
   expectedVersion?: number;
 }): Promise<Article> {
@@ -186,10 +189,17 @@ export async function transitionArticle(input: {
     if (claimed.count !== 1) {
       throw new Error("Workflow conflict: article đã được worker khác cập nhật");
     }
+    if (input.knowledgeRecordPatch) {
+      await tx.knowledgeRecord.updateMany({
+        where: { articleId: article.id },
+        data: input.knowledgeRecordPatch,
+      });
+    }
 
-    const artifact =
-      input.artifact ?? transitionArtifact(input.to, input.action, input.details);
-    {
+    const artifacts = input.artifacts ?? [
+      input.artifact ?? transitionArtifact(input.to, input.action, input.details),
+    ];
+    for (const artifact of artifacts) {
       const latest = await tx.workflowArtifact.aggregate({
         where: {
           articleId: article.id,
@@ -206,6 +216,8 @@ export async function transitionArticle(input: {
           revision: (latest._max.revision ?? 0) + 1,
           sourceRevision: artifact.sourceRevision,
           sourceArtifactType: artifact.sourceArtifactType,
+          schemaVersion: TFES_CONTRACT.artifactSchemaVersion,
+          operatingPromptVersion: TFES_CONTRACT.operatingPromptVersion,
           domainProfileVersion: artifact.domainProfileVersion,
           state: input.to,
           content: artifact.content,
@@ -239,6 +251,7 @@ export async function patchWorkflowArticle(input: {
   actorId?: string | null;
   details?: Prisma.InputJsonValue;
   artifact?: ArtifactInput;
+  artifacts?: ArtifactInput[];
   expectedState?: WorkflowState;
   expectedVersion?: number;
   success?: boolean;

@@ -103,6 +103,8 @@ model Article {
   workflowRunId   String         @default(uuid())
   /// Optimistic concurrency token; every workflow mutation increments it.
   workflowVersion Int            @default(0)
+  /// Semantic content version used by correction/retraction lifecycle.
+  contentVersion  String         @default("1.0.0")
   errorMessage    String?
 
   researchBrief   String?        @db.Text
@@ -236,6 +238,11 @@ model KnowledgeRecord {
   coreMessage  String?  @db.Text
   editorialScore Int?
   evergreen    Int?
+  currentVersion String   @default("1.0.0")
+  retractionStatus String @default("none")
+  correctionHistory String? @db.Text
+  lastVerifiedAt DateTime?
+  nextFreshnessReviewAt DateTime?
   publishedAt  DateTime @default(now())
 }
 

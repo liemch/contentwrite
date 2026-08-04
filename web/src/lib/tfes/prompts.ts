@@ -1,7 +1,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { domainProfilePath, resolveDomainId } from "@/lib/tfes/domains";
+import { resolveDomainId } from "@/lib/tfes/domains";
 import { getTfesOverrideCached, readTfesFileFromDisk } from "@/lib/tfes/tfes-docs";
+import { resolveAndValidateDomainProfile } from "@/lib/tfes/domain-profile";
 
 const TFES_ROOT = join(process.cwd(), "content", "ai-tfes");
 
@@ -39,7 +40,7 @@ export function readTfesFile(relativePath: string): string {
  */
 export function getSystemPrompt(domain: string): string {
   const operating = readTfesFile("02-Prompts/Operating-Prompt.md");
-  const domainProfile = readTfesFile(domainProfilePath(domain));
+  const domainProfile = resolveAndValidateDomainProfile(domain, readTfesFile).content;
 
   return `${operating}
 
@@ -81,9 +82,9 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
  */
 export function getSystemPromptLite(domain: string): string {
   const id = resolveDomainId(domain);
-  const domainProfile = readTfesFile(domainProfilePath(id));
+  const domainProfile = resolveAndValidateDomainProfile(id, readTfesFile).content;
   // Chỉ lấy phần đầu hồ sơ (audience, tông, tier) — đủ cho Decision
-  const clipped = domainProfile.slice(0, 1_200).trim();
+  const clipped = domainProfile.slice(0, 3_000).trim();
 
   return `Bạn là biên tập viên AI-TFES. Chỉ làm ĐÚNG nhiệm vụ trong user message — không làm thêm bước khác.
 Tiếng Việt. Evidence-first; không bịa nguồn/số liệu. Trả lời ngắn, đúng format yêu cầu.
@@ -175,6 +176,8 @@ type PipelineStep =
   | "write-b"
   | "finalize-review"
   | "finalize-a"
+  | "finalize-fact-remediate"
+  | "finalize-revision-remediate"
   | "finalize-verify"
   | "finalize-b"
   | "finalize-polish"
@@ -403,6 +406,39 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
 
 ${factTpl}`,
+
+    "finalize-fact-remediate": `## Nhiệm vụ phục hồi FACT_CHECK_FAILED (AI-TFES v1.6)
+Sửa **đúng bản nháp Article.md** trong CONTEXT theo Fact-Check Ledger. Đây là revision mới của
+ARTICLE_DRAFT, chưa phải bản sạch và chưa phải một lần Fact Check mới.
+
+Quy tắc bắt buộc:
+- Supported: giữ nguyên nếu wording đã khớp evidence.
+- Partially Supported: thêm điều kiện/ngữ cảnh hoặc hạ mức khẳng định đúng theo cột Xử lý.
+- Unsupported: bỏ claim hoặc viết lại thành nhận định có giới hạn; không giữ số liệu không có nguồn.
+- Contradicted: sửa/bỏ theo evidence; tuyệt đối không lờ verdict.
+- Unverifiable: gắn rõ Opinion/Prediction nếu hợp lý, nếu không thì bỏ.
+- Thực hiện mọi action bắt buộc trong ledger; giữ insight trung tâm, cấu trúc 12 phần và các phần
+  không liên quan ổn định. Không thêm nguồn/số liệu mới ngoài Research Brief.
+
+Chỉ xuất **toàn bộ bản nháp Markdown đã sửa**, bắt đầu bằng \`# Title\`. Không giải thích thay đổi,
+không output Fact-Check Ledger, Knowledge Record, HERO IMAGE BRIEF, bản sạch hoặc STATUS.
+
+${articleTpl}`,
+
+    "finalize-revision-remediate": `## Nhiệm vụ REVISION REMEDIATION (AI-TFES v1.6)
+Sửa toàn bộ bản nháp Article.md theo **Required Revisions**, Quality Gates và Fact-Check Ledger
+trong CONTEXT. Mức MINOR/MAJOR/REWRITE quyết định độ sâu sửa, nhưng không được bỏ qua lỗi.
+
+- MINOR: sửa chính xác wording, flow, điều kiện và claim cục bộ.
+- MAJOR: sửa các phần liên quan, logic/evidence và recommendations; giữ insight nếu vẫn ≥L2.
+- REWRITE: viết lại cấu trúc/lập luận từ Planning + Research Brief, không cứu câu chữ cũ bằng đổi từ.
+- Unsupported/Contradicted/Unverifiable: xử lý theo FactCheck.md; không thêm số/nguồn mới.
+- Giữ đủ nháp Article.md, insight ≥L2, phản biện và “khi nào không”.
+
+Chỉ xuất toàn bộ bản nháp Markdown revision mới, bắt đầu bằng \`# Title\`. Không giải thích,
+không output Review, Fact Check, Knowledge Record, bản sạch, Hero hoặc STATUS.
+
+${articleTpl}`,
 
     "finalize-verify": `## Nhiệm vụ bước 9b: FINAL VERIFICATION GATE (AI-TFES v1.6)
 Đọc đúng Editorial Review, Fact-Check Ledger và bản nháp trong CONTEXT. Khóa điểm Evidence; không suy đoán claim đã được sửa nếu CONTEXT không chứng minh.

@@ -1,4 +1,5 @@
 import { parseFactClaims, verificationStatus } from "@/lib/tfes/fact-ledger";
+import { TFES_CONTRACT } from "@/lib/tfes/contract";
 
 export type FinalVerification = {
   totalScore: number | null;
@@ -37,9 +38,9 @@ export function inspectFinalVerification(
     openActions,
     publishReady:
       totalScore !== null &&
-      totalScore >= 95 &&
+      totalScore >= TFES_CONTRACT.finalReview.minimumTotalScore &&
       insightScore !== null &&
-      insightScore >= 22 &&
+      insightScore >= TFES_CONTRACT.finalReview.minimumInsightScore &&
       gatesPassed &&
       factPassed &&
       openActions === 0 &&
@@ -59,4 +60,3 @@ export function assertFinalVerificationPassed(
   }
   return result;
 }
-
