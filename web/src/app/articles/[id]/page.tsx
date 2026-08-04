@@ -19,6 +19,7 @@ import { resolvePublishFormat, resolveShapeForArticle } from "@/lib/tfes/publish
 import { prepareReaderContent } from "@/lib/publish-content";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
+import { isRevisionRemediationExhausted } from "@/lib/tfes/retry-policy";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import {
   isCleanBodyQualityFail,
@@ -106,6 +107,7 @@ const BLOCKING_WORKFLOW_STATES = new Set([
 function isWorkflowStopped(article: Article): boolean {
   if (TERMINAL_WORKFLOW_STATES.has(article.workflowState)) return true;
   if (BLOCKING_WORKFLOW_STATES.has(article.workflowState)) return true;
+  if (isRevisionRemediationExhausted(article.errorMessage)) return true;
   if (
     article.workflowState === "FACT_CHECK_FAILED" &&
     isFactRemediationExhausted(article.errorMessage)
@@ -372,7 +374,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       ["MINOR_REVISION_REQUIRED", "MAJOR_REVISION_REQUIRED", "REWRITE_REQUIRED"].includes(
         next.workflowState,
       ) &&
-      !isAwaitingHumanReview(next)
+      !isAwaitingHumanReview(next) &&
+      !isRevisionRemediationExhausted(next.errorMessage)
     ) {
       setActionError(next.errorMessage || "Bài cần revision");
       pushLog("warn", "→ Tự sửa draft theo Required Revisions rồi chạy lại Review/Fact Check...");
@@ -497,7 +500,17 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       pushLog("warn", `✓ Đã làm lại từ đầu (${elapsedSec}s)`);
       setActionError("");
     } else if (action === "confirm-human-review") {
-      pushLog("success", `✓ Đã xác nhận Review người · tiếp Fact-check (${elapsedSec}s)`);
+      const needsRevision = [
+        "MINOR_REVISION_REQUIRED",
+        "MAJOR_REVISION_REQUIRED",
+        "REWRITE_REQUIRED",
+      ].includes(next.workflowState);
+      pushLog(
+        "success",
+        needsRevision
+          ? `✓ Đã xác nhận Review người · sửa các điểm đã chọn (${elapsedSec}s)`
+          : `✓ Đã xác nhận Review người · tiếp Fact-check (${elapsedSec}s)`,
+      );
       setTab(tabForArticle(next));
     } else {
       pushLog("success", `✓ ${action} → ${next.status} (${elapsedSec}s)`);
@@ -902,7 +915,17 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               notes: humanNotes,
             });
             if (result.article && !isAwaitingHumanReview(result.article)) {
-              pushLog("info", "→ Tiếp tục Fact-check...");
+              const needsRevision = [
+                "MINOR_REVISION_REQUIRED",
+                "MAJOR_REVISION_REQUIRED",
+                "REWRITE_REQUIRED",
+              ].includes(result.article.workflowState);
+              pushLog(
+                "info",
+                needsRevision
+                  ? "→ Sửa draft theo đúng các điểm anh chọn, sau đó Fact-check..."
+                  : "→ Tiếp tục Fact-check...",
+              );
               await callAction("run-step");
             }
           }}

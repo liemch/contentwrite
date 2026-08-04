@@ -42,6 +42,51 @@ export function extractArticleThesis(input: {
   return parts.slice(0, 700);
 }
 
+/** Lấy mẫu mở bài, từng section và takeaway để visual brief không chỉ bám phần đầu. */
+export function extractArticleVisualContext(input: {
+  cleanPublish?: string | null;
+  title?: string | null;
+  topic?: string | null;
+}): string {
+  const title = (input.title || input.topic || "Bài viết").trim();
+  const body = (input.cleanPublish || "")
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .replace(/<!--pd-img:[^>]+-->/g, "")
+    .replace(/^#\s+[^\n]+\n+/, "")
+    .trim();
+  if (!body) return `TITLE: ${title}`;
+
+  const sections = body.split(/(?=^##\s+)/m);
+  let headingIndex = 0;
+  const sampled = sections.map((section) => {
+    const heading = section.match(/^##\s+(.+)$/m)?.[1];
+    const content = section
+      .replace(/^#{2,3}\s+.+$/gm, "")
+      .split(/\n{2,}/)
+      .map((part) => stripMd(part.replace(/\n/g, " ")))
+      .filter((part) => part.length > 45 && !/^references?/i.test(part));
+    const anchor = content[0] || "";
+    const label = heading
+      ? `SECTION ${headingIndex++}: ${stripMd(heading)}`
+      : "OPENING";
+    return `${label}\n${anchor}`.trim();
+  });
+  const paragraphs = body
+    .split(/\n{2,}/)
+    .map((part) => stripMd(part.replace(/^#{1,3}\s+.+$/gm, "").replace(/\n/g, " ")))
+    .filter((part) => part.length > 45 && !/^references?/i.test(part));
+  const conclusion = paragraphs.at(-1) || "";
+
+  return [
+    `TITLE: ${title}`,
+    ...sampled.filter(Boolean),
+    conclusion ? `ENDING / TAKEAWAY:\n${conclusion}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, 6_500);
+}
+
 const GENERIC_BAD =
   /futuristic technology background|circuit boards?|glowing code|abstract servers?|neon cyber|holographic ui/i;
 

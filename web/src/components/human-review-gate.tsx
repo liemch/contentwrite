@@ -28,7 +28,7 @@ const DISPOSITIONS: {
   {
     id: "fixed",
     label: "Nhờ AI sửa tiếp",
-    hint: "Fact-check / Polish sẽ ưu tiên xử lý điểm này — anh chưa cần sửa tay ở đây",
+    hint: "AI sửa draft một lượt theo điểm này, rồi đi tiếp Fact-check — không mở lại Review người",
   },
   {
     id: "accept",

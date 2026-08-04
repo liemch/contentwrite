@@ -5,6 +5,7 @@ import {
   type Article,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { extractArticleVisualContext } from "@/lib/image/hero-prompt";
 import { chatCompletion } from "@/lib/nvidia";
 import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { formatSearchResults, webSearch } from "@/lib/search";
@@ -48,6 +49,7 @@ import {
   MAX_FACT_REMEDIATION_RETRIES,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
+import { MAX_REVISION_REMEDIATION_RETRIES } from "@/lib/tfes/retry-policy";
 import {
   applyHumanReviewToKnowledge,
   humanReviewSupportBlock,
@@ -1130,6 +1132,41 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       if (finPhase === "revision-remediate") {
+        const latestHumanConfirmation = await prisma.workflowTransition.findFirst({
+          where: {
+            articleId,
+            workflowRunId: article.workflowRunId,
+            action: "human-review-confirmed",
+          },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        });
+        const remediationAttempts = await prisma.workflowTransition.count({
+          where: {
+            articleId,
+            workflowRunId: article.workflowRunId,
+            action: "remediate-required-revision",
+            ...(latestHumanConfirmation
+              ? { createdAt: { gt: latestHumanConfirmation.createdAt } }
+              : {}),
+          },
+        });
+        if (remediationAttempts >= MAX_REVISION_REMEDIATION_RETRIES) {
+          const stopped = await commitPatch({
+            action: "revision-remediation-exhausted",
+            success: false,
+            articlePatch: {
+              errorMessage:
+                `Revision chưa đạt sau ${MAX_REVISION_REMEDIATION_RETRIES} lần remediation — ` +
+                "cần editor sửa tay hoặc làm lại workflow.",
+            },
+            details: { remediationAttempts, revisionState: article.workflowState },
+          });
+          return withTimings(stopped, {
+            finalizePhase: "revision-remediation-exhausted",
+          });
+        }
+
         const llmStarted = Date.now();
         const previousDraftRevision = await latestArtifactRevision(
           articleId,
@@ -1160,13 +1197,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
+        const retainedReview = (article.knowledgeRecord ?? "")
+          .replace(/\n+##\s*Final Verification \(pipeline\)[\s\S]*$/i, "")
+          .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
+          .replaceAll(FINAL_REVIEW_DONE_MARK, "")
+          .replaceAll(READER_SIM_DONE_MARK, "")
+          .trim();
         const transitioned = await commitTransition({
-          to: WorkflowState.DRAFTED,
+          // Review người đã chốt; revision xong đi thẳng Fact Check, không mở lại bước 8.
+          to: WorkflowState.EDITORIAL_REVIEWED,
           action: "remediate-required-revision",
           articlePatch: {
             draft12: `${repairedDraft}\n\n${WRITE_DONE_MARK}`,
             factCheck: null,
-            knowledgeRecord: null,
+            knowledgeRecord: retainedReview,
             cleanPublish: null,
             heroBrief: null,
             errorMessage: null,
@@ -1491,7 +1535,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               content: buildPipelinePrompt(
                 "finalize-hero",
                 appendContext(
-                  clipText(polished, 2_800),
+                  extractArticleVisualContext({
+                    cleanPublish: polished,
+                    title,
+                    topic,
+                  }),
                   `Title: ${title}`,
                   `Chủ đề: ${topic}`,
                 ),
@@ -1981,11 +2029,15 @@ export async function confirmHumanReview(
     findings,
   );
 
-  const requiresRevision = new Set<WorkflowState>([
+  const aiRequestedRevision = new Set<WorkflowState>([
     WorkflowState.MINOR_REVISION_REQUIRED,
     WorkflowState.MAJOR_REVISION_REQUIRED,
     WorkflowState.REWRITE_REQUIRED,
   ]).has(article.workflowState);
+  const requestedAiFix = payload.items.some(
+    (item) => item.id !== "ack-pass" && item.disposition === "fixed",
+  );
+  const requiresRevision = aiRequestedRevision && requestedAiFix;
 
   return transitionArticle({
     articleId,
@@ -2004,7 +2056,11 @@ export async function confirmHumanReview(
             .join("\n\n")
         : article.reviewerNotes,
     },
-    details: { findings: findings.length },
+    details: {
+      findings: findings.length,
+      requestedAiFix,
+      acceptedWithoutRevision: aiRequestedRevision && !requestedAiFix,
+    },
   });
 }
 

@@ -10,7 +10,6 @@ import { getSession } from "@/lib/auth";
 import { getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { isDue } from "@/lib/auto-write/schedule";
 import { BRAND } from "@/lib/brand";
-import { getDeskMetrics } from "@/lib/tfes/editorial-memory";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { prisma } from "@/lib/db";
 import { WorkflowState } from "@/generated/prisma/client";
@@ -22,7 +21,7 @@ export default async function DashboardPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [articles, autoConfig, metrics] = await Promise.all([
+  const [articles, autoConfig] = await Promise.all([
     prisma.article.findMany({
       where: editorialWhere(session),
       orderBy: { updatedAt: "desc" },
@@ -45,25 +44,37 @@ export default async function DashboardPage() {
       },
     }),
     getAutoWriteConfig(),
-    getDeskMetrics(isAdmin(session) ? {} : { createdById: session.userId }),
   ]);
 
-  const stoppedStates = new Set<WorkflowState>([
-    WorkflowState.PUBLISH_READY,
+  const completedStates = new Set<WorkflowState>([
     WorkflowState.APPROVED,
     WorkflowState.PUBLISHED,
-    WorkflowState.CORRECTION_REQUIRED,
     WorkflowState.RETRACTED,
   ]);
-  const queue = articles.filter((a) => !stoppedStates.has(a.workflowState));
-  const review = articles.filter((a) => a.workflowState === WorkflowState.PUBLISH_READY);
-  const awaitingHuman = articles.filter((a) =>
+  const correctionStates = new Set<WorkflowState>([
+    WorkflowState.CORRECTION_REQUIRED,
+    WorkflowState.CORRECTED,
+  ]);
+  const workspace = articles.filter((article) => {
+    if (correctionStates.has(article.workflowState)) return true;
+    if (completedStates.has(article.workflowState)) return false;
+    // Chặn record legacy bị lệch workflowState nhưng projection đã hoàn tất.
+    return !["APPROVED", "PUBLISHED"].includes(article.status);
+  });
+  const review = workspace.filter((a) => a.workflowState === WorkflowState.PUBLISH_READY);
+  const queue = workspace.filter((a) => a.workflowState !== WorkflowState.PUBLISH_READY);
+  const awaitingHuman = workspace.filter((a) =>
     isAwaitingHumanReview({
       knowledgeRecord: a.knowledgeRecord,
       factCheck: a.factCheck,
     }),
   ).length;
-  const publishedCount = articles.filter((a) => a.workflowState === WorkflowState.PUBLISHED).length;
+  const needsAttention = queue.filter(
+    (a) =>
+      Boolean(a.errorMessage) ||
+      /FAILED|REQUIRED/.test(a.workflowState) ||
+      a.workflowState === WorkflowState.CORRECTION_REQUIRED,
+  ).length;
   const admin = isAdmin(session);
   const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
   const greetingName = session.name?.trim() || session.email?.split("@")[0] || "biên tập viên";
@@ -108,7 +119,7 @@ export default async function DashboardPage() {
 
       {admin && <AutoWriteWatcher due={autoDue} />}
 
-      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
           {
             label: "Đang làm",
@@ -132,28 +143,18 @@ export default async function DashboardPage() {
             tone: review.length > 0 ? ("warm" as const) : undefined,
           },
           {
-            label: "Thư viện",
-            value: publishedCount,
-            hint: "Đã đăng · mở Thư viện",
-            href: "/library",
-            tone: "accent" as const,
+            label: "Cần xử lý",
+            value: needsAttention,
+            hint: "Lỗi · Revision · Correction",
+            href: null,
+            tone: needsAttention > 0 ? ("warm" as const) : undefined,
           },
           {
-            label: "Điểm TB",
-            value: metrics.avgScore != null ? metrics.avgScore : "—",
-            hint:
-              metrics.scoredCount > 0
-                ? `${metrics.highScoreCount} bài ≥4/5 · ${metrics.scoredCount} đã chấm`
-                : "Chưa có điểm Approve",
-            href: null,
-            tone: "accent" as const,
-          },
-          {
-            label: "Tổng bài",
-            value: articles.length,
-            hint: "Mọi trạng thái",
-            href: null,
-            tone: undefined,
+            label: "Auto-write",
+            value: autoConfig.enabled ? "ON" : "OFF",
+            hint: autoConfig.enabled ? "Đang chạy theo lịch" : "Đang tắt",
+            href: admin ? "/settings" : null,
+            tone: autoConfig.enabled ? ("accent" as const) : undefined,
           },
         ].map((item) => {
           const inner = (

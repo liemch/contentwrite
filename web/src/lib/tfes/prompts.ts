@@ -590,6 +590,8 @@ Alt: <mô tả ngắn tiếng Việt cho a11y — nêu đúng ý bài>
 
 Bắt buộc:
 - Prompt English mirror luận điểm thật (vd. tốc độ vs kiến trúc → unfinished scaffolding vs stopwatch / fork in the road — KHÔNG CPU/server/circuit board nếu bài không về hạ tầng)
+- Đọc cả ARTICLE MAP đến ENDING / TAKEAWAY; Hero phải thể hiện mâu thuẫn hoặc kết luận trung tâm, không chỉ danh từ trong Title
+- Scene phải có chủ thể cụ thể + hành động/tương quan + bối cảnh + bố cục; mỗi vật thể phải giải thích được bằng một ý trong bài
 - CẤM sáo: "abstract futuristic technology background", "circuit boards", "glowing code on screen", "neon cyber city"
 - Alt phải mô tả metaphor của BÀI, không "minh họa công nghệ" chung
 - Không viết lại bài; chỉ xuất HERO IMAGE BRIEF`,

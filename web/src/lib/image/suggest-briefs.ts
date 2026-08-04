@@ -1,5 +1,8 @@
 import { chatCompletion } from "@/lib/nvidia";
-import { extractArticleThesis } from "@/lib/image/hero-prompt";
+import {
+  extractArticleThesis,
+  extractArticleVisualContext,
+} from "@/lib/image/hero-prompt";
 import {
   MAX_ARTICLE_IMAGES,
   type ImageBriefSlot,
@@ -58,6 +61,7 @@ export async function suggestImageBriefs(input: {
 }): Promise<ImageBriefSlot[]> {
   const count = Math.min(MAX_ARTICLE_IMAGES, Math.max(1, input.count ?? 3));
   const thesis = extractArticleThesis(input);
+  const visualContext = extractArticleVisualContext(input);
 
   const raw = await chatCompletion(
     [
@@ -77,7 +81,10 @@ export async function suggestImageBriefs(input: {
 
 Quy tắc:
 - Phần tử đầu role=hero; các phần còn lại role=inline (minh họa từng ý/section)
-- promptEn PHẢI mirror luận điểm thật (vd. tốc độ vs kiến trúc → fork / unfinished scaffolding vs stopwatch)
+- Hero PHẢI thể hiện mâu thuẫn hoặc takeaway trung tâm, không chỉ minh họa danh từ trong title
+- Mỗi inline phải neo vào một SECTION cụ thể và khác nhau; afterHeadingIndex phải đúng section đó
+- promptEn phải tự đủ nghĩa với: chủ thể cụ thể + hành động/tương quan + bối cảnh + bố cục; ưu tiên một scene rõ thay vì chồng nhiều biểu tượng
+- Chỉ dùng vật thể/metaphor có quan hệ giải thích được với luận điểm; không tự thêm robot, server, chip hoặc dashboard vì bài thuộc domain công nghệ
 - CẤM sáo: "abstract futuristic technology background", "circuit boards", "glowing code on screen", "servers with neon" trừ khi bài đúng chủ đề đó
 - CẤM text/numbers/charts/logos/real people/watermark trong ảnh (ghi trong prompt)
 - afterHeadingIndex: index ## trong bài (0-based) để chèn inline; hero có thể null
@@ -85,21 +92,55 @@ Quy tắc:
 
 TITLE: ${input.title || input.topic || "(không tiêu đề)"}
 TOPIC: ${input.topic || ""}
-THESIS / OPENING:
+CENTRAL THESIS:
 ${clipText(thesis, 900)}
 
-CLEAN EXCERPT:
-${clipText(input.cleanPublish, 4_500)}
+ARTICLE MAP (opening → từng section → takeaway):
+${visualContext}
 
 HERO BRIEF CŨ (tham khảo, có thể sai — ưu tiên luận điểm bài):
 ${clipText(input.heroBrief, 800)}
 `,
       },
     ],
-    { maxTokens: 1800, temperature: 0.45, reasoningEffort: "low" },
+    { maxTokens: 1800, temperature: 0.3, reasoningEffort: "low" },
   );
 
   let slots = parseSlotsJson(raw);
+  if (slots.length > 0) {
+    try {
+      const critiquedRaw = await chatCompletion(
+        [
+          { role: "system", content: getSystemPromptLite(input.domain) },
+          {
+            role: "user",
+            content: `## Nhiệm vụ: VISUAL GROUNDING CHECK
+
+Kiểm tra và viết lại các candidate dưới đây. Chỉ trả JSON array cùng schema.
+
+Tiêu chuẩn bắt buộc:
+- Hero phải khiến người đọc nhận ra đúng mâu thuẫn/takeaway của bài khi đặt cạnh title.
+- Inline phải minh họa chính xác section tại afterHeadingIndex, không chỉ cùng chủ đề chung.
+- Mỗi prompt English là một scene cụ thể: subject + action/relationship + environment + composition.
+- Loại prompt trang trí, stock, generic tech; loại chi tiết không có cơ sở trong ARTICLE MAP.
+- Không text/numbers/charts/logos/real people/watermark. Giữ đúng ${count} phần tử nếu có thể.
+
+ARTICLE MAP:
+${visualContext}
+
+CANDIDATES:
+${JSON.stringify(slots)}
+`,
+          },
+        ],
+        { maxTokens: 1800, temperature: 0.15, reasoningEffort: "low" },
+      );
+      const critiqued = parseSlotsJson(critiquedRaw);
+      if (critiqued.length === slots.length) slots = critiqued;
+    } catch {
+      // Giữ candidate pass đầu nếu critic tạm timeout; không làm hỏng thao tác gợi ý.
+    }
+  }
   if (slots.length === 0) {
     // Fallback deterministic — vẫn neo thesis
     const t = thesis.slice(0, 140) || input.topic || "the article";

@@ -13,6 +13,7 @@ import { isTopicUsed } from "@/lib/auto-write/topic-dedupe";
 import { runWorkflowStep } from "@/lib/tfes/workflow";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
+import { isRevisionRemediationExhausted } from "@/lib/tfes/retry-policy";
 import { REVIEW_DONE_MARK } from "@/lib/tfes/parser";
 import {
   deriveLegacyProjection,
@@ -82,6 +83,7 @@ function isAutoWorkflowDone(article: {
     article.workflowState === WorkflowState.FACT_CHECK_FAILED &&
     isFactRemediationExhausted(article.errorMessage)
   ) return true;
+  if (isRevisionRemediationExhausted(article.errorMessage)) return true;
   return article.workflowState === WorkflowState.READER_SIMULATION_FAILED &&
     /chưa đạt sau/i.test(article.errorMessage ?? "");
 }

@@ -73,7 +73,7 @@ export function ArticleImageStudio({
   async function suggestFromArticle() {
     setSuggesting(true);
     setError("");
-    onLog("info", `→ Gợi ý ${count} prompt ảnh từ luận điểm bài...`);
+    onLog("info", `→ Đọc toàn bài và kiểm tra độ bám nội dung cho ${count} prompt ảnh...`);
     const started = Date.now();
     try {
       const res = await fetch(`/api/articles/${article.id}/hero`, {
@@ -233,8 +233,8 @@ export function ArticleImageStudio({
             </Button>
           </div>
           <p className="mt-2 text-xs text-[var(--ink-faint)]">
-            LLM đọc title + đoạn mở + heading → prompt English + alt tiếng Việt đúng chủ đề (không
-            circuit board generic).
+            LLM đọc mở bài + từng section + kết luận, rồi chạy visual grounding check trước khi
+            đưa prompt để gen.
           </p>
 
           {drafts.length > 0 && (
