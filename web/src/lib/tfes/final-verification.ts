@@ -1,4 +1,4 @@
-import { parseFactClaims, verificationStatus } from "@/lib/tfes/fact-ledger";
+import { countBlockingFactClaims, verificationStatus } from "@/lib/tfes/fact-ledger";
 import { TFES_CONTRACT } from "@/lib/tfes/contract";
 
 export type FinalVerification = {
@@ -103,15 +103,7 @@ export function inspectFinalVerification(
   ]);
   const gatesPassed = gatesStatus === "PASSED";
   const factPassed = /^PASSED$/i.test(verificationStatus(factCheck));
-  const claims = parseFactClaims(factCheck);
-  const blockingClaims = claims.filter((claim) => {
-    if (/Unsupported|Contradicted|Failed|Major\s*Issue|FAIL/i.test(claim.aiVerdict)) {
-      return true;
-    }
-    if (!/Unverifiable/i.test(claim.aiVerdict)) return false;
-    // Unverifiable được phép nếu FactCheck đã phân loại rõ là Opinion/Prediction.
-    return !/Opinion|Prediction/i.test(`${claim.kind} ${claim.action}`);
-  }).length;
+  const blockingClaims = countBlockingFactClaims(factCheck);
 
   const degenerateScores = isDegenerateFinalScores(totalScore, insightScore);
   const decisionOk = decisionConsistentWithScores(decision, totalScore, insightScore);

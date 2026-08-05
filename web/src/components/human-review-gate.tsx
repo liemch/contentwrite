@@ -13,6 +13,8 @@ import { extractEditorialReview } from "@/lib/tfes/parser";
 
 type HumanReviewGateProps = {
   knowledgeRecord: string | null | undefined;
+  /** AI đang ở MINOR/MAJOR/REWRITE — cấm Giữ nguyên hết. */
+  revisionRequired?: boolean;
   running: boolean;
   onConfirm: (payload: {
     items: HumanReviewItem[];
@@ -39,6 +41,7 @@ const DISPOSITIONS: {
 
 export function HumanReviewGate({
   knowledgeRecord,
+  revisionRequired = false,
   running,
   onConfirm,
 }: HumanReviewGateProps) {
@@ -56,25 +59,40 @@ export function HumanReviewGate({
   );
   const [notes, setNotes] = useState("");
   const [showFull, setShowFull] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const allResolved =
     findings.length === 0 ||
     findings.every((f) => dispos[f.id] === "fixed" || dispos[f.id] === "accept");
 
-  const canSubmit = allResolved && !running;
+  const hasAtLeastOneFix =
+    !revisionRequired ||
+    findings.length === 0 ||
+    findings.some((f) => dispos[f.id] === "fixed");
+
+  const canSubmit = allResolved && hasAtLeastOneFix && !running;
 
   function setDisposition(id: string, value: HumanReviewDisposition) {
     setDispos((prev) => ({ ...prev, [id]: value }));
   }
 
   function setAll(value: HumanReviewDisposition) {
+    if (value === "accept" && revisionRequired) return;
     const next: Record<string, HumanReviewDisposition> = {};
     for (const f of findings) next[f.id] = value;
     setDispos(next);
+    setSubmitError(null);
   }
 
   function submit() {
     if (!canSubmit) return;
+    if (revisionRequired && findings.length > 0 && !findings.some((f) => dispos[f.id] === "fixed")) {
+      setSubmitError(
+        "AI yêu cầu revision — chọn «Nhờ AI sửa tiếp» cho ít nhất một điểm (không được Giữ nguyên hết).",
+      );
+      return;
+    }
+    setSubmitError(null);
     const items: HumanReviewItem[] =
       findings.length > 0
         ? findings.map((f) => ({
@@ -131,17 +149,26 @@ export function HumanReviewGate({
               >
                 Tất cả: nhờ AI sửa
               </button>
-              <span className="text-[var(--ink-faint)]">·</span>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => setAll("accept")}
-                className="text-xs font-semibold text-[var(--ink-muted)] underline-offset-2 hover:underline"
-              >
-                Tất cả: giữ nguyên
-              </button>
+              {!revisionRequired && (
+                <>
+                  <span className="text-[var(--ink-faint)]">·</span>
+                  <button
+                    type="button"
+                    disabled={running}
+                    onClick={() => setAll("accept")}
+                    className="text-xs font-semibold text-[var(--ink-muted)] underline-offset-2 hover:underline"
+                  >
+                    Tất cả: giữ nguyên
+                  </button>
+                </>
+              )}
             </div>
           </div>
+          {revisionRequired && (
+            <p className="rounded-lg bg-[var(--warn-soft)] px-3 py-2 text-xs text-[var(--warm)]">
+              AI yêu cầu Minor/Major/Rewrite — cần «Nhờ AI sửa tiếp» ít nhất một điểm (không Giữ nguyên hết).
+            </p>
+          )}
           {findings.map((f) => (
             <FindingRow
               key={f.id}
@@ -193,7 +220,13 @@ export function HumanReviewGate({
           busy={running}
           disabled={!canSubmit}
           onClick={submit}
-          title={!allResolved ? "Chọn hết các điểm trước" : "Lưu lựa chọn và chạy Fact-check"}
+          title={
+            !allResolved
+              ? "Chọn hết các điểm trước"
+              : !hasAtLeastOneFix
+                ? "Cần nhờ AI sửa ít nhất một điểm"
+                : "Lưu lựa chọn và chạy Fact-check"
+          }
         >
           {running ? "Đang lưu..." : "Xong — chạy Fact-check"}
         </Button>
@@ -201,6 +234,14 @@ export function HumanReviewGate({
           <p className="text-xs text-[var(--warm)]">
             Còn điểm chưa chọn. Dùng «Tất cả: nhờ AI sửa» nếu muốn nhanh.
           </p>
+        )}
+        {allResolved && !hasAtLeastOneFix && (
+          <p className="text-xs text-[var(--warm)]">
+            Cần «Nhờ AI sửa tiếp» ít nhất một điểm.
+          </p>
+        )}
+        {submitError && (
+          <p className="w-full text-xs text-[var(--warm)]">{submitError}</p>
         )}
       </div>
     </section>

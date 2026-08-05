@@ -1,6 +1,7 @@
 /**
- * Phase 1 — Chuẩn vàng Engineering (anti-generic + tính thực tế).
- * Heuristic deterministic; chỉ áp dụng khi domain = engineering.
+ * Chuẩn vàng draft — anti-generic + tính thực tế.
+ * Engineering: full suite (scene ops, neo Research…).
+ * Domain khác: subset shared (opener / handbook / when-not / advice có điều kiện).
  */
 
 import { resolveDomainId } from "@/lib/tfes/domains";
@@ -36,18 +37,18 @@ const SLOP_OPENERS =
   /Trong (thế giới|những năm gần đây|thời đại ngày nay)|không thể phủ nhận|đóng vai trò quan trọng|là một yếu tố quan trọng/i;
 
 const WHEN_NOT =
-  /khi nào\s+KHÔNG|khi nào không nên|KHÔNG nên|không nên dùng|không phù hợp khi/i;
+  /khi nào\s+KHÔNG|khi nào không nên|KHÔNG nên|không nên dùng|không phù hợp khi|trade-?off|phản biện/i;
 
 const HANDBOOK_VOICE =
   /Cần áp dụng các biện pháp sau|Khuyến nghị thực tiễn\s*\n+(?:\s*[-*+]|\s*\d+\.)|được nhắc đến như một giải pháp|Khám phá các điều kiện|ngày càng phức tạp,\s*[“"]|Các bước thực hiện như sau|Dưới đây là các nguyên tắc/i;
 
-/** Cụm vận hành / kỹ thuật cụ thể */
+/** Cụm vận hành / kỹ thuật cụ thể (engineering) */
 const OPS_SCENE =
   /(?:stage\s*\d|pipeline|snapshot|rollback|retry|incident|on-?call|latency|p99|timeout|deploy|canary|feature\s*flag|ADR|observability|cardinality|dashboard|alert|outage|mất\s+(?:hàng\s+)?giờ|xuống\s+phút|failure\s*mode|node\s+(?:nào|gây)|code\s*review)/i;
 
 /** Chủ ngữ người / đội */
 const HUMAN_ACTOR =
-  /(?:\b(?:team|đội|on-?call|SRE|Tech Lead|engineer|dev|anh|chị|bạn|chúng ta|họ)\b|đồng nghiệp|stakeholder)/i;
+  /(?:\b(?:team|đội|on-?call|SRE|Tech Lead|engineer|dev|anh|chị|bạn|chúng ta|họ)\b|đồng nghiệp|stakeholder|product\s*manager|PM\b|researcher|analyst)/i;
 
 const CONDITION_CUES =
   /(?:\bkhi\b|\bnếu\b|trừ khi|với điều kiện|chỉ khi|không phù hợp|không nên|tuỳ|tùy\s+ngữ cảnh|trong trường hợp)/i;
@@ -107,7 +108,6 @@ function countWhenNotBlocks(text: string): number {
   return heading.length + labeled.length + numberedWhenNot.length;
 }
 
-/** Lấy đoạn ví dụ / real-world / recommendations để soi neo Research. */
 function extractExampleishSection(text: string): string {
   const blocks: string[] = [];
   const headingRe =
@@ -119,7 +119,6 @@ function extractExampleishSection(text: string): string {
     blocks.push(text.slice(start, end));
   }
   if (blocks.length > 0) return blocks.join("\n\n");
-  // Fallback: nửa sau bài (thường chứa case + recommendations)
   const mid = Math.floor(text.length * 0.4);
   return text.slice(mid);
 }
@@ -129,17 +128,16 @@ function extractRecommendationsSection(text: string): string {
     /^#{1,3}\s+[^\n]*(khuyến nghị|recommendation|practical|áp dụng)[^\n]*\n([\s\S]*?)(?=^#{1,3}\s+|\n*$)/im,
   );
   if (m) return m[0];
-  // Clean publish có thể không còn heading biên tập — lấy 1/3 cuối
   return text.slice(Math.floor(text.length * 0.65));
 }
 
-/** Token kỹ thuật: từ dài ≥4, có chữ cái, loại stopword. */
 export function techTokens(text: string): Set<string> {
   const out = new Set<string>();
-  const words = (text ?? "")
-    .toLowerCase()
-    .replace(/https?:\/\/\S+/g, " ")
-    .match(/[a-zà-ỹ0-9][a-zà-ỹ0-9+./_-]{3,}/gi) ?? [];
+  const words =
+    (text ?? "")
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, " ")
+      .match(/[a-zà-ỹ0-9][a-zà-ỹ0-9+./_-]{3,}/gi) ?? [];
   for (const w of words) {
     const t = w.replace(/^[^a-zà-ỹ0-9]+|[^a-zà-ỹ0-9]+$/gi, "").toLowerCase();
     if (t.length < 4) continue;
@@ -162,30 +160,8 @@ export function isEngineeringDomain(domain: string | null | undefined): boolean 
   return resolveDomainId(domain) === "engineering";
 }
 
-export function inspectEngineeringGoldBar(input: {
-  domain: string | null | undefined;
-  body: string | null | undefined;
-  researchBrief?: string | null;
-}): GoldBarResult {
-  if (!isEngineeringDomain(input.domain)) {
-    return { ok: true, applicable: false, failures: [] };
-  }
-
-  const body = (input.body ?? "").trim();
+function collectSharedFailures(body: string): GoldBarFailure[] {
   const failures: GoldBarFailure[] = [];
-  if (body.length < 80) {
-    return {
-      ok: false,
-      applicable: true,
-      failures: [
-        {
-          id: "NO_CONCRETE_SCENE",
-          message: "Nội dung quá ngắn để đánh giá chuẩn vàng Engineering.",
-        },
-      ],
-    };
-  }
-
   const open = openingSample(body);
   if (
     GENERIC_OPENER_RE.test(body) ||
@@ -195,29 +171,7 @@ export function inspectEngineeringGoldBar(input: {
     failures.push({
       id: "GENERIC_OPENER",
       message:
-        "Đoạn mở còn generic / giáo trình / khuôn sprint–fintech — đổi sang nghịch lý hoặc failure cụ thể (xem gold_samples Engineering).",
-    });
-  }
-
-  const hasOps = OPS_SCENE.test(body);
-  const hasActor = HUMAN_ACTOR.test(body);
-  if (!hasOps || !hasActor) {
-    failures.push({
-      id: "NO_CONCRETE_SCENE",
-      message:
-        "Thiếu mini-case thực tế: cần ≥1 cụm vận hành (pipeline/rollback/on-call/…) VÀ chủ ngữ đội/người.",
-    });
-  }
-
-  if (!WHEN_NOT.test(body)) {
-    failures.push({
-      id: "NO_WHEN_NOT",
-      message: 'Thiếu mục/đoạn “khi nào KHÔNG nên” / phản biện có điều kiện.',
-    });
-  } else if (countWhenNotBlocks(body) >= 3) {
-    failures.push({
-      id: "NO_WHEN_NOT",
-      message: "Có ≥3 khối “khi nào không nên” — gộp một lần trong Recommendations.",
+        "Đoạn mở còn generic / giáo trình / khuôn stock — đổi sang nghịch lý, failure, hoặc tình huống cụ thể.",
     });
   }
 
@@ -225,24 +179,21 @@ export function inspectEngineeringGoldBar(input: {
     failures.push({
       id: "HANDBOOK_VOICE",
       message:
-        "Còn giọng handbook/brochure (checklist biện pháp, phụ đề giáo trình) — viết lại như blog kỹ thuật.",
+        "Còn giọng handbook/brochure (checklist biện pháp, phụ đề giáo trình) — viết lại như blog chuyên môn.",
     });
   }
 
-  const research = (input.researchBrief ?? "").trim();
-  if (research.length >= 120 && hasOps) {
-    const exampleSection = extractExampleishSection(body);
-    const sceneTokens = techTokens(exampleSection);
-    const researchTokens = techTokens(research);
-    const overlap = jaccard(sceneTokens, researchTokens);
-    // Case generic: có ops-ish wording nhưng gần như không chồng Research
-    if (sceneTokens.size >= 8 && overlap < 0.04) {
-      failures.push({
-        id: "UNGROUNDED_SCENE",
-        message:
-          "Mini-case / ví dụ gần như không neo Research Brief (overlap token kỹ thuật quá thấp) — lấy tín hiệu từ nguồn đã research, không bịa case generic.",
-      });
-    }
+  if (!WHEN_NOT.test(body)) {
+    failures.push({
+      id: "NO_WHEN_NOT",
+      message:
+        'Thiếu phản biện / trade-off / “khi nào KHÔNG nên” — bài một chiều dễ fail Review/9b.',
+    });
+  } else if (countWhenNotBlocks(body) >= 3) {
+    failures.push({
+      id: "NO_WHEN_NOT",
+      message: "Có ≥3 khối “khi nào không nên” — gộp một lần trong Recommendations.",
+    });
   }
 
   const advice = extractRecommendationsSection(body);
@@ -254,10 +205,82 @@ export function inspectEngineeringGoldBar(input: {
     });
   }
 
+  return failures;
+}
+
+function collectEngineeringFailures(
+  body: string,
+  researchBrief?: string | null,
+): GoldBarFailure[] {
+  const failures: GoldBarFailure[] = [];
+  const hasOps = OPS_SCENE.test(body);
+  const hasActor = HUMAN_ACTOR.test(body);
+  if (!hasOps || !hasActor) {
+    failures.push({
+      id: "NO_CONCRETE_SCENE",
+      message:
+        "Thiếu mini-case thực tế: cần ≥1 cụm vận hành (pipeline/rollback/on-call/…) VÀ chủ ngữ đội/người.",
+    });
+  }
+
+  const research = (researchBrief ?? "").trim();
+  if (research.length >= 120 && hasOps) {
+    const exampleSection = extractExampleishSection(body);
+    const sceneTokens = techTokens(exampleSection);
+    const researchTokens = techTokens(research);
+    const overlap = jaccard(sceneTokens, researchTokens);
+    if (sceneTokens.size >= 8 && overlap < 0.04) {
+      failures.push({
+        id: "UNGROUNDED_SCENE",
+        message:
+          "Mini-case / ví dụ gần như không neo Research Brief (overlap token kỹ thuật quá thấp) — lấy tín hiệu từ nguồn đã research, không bịa case generic.",
+      });
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * Chuẩn vàng draft cho mọi domain (shared) + thêm suite Engineering.
+ * `applicable` luôn true khi có body đủ dài — Pre-9b/Write dùng chung.
+ */
+export function inspectEngineeringGoldBar(input: {
+  domain: string | null | undefined;
+  body: string | null | undefined;
+  researchBrief?: string | null;
+}): GoldBarResult {
+  const body = (input.body ?? "").trim();
+  if (body.length < 80) {
+    return {
+      ok: false,
+      applicable: true,
+      failures: [
+        {
+          id: "NO_CONCRETE_SCENE",
+          message: "Nội dung quá ngắn để đánh giá chuẩn vàng draft.",
+        },
+      ],
+    };
+  }
+
+  const failures = collectSharedFailures(body);
+  if (isEngineeringDomain(input.domain)) {
+    failures.push(...collectEngineeringFailures(body, input.researchBrief));
+  }
+
+  const seen = new Set<string>();
+  const unique: GoldBarFailure[] = [];
+  for (const f of failures) {
+    if (seen.has(f.id)) continue;
+    seen.add(f.id);
+    unique.push(f);
+  }
+
   return {
-    ok: failures.length === 0,
+    ok: unique.length === 0,
     applicable: true,
-    failures,
+    failures: unique,
   };
 }
 
@@ -265,10 +288,10 @@ export function formatGoldBarError(failures: GoldBarFailure[]): string {
   const head = failures[0];
   const extra =
     failures.length > 1 ? ` (+${failures.length - 1} tiêu chí khác)` : "";
-  return `${GOLD_BAR_PREFIX} ${head?.id ?? "FAIL"} — ${head?.message ?? "Chưa đạt chuẩn vàng Engineering."}${extra}`;
+  return `${GOLD_BAR_PREFIX} ${head?.id ?? "FAIL"} — ${head?.message ?? "Chưa đạt chuẩn vàng draft."}${extra}`;
 }
 
-/** Throw nếu Engineering và chưa đạt bar — prefix GOLD_BAR: để soft-continue nhận diện. */
+/** Throw nếu chưa đạt bar — prefix GOLD_BAR: để soft-continue nhận diện. */
 export function assertEngineeringGoldBar(input: {
   domain: string | null | undefined;
   body: string | null | undefined;
@@ -286,7 +309,7 @@ export function isGoldBarQualityFail(message: string | null | undefined): boolea
 export const GOLD_BAR_CHECK_LABELS: Record<GoldBarCheckId, string> = {
   GENERIC_OPENER: "Đoạn mở không generic",
   NO_CONCRETE_SCENE: "Có mini-case vận hành + chủ ngữ người/đội",
-  NO_WHEN_NOT: "Có đúng phản biện “khi nào không”",
+  NO_WHEN_NOT: "Có phản biện / “khi nào không”",
   HANDBOOK_VOICE: "Không giọng handbook/brochure",
   UNGROUNDED_SCENE: "Case neo Research (không bịa)",
   ADVICE_WITHOUT_CONDITIONS: "Khuyến nghị có điều kiện áp dụng",

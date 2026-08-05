@@ -1,6 +1,8 @@
 export const MAX_REVISION_REMEDIATION_RETRIES = 3;
 /** Gồm cả retry khi LLM dump điểm thoái hoá 0/0 — cần thêm lượt để chấm lại. */
 export const MAX_FINAL_VERIFICATION_FORMAT_RETRIES = 3;
+/** UI soft-continue sau 9b score-fail — hết lượt thì dừng cho người xem. */
+export const MAX_FINAL_VERIFICATION_SOFT_RETRIES = 2;
 
 export function isRevisionRemediationExhausted(
   errorMessage: string | null | undefined,

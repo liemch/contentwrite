@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { ApproveGate } from "@/components/approve-gate";
 import { HumanReviewGate } from "@/components/human-review-gate";
@@ -22,6 +22,7 @@ import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
 import {
   isFinalVerificationFormatExhausted,
   isRevisionRemediationExhausted,
+  MAX_FINAL_VERIFICATION_SOFT_RETRIES,
 } from "@/lib/tfes/retry-policy";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
 import {
@@ -156,6 +157,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [notes, setNotes] = useState("");
   const [actionError, setActionError] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
+  const finalVerifySoftRef = useRef(0);
 
   useEffect(() => {
     params.then((p) => setId(p.id));
@@ -412,9 +414,19 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       }
       if (/Final Verification chưa đạt/i.test(next.errorMessage ?? "")) {
         setTab("review");
+        finalVerifySoftRef.current += 1;
+        const nextCount = finalVerifySoftRef.current;
+        if (nextCount > MAX_FINAL_VERIFICATION_SOFT_RETRIES) {
+          finalVerifySoftRef.current = 0; // lần bấm tay sau được thêm lượt
+          pushLog(
+            "warn",
+            `⏸ Khóa Review (9b) vẫn chưa đạt sau ${MAX_FINAL_VERIFICATION_SOFT_RETRIES} lần tự sửa — dừng để anh xem Required Revisions. Bấm «Chạy bước tiếp» để thử thêm.`,
+          );
+          return { article: next };
+        }
         pushLog(
           "warn",
-          "→ Khóa Review (9b) chưa đạt — tự sửa draft theo Required Revisions rồi Fact-check lại...",
+          `→ Khóa Review (9b) chưa đạt (${nextCount}/${MAX_FINAL_VERIFICATION_SOFT_RETRIES}) — tự sửa draft + re-review rồi Fact-check lại...`,
         );
         return { article: next, softContinue: true };
       }
@@ -573,6 +585,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   async function runFullPipeline() {
     if (!article || !id) return;
     setActionError("");
+    finalVerifySoftRef.current = 0;
     pushLog("info", "→ Chạy cả chu trình AI-TFES (10 bước + Gate) — timeout sẽ tự retry...");
 
     let safety = 0;
@@ -642,6 +655,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
     if (current.workflowState === "PUBLISH_READY") {
       pushLog("success", "✓ Chu trình xong — xem Bản sạch / Bản nháp 12 phần");
+      finalVerifySoftRef.current = 0;
     } else if (BLOCKING_WORKFLOW_STATES.has(current.workflowState)) {
       pushLog(
         "error",
@@ -959,6 +973,11 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       {awaitingHuman && (
         <HumanReviewGate
           knowledgeRecord={article.knowledgeRecord}
+          revisionRequired={[
+            "MINOR_REVISION_REQUIRED",
+            "MAJOR_REVISION_REQUIRED",
+            "REWRITE_REQUIRED",
+          ].includes(article.workflowState)}
           running={running}
           onConfirm={async ({ items, notes: humanNotes }) => {
             const result = await callAction("confirm-human-review", {
@@ -974,7 +993,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               pushLog(
                 "info",
                 needsRevision
-                  ? "→ Sửa draft theo đúng các điểm anh chọn, sau đó Fact-check..."
+                  ? "→ Sửa draft theo đúng các điểm anh chọn, sau đó re-review + Fact-check..."
                   : "→ Tiếp tục Fact-check...",
               );
               await callAction("run-step");

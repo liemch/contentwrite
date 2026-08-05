@@ -17,6 +17,22 @@ export function isBadAiVerdict(verdict: string): boolean {
   return BAD_VERDICT.test(verdict);
 }
 
+/**
+ * Claim chặn publish / chặn Fact PASSED máy:
+ * Unsupported/Contradicted/Failed, hoặc Unverifiable không gắn Opinion/Prediction.
+ */
+export function isBlockingFactClaim(claim: FactClaim): boolean {
+  if (isBadAiVerdict(claim.aiVerdict)) return true;
+  if (!/Unverifiable/i.test(claim.aiVerdict)) return false;
+  return !/Opinion|Prediction/i.test(`${claim.kind} ${claim.action}`);
+}
+
+export function countBlockingFactClaims(
+  factCheck: string | null | undefined,
+): number {
+  return parseFactClaims(factCheck).filter(isBlockingFactClaim).length;
+}
+
 function slugClaim(text: string, index: number): string {
   const base = text
     .toLowerCase()

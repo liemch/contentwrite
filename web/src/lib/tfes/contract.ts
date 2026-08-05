@@ -10,11 +10,16 @@ export const TFES_CONTRACT = {
     minimumTotalScore: 90,
     /**
      * Grace band: ≥87 + đủ gate/fact/0 open action → chấp nhận FINAL_REVIEWED.
-     * LLM hay chấm 87–89 (MINOR) dù bài đã đạt bar — tránh dừng oan / đốt Fact-check.
+     * Runtime chấp nhận near-miss khi gate khác OK; prompt vẫn ưu tiên chấm ≥90.
      */
     nearMissAcceptFloor: 87,
     minimumInsightScore: 22,
     requiredGateCount: 8,
+  },
+  /** Bước 8 — bài chỉ được EDITORIAL_REVIEWED khi gần bar 9b (provisional). */
+  editorialReview: {
+    minimumTotalScore: 85,
+    minimumInsightScore: 20,
   },
   research: {
     minimumIndependentLineages: 3,

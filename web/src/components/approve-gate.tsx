@@ -120,7 +120,7 @@ export function ApproveGate({
           </h2>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">
             Quyết định thật: chấm điểm + (nếu có) đối chiếu Review AI
-            {goldBar.applicable ? " + chuẩn vàng Engineering" : ""}. Hook / case / fact đã do
+            {goldBar.applicable ? " + chuẩn vàng draft" : ""}. Hook / case / fact đã do
             pipeline + tab Fact chặn trước.
           </p>
         </div>
@@ -138,7 +138,7 @@ export function ApproveGate({
           {goldBar.applicable && goldNeedsAttention && (
             <div className="mt-5 space-y-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-                Chuẩn vàng Engineering — chưa đạt ({goldFailures.length})
+                Chuẩn vàng draft — chưa đạt ({goldFailures.length})
               </p>
               <p className="text-xs text-[var(--ink-muted)]">
                 Sửa bản sạch (Polish) rồi duyệt lại, hoặc tick từng mục + Override kèm ghi chú ≥20
@@ -181,7 +181,7 @@ export function ApproveGate({
 
           {goldBar.applicable && !goldNeedsAttention && (
             <p className="mt-4 text-xs font-medium text-[var(--success,#166534)]">
-              Chuẩn vàng Engineering: đạt (máy)
+              Chuẩn vàng draft: đạt (máy)
             </p>
           )}
 
@@ -260,7 +260,7 @@ export function ApproveGate({
           onChange={(e) => onNotesChange(e.target.value)}
           placeholder={
             goldBarOverride
-              ? "Vì sao vẫn duyệt dù chưa đạt chuẩn vàng Engineering?"
+              ? "Vì sao vẫn duyệt dù chưa đạt chuẩn vàng draft?"
               : score > 0 && score <= 2
                 ? "Vì sao điểm thấp — cần sửa gì trước khi đăng?"
                 : "Strength / lý do điểm / lưu ý cho lần sau…"
@@ -329,7 +329,7 @@ export function ApproveGate({
       {status === "PUBLISH_READY" && (!canApprove || score < 1 || !goldGateOk) && (
         <p className="mt-3 text-xs text-[var(--warm)]">
           {goldNeedsAttention && !goldBarOverride
-            ? `Chuẩn vàng Engineering còn ${goldFailures.length} mục — sửa bản sạch hoặc Override.`
+            ? `Chuẩn vàng draft còn ${goldFailures.length} mục — sửa bản sạch hoặc Override.`
             : goldBarOverride && !allGoldAck
               ? "Tick xác nhận từng mục chuẩn vàng trước khi Override."
               : goldBarOverride && !overrideNotesOk

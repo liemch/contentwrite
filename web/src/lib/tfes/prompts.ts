@@ -401,8 +401,19 @@ Phải đạt hết (ghi Pass/Fail từng mục):
 - **Nhịp đọc:** Fail nếu listicle đánh số (Hook/Khi nào nên/Framework…), mục “không nên” lặp, hoặc các phần không nối với nhau
 - **Đa dạng format:** Pass nếu nháp chuẩn bị được bản sạch theo ARTICLE_SHAPE
 
-Xuất theo template Review.md với review_phase: EDITORIAL_REVIEW. Kết luận dùng đúng enum EDITORIAL_REVIEWED / MINOR_REVISION_REQUIRED / MAJOR_REVISION_REQUIRED / REWRITE_REQUIRED.
-Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist).
+## Chấm điểm provisional (bắt buộc — runtime đọc máy)
+- Insight Depth tối thiểu phản ánh Gate L2: thường ≥20/30 (bar cuối 9b là ≥22).
+- Chỉ dùng EDITORIAL_REVIEWED khi tổng provisional ≥${85} và insight ≥${20} và G1–G8 PASSED và 0 gate Fail trên checklist.
+- Còn Fail G* hoặc điểm dưới ngưỡng → MINOR/MAJOR/REWRITE — không tự khai EDITORIAL_REVIEWED.
+
+Xuất theo template Review.md với review_phase: EDITORIAL_REVIEW.
+Kết thúc bằng đúng 4 dòng máy đọc (plain text, mỗi trường một dòng):
+PROVISIONAL_TOTAL_SCORE: <0-100>
+PROVISIONAL_INSIGHT_SCORE: <0-30>
+GATES_G1_G8: <PASSED|FAILED>
+EDITORIAL_DECISION: <EDITORIAL_REVIEWED|MINOR_REVISION_REQUIRED|MAJOR_REVISION_REQUIRED|REWRITE_REQUIRED>
+
+Nếu Rewrite hoặc thiếu G1–G8 nghiêm trọng → nêu rõ phần cần sửa (vẫn xuất đủ checklist + 4 dòng máy).
 
 ${shape}
 ${reviewTpl}`,
@@ -414,6 +425,7 @@ Chỉ xuất **"4) Fact-Check Ledger"** theo FactCheck.md:
 - Gắn nhãn Opinion / Prediction rõ ràng
 - Số % / survey không có trong Research Brief → FAIL hoặc ghi Opinion
 - Nếu CONTEXT có **Editorial Review** — ưu tiên kiểm tra đúng các Fail / Minor–Major Revision đã nêu (số liệu, tuyệt đối hóa, thiếu bằng chứng)
+- **Không** ghi VERIFICATION_STATUS: PASSED nếu còn Unsupported / Contradicted / Failed / Unverifiable (không phải Opinion/Prediction)
 - Sau ledger, bắt buộc thêm đúng một dòng máy đọc, không bold: \`VERIFICATION_STATUS: PASSED\` (hoặc một enum MINOR_ISSUE / MAJOR_ISSUE / FAILED). Không chép nguyên danh sách enum.
 
 Không viết Bản sạch / HERO / Knowledge Record (Knowledge Record ở bước Publish Ready).
@@ -465,9 +477,9 @@ ${articleTpl}`,
 
 ## Chấm điểm — bắt buộc trung thực
 - Điền rubric thật (Insight/Evidence/Craft/…) rồi cộng TOTAL. CẤM xuất FINAL_TOTAL_SCORE: 0 và FINAL_INSIGHT_SCORE: 0 trừ khi CONTEXT không có bản nháp.
-- Nếu Fact Check trong CONTEXT là PASSED và bài đã có draft: Insight Depth tối thiểu phản ánh Gate L2 đã qua (thường ≥18); không được ghi 0.
+- Nếu Fact Check trong CONTEXT là PASSED và bài đã có draft: Insight Depth tối thiểu phản ánh Gate L2 đã qua — bar ≥22/30; không được ghi 0 hoặc đậu ở 18–21.
 - Khi Fact Check PASSED + G1–G8 đạt + 0 open action + insight ≥22: **ưu tiên FINAL_REVIEWED với tổng ≥90**. Chỉ dùng MINOR (85–89) khi còn lỗi nội dung rõ (logic/bằng chứng/nhịp đọc) — không hạ điểm vì lỗi chữ/câu chữ nhỏ / “có thể polish thêm”.
-- CẤM cố ý đậu ở 87–89 để “an toàn”: nếu bài đạt bar thì chấm ≥90 và FINAL_DECISION=FINAL_REVIEWED.
+- Runtime có thể chấp nhận near-miss 87–89 khi đủ gate; vẫn ưu tiên chấm ≥90 khi bài đạt bar. CẤM cố ý đậu 85–86 “an toàn”.
 - FINAL_DECISION phải khớp band điểm (không dùng chữ PUBLISH_READY):
   - FINAL_REVIEWED — tổng ≥90 và insight ≥22 và G1–G8 PASSED
   - MINOR_REVISION_REQUIRED — tổng 85–89 (chỉ khi còn lỗi nội dung rõ cần sửa)

@@ -17,6 +17,8 @@ export const FINAL_REVIEW_DONE_MARK = "<!--TFES_FINAL_REVIEW_DONE-->";
 export const HUMAN_REVIEW_PENDING_MARK = "<!--TFES_HUMAN_REVIEW_PENDING-->";
 /** Người đã xác nhận Review (kèm ## Human Review bên dưới) */
 export const HUMAN_REVIEW_DONE_MARK = "<!--TFES_HUMAN_REVIEW_DONE-->";
+/** Sau revision-remediate — bước 8 chạy lại; đạt thì auto-ack human, không pause. */
+export const POST_REVISION_REVIEW_MARK = "<!--TFES_POST_REVISION_REVIEW-->";
 /** Heading ghi chú người trong knowledgeRecord */
 export const HUMAN_REVIEW_HEADING = "## Human Review (editor)";
 /** Heading giữ excerpt Review trong knowledgeRecord sau khi có Knowledge Record thật */

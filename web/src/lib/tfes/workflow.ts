@@ -16,12 +16,15 @@ import {
   extractEditorialReview,
   gateRetryCount,
   HUMAN_EDIT_MARK,
+  HUMAN_REVIEW_DONE_MARK,
+  HUMAN_REVIEW_PENDING_MARK,
   FINAL_REVIEW_DONE_MARK,
   INSIGHT_DECISION_MARK,
   INSIGHT_DONE_MARK,
   INSIGHT_GATE_MARK,
   mergeKnowledgeWithPriorReview,
   parseFullOutput,
+  POST_REVISION_REVIEW_MARK,
   READER_SIM_DONE_MARK,
   READER_SIM_RETRY_RE,
   readerSimRetryCount,
@@ -46,6 +49,7 @@ import {
   inspectFinalVerification,
 } from "@/lib/tfes/final-verification";
 import {
+  countBlockingFactClaims,
   MAX_FACT_REMEDIATION_RETRIES,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
@@ -61,6 +65,7 @@ import {
   withHumanReviewPendingMark,
   type HumanReviewPayload,
 } from "@/lib/tfes/human-review";
+import { inspectEditorialReview } from "@/lib/tfes/editorial-review-gate";
 import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
@@ -1113,24 +1118,93 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
         );
 
-        const reviewState = /REWRITE_REQUIRED/i.test(reviewOut)
-          ? WorkflowState.REWRITE_REQUIRED
-          : /MAJOR_REVISION_REQUIRED/i.test(reviewOut)
-            ? WorkflowState.MAJOR_REVISION_REQUIRED
-            : /MINOR_REVISION_REQUIRED/i.test(reviewOut)
-              ? WorkflowState.MINOR_REVISION_REQUIRED
-              : WorkflowState.EDITORIAL_REVIEWED;
+        const inspection = inspectEditorialReview(reviewOut);
+        const reviewState = inspection.resolvedState;
+        const isPostRevisionReview = (article.knowledgeRecord ?? "").includes(
+          POST_REVISION_REVIEW_MARK,
+        );
+        const cleanReview = reviewOut
+          .replaceAll(POST_REVISION_REVIEW_MARK, "")
+          .trim();
+
+        // Sau revision: đạt → auto-ack; chưa đạt → auto xếp «nhờ AI sửa» để soft-continue
+        // không bị kẹt await-human giữa vòng 9b. Lần Review đầu vẫn chờ người.
+        let nextKnowledge: string;
+        if (isPostRevisionReview) {
+          if (reviewState === WorkflowState.EDITORIAL_REVIEWED) {
+            nextKnowledge = applyHumanReviewToKnowledge(
+              cleanReview,
+              {
+                items: [
+                  {
+                    id: "ack-pass",
+                    disposition: "fixed",
+                    note: "Auto-ack sau revision re-review (điểm/gate đạt)",
+                  },
+                ],
+                notes: "Re-review đạt — bỏ qua pause human.",
+              },
+              [],
+            ).replaceAll(POST_REVISION_REVIEW_MARK, "");
+          } else {
+            const findings = parseEditorialFindings(
+              withHumanReviewPendingMark(cleanReview),
+            );
+            const fixItems =
+              findings.length > 0
+                ? findings.map((f) => ({
+                    id: f.id,
+                    disposition: "fixed" as const,
+                    note: "Auto re-fix sau re-review",
+                  }))
+                : [
+                    {
+                      id: "required-revisions",
+                      disposition: "fixed" as const,
+                      note: "Auto re-fix sau re-review",
+                    },
+                  ];
+            nextKnowledge = applyHumanReviewToKnowledge(
+              cleanReview,
+              {
+                items: fixItems,
+                notes: inspection.failureReasons.length
+                  ? `Re-review chưa đạt — ${inspection.failureReasons.join(" · ")}`
+                  : "Re-review chưa đạt — tiếp tục remediation.",
+              },
+              findings,
+            ).replaceAll(POST_REVISION_REVIEW_MARK, "");
+          }
+        } else {
+          nextKnowledge = withHumanReviewPendingMark(cleanReview).replaceAll(
+            POST_REVISION_REVIEW_MARK,
+            "",
+          );
+        }
+
         const transitioned = await commitTransition({
           to: reviewState,
-          action: "editorial-review",
+          action: isPostRevisionReview
+            ? "editorial-review-after-revision"
+            : "editorial-review",
           success: reviewState === WorkflowState.EDITORIAL_REVIEWED,
           articlePatch: {
-            knowledgeRecord: withHumanReviewPendingMark(reviewOut.trim()),
-            errorMessage: null,
+            knowledgeRecord: nextKnowledge,
+            errorMessage:
+              reviewState === WorkflowState.EDITORIAL_REVIEWED
+                ? null
+                : inspection.failureReasons.length
+                  ? `Editorial Review chưa đạt — ${inspection.failureReasons.join(" · ")}.`
+                  : null,
+          },
+          details: {
+            ...inspection,
+            isPostRevisionReview,
+            autoHumanAck: isPostRevisionReview,
           },
           artifact: {
             type: ArtifactType.REVIEW,
-            content: reviewOut,
+            content: cleanReview,
             sourceRevision: await latestArtifactRevision(articleId, ArtifactType.ARTICLE_DRAFT),
             sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
           },
@@ -1226,15 +1300,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           .replace(/\n+##\s*Reader Simulation[\s\S]*$/i, "")
           .replaceAll(FINAL_REVIEW_DONE_MARK, "")
           .replaceAll(READER_SIM_DONE_MARK, "")
+          .replaceAll(REVIEW_DONE_MARK, "")
+          .replaceAll(HUMAN_REVIEW_DONE_MARK, "")
+          .replaceAll(HUMAN_REVIEW_PENDING_MARK, "")
+          .replaceAll(POST_REVISION_REVIEW_MARK, "")
           .trim();
         const transitioned = await commitTransition({
-          // Review người đã chốt; revision xong đi thẳng Fact Check, không mở lại bước 8.
-          to: WorkflowState.EDITORIAL_REVIEWED,
+          // Revision xong → về DRAFTED, buộc chạy lại bước 8 (Review) trước Fact.
+          to: WorkflowState.DRAFTED,
           action: "remediate-required-revision",
           articlePatch: {
             draft12: `${repairedDraft}\n\n${WRITE_DONE_MARK}`,
             factCheck: null,
-            knowledgeRecord: retainedReview,
+            knowledgeRecord: `${retainedReview}\n\n${POST_REVISION_REVIEW_MARK}`.trim(),
             cleanPublish: null,
             heroBrief: null,
             errorMessage: null,
@@ -1244,6 +1322,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             invalidatedFactCheck: Boolean(article.factCheck?.trim()),
             invalidatedFinalReview: Boolean(article.knowledgeRecord?.includes(FINAL_REVIEW_DONE_MARK)),
             previousDraftRevision,
+            requiresReReview: true,
           },
           artifact: {
             type: ArtifactType.ARTICLE_DRAFT,
@@ -1371,7 +1450,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const parsed = parseFullOutput(finalizeA);
         const factCheckContent = parsed.factCheck ?? finalizeA;
-        const passed = /^PASSED$/i.test(verificationStatus(factCheckContent));
+        const statusPassed = /^PASSED$/i.test(verificationStatus(factCheckContent));
+        const blockingClaims = countBlockingFactClaims(factCheckContent);
+        const passed = statusPassed && blockingClaims === 0;
         const transitioned = await commitTransition({
           to: passed ? WorkflowState.FACT_CHECKED : WorkflowState.FACT_CHECK_FAILED,
           action: "fact-check",
@@ -1380,9 +1461,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             factCheck: factCheckContent,
             errorMessage: passed
               ? null
-              : "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check.",
+              : !statusPassed
+                ? "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check."
+                : `Fact Check còn ${blockingClaims} blocking claim — không chấp nhận PASSED khi vẫn có Unsupported/Contradicted/Unverifiable.`,
           },
-          details: { verificationStatus: verificationStatus(factCheckContent) },
+          details: {
+            verificationStatus: verificationStatus(factCheckContent),
+            blockingClaims,
+          },
           artifact: {
             type: ArtifactType.FACT_CHECK,
             content: factCheckContent,
@@ -2150,6 +2236,15 @@ export async function confirmHumanReview(
   const requestedAiFix = payload.items.some(
     (item) => item.id !== "ack-pass" && item.disposition === "fixed",
   );
+
+  // Cấm «Giữ nguyên» hết khi AI đã yêu cầu revision — tránh lọt Fact/9b với draft chưa sửa.
+  if (aiRequestedRevision && !requestedAiFix) {
+    throw new Error(
+      "AI yêu cầu Minor/Major/Rewrite — không được «Giữ nguyên» hết. " +
+        "Chọn «Nhờ AI sửa tiếp» cho ít nhất một điểm Fail/Required Revisions.",
+    );
+  }
+
   const requiresRevision = aiRequestedRevision && requestedAiFix;
 
   return transitionArticle({
@@ -2172,7 +2267,7 @@ export async function confirmHumanReview(
     details: {
       findings: findings.length,
       requestedAiFix,
-      acceptedWithoutRevision: aiRequestedRevision && !requestedAiFix,
+      acceptedWithoutRevision: false,
     },
   });
 }
