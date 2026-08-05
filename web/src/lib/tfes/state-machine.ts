@@ -18,7 +18,16 @@ const ALLOWED: Record<WorkflowState, readonly WorkflowState[]> = {
   DECIDED: [WorkflowState.PLANNED, WorkflowState.MAJOR_REVISION_REQUIRED],
   PLANNED: [WorkflowState.DRAFTED, WorkflowState.REWRITE_REQUIRED],
   DRAFTED: [WorkflowState.EDITORIAL_REVIEWED, WorkflowState.MINOR_REVISION_REQUIRED, WorkflowState.MAJOR_REVISION_REQUIRED, WorkflowState.REWRITE_REQUIRED],
-  EDITORIAL_REVIEWED: [WorkflowState.FACT_CHECKED, WorkflowState.FACT_CHECK_FAILED],
+  // Ngoài Fact Check, state này còn có thể đi thẳng 9b khi factCheck cũ vẫn còn hiệu lực
+  // (vd. 9b fail → human confirm không yêu cầu AI sửa → EDITORIAL_REVIEWED nhưng factCheck chưa bị xoá).
+  EDITORIAL_REVIEWED: [
+    WorkflowState.FACT_CHECKED,
+    WorkflowState.FACT_CHECK_FAILED,
+    WorkflowState.FINAL_REVIEWED,
+    WorkflowState.MINOR_REVISION_REQUIRED,
+    WorkflowState.MAJOR_REVISION_REQUIRED,
+    WorkflowState.REWRITE_REQUIRED,
+  ],
   FACT_CHECKED: [WorkflowState.FINAL_REVIEWED, WorkflowState.MINOR_REVISION_REQUIRED, WorkflowState.MAJOR_REVISION_REQUIRED, WorkflowState.REWRITE_REQUIRED],
   FINAL_REVIEWED: [WorkflowState.POLISHED, WorkflowState.MINOR_REVISION_REQUIRED],
   POLISHED: [WorkflowState.READER_SIMULATED, WorkflowState.READER_SIMULATION_FAILED, WorkflowState.MINOR_REVISION_REQUIRED],
