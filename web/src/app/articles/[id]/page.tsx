@@ -400,18 +400,23 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       !isRevisionRemediationExhausted(next.errorMessage)
     ) {
       setActionError(next.errorMessage || "Bài cần revision");
-      // 9b / pre-9b fail: dừng — không tự đốt vòng sửa draft → Fact-check lại.
-      if (
-        /Final Verification chưa đạt|Pre-9b:/i.test(next.errorMessage ?? "")
-      ) {
-        setTab(/Pre-9b|GOLD_BAR/i.test(next.errorMessage ?? "") ? "draft" : "review");
+      // Pre-9b GOLD_BAR: dừng để sửa draft trước khi gọi 9b.
+      // 9b score fail: soft-continue (tự remediate) — tránh anh phải bấm tay mỗi lần.
+      if (/Pre-9b:/i.test(next.errorMessage ?? "")) {
+        setTab("draft");
         pushLog(
           "warn",
-          /Pre-9b:/i.test(next.errorMessage ?? "")
-            ? "⏸ Pre-9b: draft chưa đạt chuẩn vàng — dừng để sửa trước Khóa Review. Bấm «Chạy bước tiếp» nếu muốn hệ thống tự sửa."
-            : "⏸ Khóa Review (9b) chưa đạt — dừng để anh xem Required Revisions. Bấm «Chạy bước tiếp» nếu muốn hệ thống tự sửa draft (sẽ chạy lại Fact-check).",
+          "⏸ Pre-9b: draft chưa đạt chuẩn vàng — dừng để sửa trước Khóa Review. Bấm «Chạy bước tiếp» nếu muốn hệ thống tự sửa.",
         );
         return { article: next };
+      }
+      if (/Final Verification chưa đạt/i.test(next.errorMessage ?? "")) {
+        setTab("review");
+        pushLog(
+          "warn",
+          "→ Khóa Review (9b) chưa đạt — tự sửa draft theo Required Revisions rồi Fact-check lại...",
+        );
+        return { article: next, softContinue: true };
       }
       pushLog("warn", "→ Tự sửa draft theo Required Revisions rồi chạy lại Review/Fact Check...");
       return { article: next, softContinue: true };

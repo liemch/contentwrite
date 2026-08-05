@@ -6,8 +6,13 @@ export const TFES_CONTRACT = {
   operatingPromptVersion: "1.6",
   artifactSchemaVersion: "1.0",
   finalReview: {
-    /** Pass band: ≥90 (trước đây 95 — quá chặt khiến hầu hết lần đầu rơi MINOR → đốt Fact-check lại). */
+    /** Pass band lý tưởng: ≥90 (trước đây 95 — quá chặt). */
     minimumTotalScore: 90,
+    /**
+     * Grace band: ≥87 + đủ gate/fact/0 open action → chấp nhận FINAL_REVIEWED.
+     * LLM hay chấm 87–89 (MINOR) dù bài đã đạt bar — tránh dừng oan / đốt Fact-check.
+     */
+    nearMissAcceptFloor: 87,
     minimumInsightScore: 22,
     requiredGateCount: 8,
   },

@@ -66,12 +66,13 @@ function decisionConsistentWithScores(
 
   switch (decision) {
     case "FINAL_REVIEWED":
+      // Cho phép grace band (≥ nearMissAcceptFloor) khi model chấm FINAL_REVIEWED sát ngưỡng.
       return (
-        totalScore >= TFES_CONTRACT.finalReview.minimumTotalScore &&
+        totalScore >= TFES_CONTRACT.finalReview.nearMissAcceptFloor &&
         insightScore >= TFES_CONTRACT.finalReview.minimumInsightScore
       );
     case "MINOR_REVISION_REQUIRED":
-      // 85–89: lỗi nhỏ không đổi luận điểm
+      // 85–89: lỗi nhỏ không đổi luận điểm (grace pass xử lý riêng khi ≥ nearMiss)
       return totalScore >= 85 && totalScore < TFES_CONTRACT.finalReview.minimumTotalScore;
     case "MAJOR_REVISION_REQUIRED":
       return totalScore >= 75 && totalScore < 85;
@@ -115,20 +116,31 @@ export function inspectFinalVerification(
   const degenerateScores = isDegenerateFinalScores(totalScore, insightScore);
   const decisionOk = decisionConsistentWithScores(decision, totalScore, insightScore);
 
+  const insightOk =
+    insightScore !== null &&
+    insightScore >= TFES_CONTRACT.finalReview.minimumInsightScore;
+  const scoreIdeal =
+    totalScore !== null &&
+    totalScore >= TFES_CONTRACT.finalReview.minimumTotalScore;
+  const scoreNearMiss =
+    totalScore !== null &&
+    totalScore >= TFES_CONTRACT.finalReview.nearMissAcceptFloor &&
+    totalScore < TFES_CONTRACT.finalReview.minimumTotalScore;
+  const scoreOk = scoreIdeal || scoreNearMiss;
+
   const failureReasons: string[] = [];
   if (totalScore === null) failureReasons.push("thiếu FINAL_TOTAL_SCORE");
   else if (degenerateScores) {
     failureReasons.push(
       "điểm thoái hoá TOTAL=0 và INSIGHT=0 (không chấp nhận — phải chấm lại theo rubric)",
     );
-  } else if (totalScore < TFES_CONTRACT.finalReview.minimumTotalScore) {
-    failureReasons.push(`total ${totalScore}<${TFES_CONTRACT.finalReview.minimumTotalScore}`);
+  } else if (!scoreOk) {
+    failureReasons.push(
+      `total ${totalScore}<${TFES_CONTRACT.finalReview.nearMissAcceptFloor}`,
+    );
   }
   if (insightScore === null) failureReasons.push("thiếu FINAL_INSIGHT_SCORE");
-  else if (
-    !degenerateScores &&
-    insightScore < TFES_CONTRACT.finalReview.minimumInsightScore
-  ) {
+  else if (!degenerateScores && !insightOk) {
     failureReasons.push(
       `insight ${insightScore}<${TFES_CONTRACT.finalReview.minimumInsightScore}`,
     );
@@ -159,6 +171,17 @@ export function inspectFinalVerification(
   // Điểm 0/0 hoặc decision lệch band → coi như sai format, retry 9b (không REWRITE).
   const machineReadable = fieldsPresent && !degenerateScores && decisionOk;
 
+  const coreGatesOk =
+    gatesPassed &&
+    factPassed &&
+    openActions === 0 &&
+    blockingClaims === 0 &&
+    insightOk &&
+    scoreOk;
+
+  // Grace: điểm 87–89 + đủ gate → pass dù LLM ghi MINOR (tránh dừng/remediate oan).
+  const publishReady = Boolean(machineReadable && coreGatesOk);
+
   return {
     totalScore,
     insightScore,
@@ -169,16 +192,7 @@ export function inspectFinalVerification(
     machineReadable,
     failureReasons,
     degenerateScores,
-    publishReady:
-      machineReadable &&
-      totalScore !== null &&
-      totalScore >= TFES_CONTRACT.finalReview.minimumTotalScore &&
-      insightScore !== null &&
-      insightScore >= TFES_CONTRACT.finalReview.minimumInsightScore &&
-      gatesPassed &&
-      factPassed &&
-      openActions === 0 &&
-      blockingClaims === 0,
+    publishReady,
   };
 }
 

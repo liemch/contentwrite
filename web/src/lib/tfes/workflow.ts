@@ -1435,7 +1435,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "Mỗi trường máy một dòng riêng. FINAL_DECISION phải khớp band điểm",
                 `(FINAL_REVIEWED ≥${TFES_CONTRACT.finalReview.minimumTotalScore}; MINOR 85–89; MAJOR 75–84; REWRITE <75 hoặc insight <22).`,
                 "Không dùng chữ PUBLISH_READY trong FINAL_DECISION.",
-                "Khi Fact Check PASSED, G1–G8 đạt, 0 open action: ưu tiên chấm thật (thường ≥88), không hạ điểm giả để ép MAJOR.",
+                "Khi Fact Check PASSED, G1–G8 đạt, 0 open action, insight ≥22: ưu tiên FINAL_REVIEWED tổng ≥90 — không đậu ở 87–89 vì lỗi chữ nhỏ.",
               ].join("\n")
             : "";
         const finalReview = await chatCompletion(
