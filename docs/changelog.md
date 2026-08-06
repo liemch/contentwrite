@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-06 — WP2.5: Revision Context & Token Reliability
+
+### Fixed
+
+- Editorial Review nhận Research Brief và full draft theo context policy 16k–32k
+- Revision remediation dùng `cleanGenMaxTokens()` thay hard-code 5.600
+- Required Revisions mới nhất được đưa lên đầu prompt remediation, không còn mất do prefix clipping
+
+---
+
 ## 2026-08-06 — WP2: Quality Gate & Vercel Compatibility
 
 ### Added
