@@ -31,6 +31,11 @@ import {
   isWritePhaseQualityFail,
 } from "@/lib/tfes/quality";
 import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
+import {
+  type ArticleTabKey,
+  resolveArticleTabKey,
+  tabForFinalVerificationFailure,
+} from "@/lib/article-tabs";
 
 type Article = {
   id: string;
@@ -77,7 +82,7 @@ const TABS = [
   { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
   { key: "knowledge", label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
   { key: "desk", label: "Tóm biên tập", desc: "AI góp ý · người chốt · duyệt" },
-] as const;
+] as const satisfies ReadonlyArray<{ key: ArticleTabKey; label: string; desc: string }>;
 
 function timeoutMessage(status: number): string {
   if (status === 504 || status === 408) {
@@ -121,7 +126,7 @@ function isWorkflowStopped(article: Article): boolean {
     /chưa đạt sau/i.test(article.errorMessage ?? "");
 }
 
-function tabForArticle(a: Article): string {
+function tabForArticle(a: Article): ArticleTabKey {
   const clean = (a.cleanPublish ?? "").trim();
   const draft = stripPipelineMarks(a.draft12);
   if (isAwaitingHumanReview(a)) return "knowledge";
@@ -150,7 +155,10 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const router = useRouter();
   const [id, setId] = useState<string>("");
   const [article, setArticle] = useState<Article | null>(null);
-  const [tab, setTab] = useState<string>("clean");
+  const [tab, setTabRaw] = useState<ArticleTabKey>("clean");
+  const setTab = useCallback((key: string) => {
+    setTabRaw(resolveArticleTabKey(key));
+  }, []);
   const [running, setRunning] = useState(false);
   const [runningLabel, setRunningLabel] = useState("");
   const [logs, setLogs] = useState<PipelineLogLine[]>([]);
@@ -413,7 +421,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         return { article: next };
       }
       if (/Final Verification chưa đạt/i.test(next.errorMessage ?? "")) {
-        setTab("review");
+        setTab(tabForFinalVerificationFailure());
         finalVerifySoftRef.current += 1;
         const nextCount = finalVerifySoftRef.current;
         if (nextCount > MAX_FINAL_VERIFICATION_SOFT_RETRIES) {

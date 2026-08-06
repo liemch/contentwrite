@@ -48,8 +48,13 @@ export async function getRelatedAngles(input: {
   topic?: string | null;
   seriesId?: string | null;
   limit?: number;
+  /** Admin: domain-wide published memory. Editor: own workspace + published titles only. */
+  accessScope?: { mode: "admin" } | { mode: "owner"; userId: string };
 }): Promise<MemoryAngle[]> {
   const limit = input.limit ?? 6;
+  const ownerScope =
+    input.accessScope?.mode === "owner" ? input.accessScope.userId : null;
+
   const [records, published, seriesArticles] = await Promise.all([
     prisma.knowledgeRecord.findMany({
       where: { domain: input.domain },
@@ -60,6 +65,7 @@ export async function getRelatedAngles(input: {
       where: {
         domain: input.domain,
         workflowState: WorkflowState.PUBLISHED,
+        ...(ownerScope ? { createdById: ownerScope } : {}),
       },
       orderBy: { publishedAt: "desc" },
       take: 24,
@@ -68,6 +74,7 @@ export async function getRelatedAngles(input: {
         title: true,
         topic: true,
         knowledgeRecord: true,
+        createdById: true,
       },
     }),
     input.seriesId
@@ -80,13 +87,28 @@ export async function getRelatedAngles(input: {
             title: true,
             topic: true,
             domain: true,
+            createdById: true,
+            workflowState: true,
           },
         })
       : Promise.resolve([]),
   ]);
 
+  let filteredRecords = records;
+  if (ownerScope) {
+    const ownedArticleIds = new Set(
+      (
+        await prisma.article.findMany({
+          where: { createdById: ownerScope },
+          select: { id: true },
+        })
+      ).map((a) => a.id),
+    );
+    filteredRecords = records.filter((r) => ownedArticleIds.has(r.articleId));
+  }
+
   const topic = (input.topic ?? "").trim();
-  const angles: MemoryAngle[] = records.map((r) => ({
+  const angles: MemoryAngle[] = filteredRecords.map((r) => ({
     title: r.title,
     score: r.editorialScore,
     domain: r.domain,
@@ -108,6 +130,9 @@ export async function getRelatedAngles(input: {
   }
 
   for (const s of seriesArticles) {
+    if (ownerScope && s.createdById !== ownerScope && s.workflowState !== WorkflowState.PUBLISHED) {
+      continue;
+    }
     const title = (s.title || s.topic || "").trim();
     if (!title) continue;
     if (angles.some((x) => normalize(x.title) === normalize(title))) continue;
@@ -203,9 +228,17 @@ export async function getDeskMetrics(whereArticles: {
 /** Format memory block cho LLM research (richer). */
 export async function buildEditorialMemoryBlock(
   domain: string,
-  opts?: { seriesId?: string | null },
+  opts?: {
+    seriesId?: string | null;
+    accessScope?: { mode: "admin" } | { mode: "owner"; userId: string };
+  },
 ): Promise<string> {
-  const angles = await getRelatedAngles({ domain, limit: 10 });
+  const angles = await getRelatedAngles({
+    domain,
+    limit: 10,
+    seriesId: opts?.seriesId,
+    accessScope: opts?.accessScope,
+  });
   const seriesLines: string[] = [];
 
   if (opts?.seriesId) {
@@ -219,10 +252,21 @@ export async function buildEditorialMemoryBlock(
         seriesOrder: true,
         status: true,
         knowledgeRecord: true,
+        createdById: true,
+        workflowState: true,
       },
       take: 20,
     });
+    const ownerScope =
+      opts.accessScope?.mode === "owner" ? opts.accessScope.userId : null;
     for (const s of siblings) {
+      if (
+        ownerScope &&
+        s.createdById !== ownerScope &&
+        s.workflowState !== WorkflowState.PUBLISHED
+      ) {
+        continue;
+      }
       const title = (s.title || s.topic || "Untitled").trim();
       const order = s.seriesOrder != null ? `#${s.seriesOrder}` : "·";
       seriesLines.push(`- ${order} ${title} [${s.status}]`);

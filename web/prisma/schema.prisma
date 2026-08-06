@@ -85,6 +85,7 @@ model User {
   articles          Article[] @relation("ArticleCreator")
   approvedArticles  Article[] @relation("ArticleApprover")
   ownedAutoWrite    AutoWriteConfig[] @relation("AutoWriteOwner")
+  seriesCreated     Series[]  @relation("SeriesCreator")
 }
 
 model Article {
@@ -208,10 +209,14 @@ model Series {
   slug        String    @unique
   description String?   @db.Text
   domain      String    @default("engineering")
+  createdById String?
+  createdBy   User?     @relation("SeriesCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   articles    Article[]
+
+  @@index([createdById])
 }
 
 /// Digest tuần — tổng hợp insight từ bài điểm cao đã publish

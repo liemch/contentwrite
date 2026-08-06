@@ -5,18 +5,36 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--dns-result-order=ipv4first' next dev",
     "prebuild": "node scripts/sync-tfes.mjs",
-    "build": "prisma generate && prisma db push && next build",
-    "vercel-build": "prisma generate && prisma db push && next build",
-    "postinstall": "prisma generate",
+    "build": "npm run db:generate && next build",
+    "vercel-build": "npm run build",
+    "postinstall": "npm run db:generate",
     "start": "next start",
-    "lint": "eslint",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "lint": "eslint .",
+    "lint:ci": "eslint . --max-warnings 20",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "npm run db:validate && npm run typecheck && npm run test && npm run lint:ci && npm run build",
+    "db:generate": "prisma generate",
+    "db:validate": "prisma validate",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:resolve": "prisma migrate resolve",
+    "db:migrate": "npm run db:migrate:dev",
+    "db:push": "node -e \"console.warn('DEPRECATED: db:push bypasses versioned migrations. Use db:migrate:dev (local) or db:migrate:deploy (staging/prod).')\" && prisma db push",
+    "db:report:series-owners": "node scripts/report-series-without-owner.mjs",
     "db:seed-admin": "node scripts/seed-admin.mjs",
     "db:add-gallery": "node scripts/add-gallery-json.mjs",
-    "db:add-desk": "node scripts/add-desk-json.mjs"
+    "db:add-desk": "node scripts/add-desk-json.mjs",
+    "deploy:precheck": "npm run db:validate && npm run db:migrate:status",
+    "deploy:migrate": "npm run db:migrate:deploy",
+    "deploy:build": "npm run db:generate && npm run build"
   },
   "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/be-vietnam-pro": "^5.3.0",
+    "@fontsource/source-serif-4": "^5.3.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "bcryptjs": "^3.0.3",
@@ -41,6 +59,10 @@
     "eslint-config-next": "16.2.12",
     "prisma": "^7.9.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

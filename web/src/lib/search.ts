@@ -1,4 +1,5 @@
 import { postJson } from "@/lib/http-client";
+import { assertPreviewSideEffectsAllowed } from "@/lib/deployment-env";
 
 export type SearchResult = {
   title: string;
@@ -10,6 +11,7 @@ export async function webSearch(
   query: string,
   options?: { depth?: "basic" | "advanced"; maxResults?: number; days?: number },
 ): Promise<SearchResult[]> {
+  assertPreviewSideEffectsAllowed("tavily/webSearch");
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
     throw new Error(

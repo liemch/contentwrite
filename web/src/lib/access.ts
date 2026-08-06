@@ -1,4 +1,4 @@
-import { UserRole, type Article } from "@/generated/prisma/client";
+import { UserRole, WorkflowState, type Article } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { AuthError, type SessionUser } from "@/lib/auth";
 
@@ -87,3 +87,80 @@ export function editorialWhere(user: SessionUser): { createdById?: string } | Re
 }
 
 export type ArticleAccess = Pick<Article, "id" | "createdById">;
+
+export type OwnedResource = { createdById?: string | null };
+
+/** Editor: own rows + legacy null (admin-only write). Admin: all. */
+export function canAccessOwnedResource(
+  user: SessionUser,
+  resource: OwnedResource,
+): boolean {
+  if (isAdmin(user)) return true;
+  return Boolean(resource.createdById && resource.createdById === user.userId);
+}
+
+export function assertCanAccessOwnedResource(
+  user: SessionUser,
+  resource: OwnedResource,
+  resourceLabel = "resource",
+): void {
+  if (!canAccessOwnedResource(user, resource)) {
+    throw new AuthError(`Không có quyền với ${resourceLabel} này`, 403);
+  }
+}
+
+export function ownedResourceWhere(user: SessionUser): { createdById?: string } | Record<string, never> {
+  return editorialWhere(user);
+}
+
+export function canAccessDigest(user: SessionUser, digest: OwnedResource): boolean {
+  return canAccessOwnedResource(user, digest);
+}
+
+export function assertCanAccessDigest(user: SessionUser, digest: OwnedResource): void {
+  assertCanAccessOwnedResource(user, digest, "digest");
+}
+
+export function canAccessSeries(user: SessionUser, series: OwnedResource): boolean {
+  return canAccessOwnedResource(user, series);
+}
+
+export function assertCanAccessSeries(user: SessionUser, series: OwnedResource): void {
+  assertCanAccessOwnedResource(user, series, "series");
+}
+
+/** Full pipeline body: owner, admin, or published reader-facing content. */
+export function canViewArticleBody(
+  user: SessionUser,
+  article: { createdById?: string | null; workflowState: WorkflowState },
+): boolean {
+  if (isAdmin(user)) return true;
+  if (canAccessArticle(user, article)) return true;
+  return article.workflowState === WorkflowState.PUBLISHED;
+}
+
+export type SeriesArticleRow = {
+  id: string;
+  title: string | null;
+  topic: string | null;
+  status: string;
+  workflowState: WorkflowState;
+  domain: string;
+  publishFormat: string;
+  seriesOrder: number | null;
+  publishedAt: Date | null;
+  updatedAt: Date;
+  createdById?: string | null;
+  cleanPublish?: string | null;
+};
+
+/** Strip draft cleanPublish from users without access. */
+export function sanitizeSeriesArticlesForUser<T extends SeriesArticleRow>(
+  user: SessionUser,
+  articles: T[],
+): T[] {
+  return articles.map((article) => {
+    if (canViewArticleBody(user, article)) return article;
+    return { ...article, cleanPublish: null };
+  });
+}

@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { MarkdownView } from "@/components/markdown-view";
 import { DomainBadge, StatusBadge } from "@/components/status-badge";
 import { readingMinutes } from "@/lib/excerpt";
+import { requireUserOrRedirect } from "@/lib/auth-guard";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { prisma } from "@/lib/db";
 import { WorkflowState } from "@/generated/prisma/client";
@@ -17,6 +18,7 @@ export default async function LibraryArticlePage({
   params: Promise<{ id: string }>;
 }) {
   noStore();
+  await requireUserOrRedirect();
   const { id } = await params;
   const article = await prisma.article.findUnique({ where: { id } });
 

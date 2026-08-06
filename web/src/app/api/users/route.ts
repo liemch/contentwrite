@@ -81,13 +81,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      {
-        user: publicUser(user),
-        temporaryPassword: password,
-      },
-      { status: 201 },
-    );
+    return NextResponse.json({ user: publicUser(user) }, { status: 201 });
   } catch (error) {
     const res = authErrorResponse(error);
     if (res) return res;

@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { BRAND } from "@/lib/brand";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -33,7 +34,7 @@ export default function LoginForm() {
       return;
     }
 
-    const next = searchParams.get("next") || "/dashboard";
+    const next = safeInternalPath(searchParams.get("next"), "/dashboard");
     router.push(next);
     router.refresh();
   }

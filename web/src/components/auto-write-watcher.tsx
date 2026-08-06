@@ -5,6 +5,6 @@
  * dễ gây FUNCTION_INVOCATION_TIMEOUT (504). Cron daily đảm nhiệm lịch;
  * local vẫn có nút “Chạy ngay” ở /settings.
  */
-export function AutoWriteWatcher(_props: { due: boolean }) {
+export function AutoWriteWatcher() {
   return null;
 }

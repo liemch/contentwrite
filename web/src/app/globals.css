@@ -28,14 +28,17 @@
   --shadow: 0 1px 2px rgba(10, 21, 32, 0.04), 0 12px 40px rgba(10, 21, 32, 0.06);
   --shadow-lg: 0 24px 64px rgba(10, 21, 32, 0.1);
   --header-h: 64px;
+  --font-dm-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-source-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-geist-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 }
 
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--ink);
-  --font-sans: var(--font-dm-sans);
-  --font-serif: var(--font-source-serif);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 }
 
 * {

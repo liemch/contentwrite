@@ -1,5 +1,6 @@
 import {
   ArtifactType,
+  UserRole,
   WorkflowState,
   WorkflowStep,
   type Article,
@@ -160,9 +161,20 @@ export function nextStep(current: WorkflowStep | null): WorkflowStep | null {
 async function getEditorialMemory(
   domain: string,
   seriesId?: string | null,
+  createdById?: string | null,
 ): Promise<string> {
   const { buildEditorialMemoryBlock } = await import("@/lib/tfes/editorial-memory");
-  return buildEditorialMemoryBlock(domain, { seriesId });
+  let accessScope: { mode: "admin" } | { mode: "owner"; userId: string } = { mode: "admin" };
+  if (createdById) {
+    const creator = await prisma.user.findUnique({
+      where: { id: createdById },
+      select: { role: true },
+    });
+    if (creator?.role !== UserRole.ADMIN) {
+      accessScope = { mode: "owner", userId: createdById };
+    }
+  }
+  return buildEditorialMemoryBlock(domain, { seriesId, accessScope });
 }
 
 type StepTimings = {
@@ -573,7 +585,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       // Phase 1: Tavily — ≥3 nguồn, có góc phản biện (AI-TFES)
       if (!existingBrief.includes(SEARCH_MARK)) {
-        const memory = await getEditorialMemory(article.domain, article.seriesId);
+        const memory = await getEditorialMemory(
+          article.domain,
+          article.seriesId,
+          article.createdById,
+        );
         await commitTransition({
           to: WorkflowState.MEMORY_CHECKED,
           action: "memory-check",
@@ -636,7 +652,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       // Phase 2: Verification + Synthesis → Research Brief (bước 3–4 OP)
-      const memory = await getEditorialMemory(article.domain, article.seriesId);
+      const memory = await getEditorialMemory(
+        article.domain,
+        article.seriesId,
+        article.createdById,
+      );
       const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
       const previousGateFail =
         gateRetryCount(article.insightGate) > 0

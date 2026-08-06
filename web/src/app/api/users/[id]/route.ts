@@ -69,19 +69,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (typeof body.dailyArticleLimit === "number") {
       data.dailyArticleLimit = Math.max(0, Math.min(100, Math.floor(body.dailyArticleLimit)));
     }
-    let temporaryPassword: string | undefined;
     if (body.password !== undefined && body.password.length > 0) {
       if (body.password.length < 8) {
         return NextResponse.json({ error: "Mật khẩu tối thiểu 8 ký tự" }, { status: 400 });
       }
       data.passwordHash = await hashPassword(body.password);
-      temporaryPassword = body.password;
     }
 
     const updated = await prisma.user.update({ where: { id }, data });
     return NextResponse.json({
       user: publicUser(updated),
-      ...(temporaryPassword ? { temporaryPassword } : {}),
     });
   } catch (error) {
     const res = authErrorResponse(error);

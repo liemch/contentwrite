@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
+import {
+  previewSideEffectBlockedResponse,
+  shouldBlockPreviewSideEffects,
+} from "@/lib/deployment-env";
 import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { tickAutoWrite } from "@/lib/auto-write/runner";
 
 /** Tick lịch khi admin mở app (không force) */
 export async function POST() {
+  if (shouldBlockPreviewSideEffects()) {
+    return previewSideEffectBlockedResponse("auto-write/tick");
+  }
   try {
     await requireAdmin();
     const result = await tickAutoWrite({ force: false });

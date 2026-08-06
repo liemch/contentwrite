@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ownedResourceWhere } from "@/lib/access";
 import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { generateWeeklyDigest } from "@/lib/tfes/digest";
@@ -6,8 +7,9 @@ import { resolveDomainId } from "@/lib/tfes/domains";
 
 export async function GET() {
   try {
-    await requireUser();
+    const user = await requireUser();
     const digests = await prisma.digest.findMany({
+      where: ownedResourceWhere(user),
       orderBy: { createdAt: "desc" },
       take: 40,
     });

@@ -1,0 +1,53 @@
+# ContentWrite — CI quality gate (WP2)
+# Does NOT deploy, migrate production, or call paid APIs.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma validate
+        run: npm run db:validate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
+
+      - name: Lint
+        run: npm run lint:ci
+
+      - name: Build (offline fonts, no DB)
+        run: npm run build
+        env:
+          # Build must not require production secrets or live DB
+          SESSION_SECRET: ci-build-session-secret-min-32-chars-long
+          ADMIN_PASSWORD: ci-admin-password-not-for-production

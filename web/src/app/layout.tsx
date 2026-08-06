@@ -1,27 +1,21 @@
 import type { Metadata } from "next";
-import { Be_Vietnam_Pro, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import "@fontsource/be-vietnam-pro/400.css";
+import "@fontsource/be-vietnam-pro/500.css";
+import "@fontsource/be-vietnam-pro/600.css";
+import "@fontsource/be-vietnam-pro/700.css";
+import "@fontsource/be-vietnam-pro/vietnamese-400.css";
+import "@fontsource/be-vietnam-pro/vietnamese-500.css";
+import "@fontsource/be-vietnam-pro/vietnamese-600.css";
+import "@fontsource/be-vietnam-pro/vietnamese-700.css";
+import "@fontsource/source-serif-4/500.css";
+import "@fontsource/source-serif-4/600.css";
+import "@fontsource/source-serif-4/700.css";
+import "@fontsource-variable/jetbrains-mono";
 import { NavigationProgress } from "@/components/navigation-progress";
 import { SessionProvider } from "@/components/session-provider";
 import { SiteFrame } from "@/components/site-frame";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
-
-const beVietnam = Be_Vietnam_Pro({
-  variable: "--font-dm-sans",
-  subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const sourceSerif = Source_Serif_4({
-  variable: "--font-source-serif",
-  subsets: ["latin", "latin-ext"],
-  weight: ["500", "600", "700"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: `${BRAND.name} · ${BRAND.tagline}`,
@@ -34,10 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="vi"
-      className={`${beVietnam.variable} ${sourceSerif.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="vi" className="h-full antialiased">
       <body className="min-h-full">
         <SessionProvider>
           <NavigationProgress />

@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  canAccessSeries,
+  sanitizeSeriesArticlesForUser,
+} from "@/lib/access";
 import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -6,7 +10,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
     const series = await prisma.series.findUnique({
       where: { id },
@@ -24,6 +28,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
             seriesOrder: true,
             publishedAt: true,
             updatedAt: true,
+            createdById: true,
             cleanPublish: true,
           },
         },
@@ -32,7 +37,9 @@ export async function GET(_request: NextRequest, { params }: Params) {
     if (!series) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    return NextResponse.json({ series });
+
+    const articles = sanitizeSeriesArticlesForUser(user, series.articles);
+    return NextResponse.json({ series: { ...series, articles } });
   } catch (error) {
     const res = authErrorResponse(error);
     if (res) return res;
@@ -42,14 +49,14 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
     const body = (await request.json()) as {
       title?: string;
       description?: string | null;
     };
     const existing = await prisma.series.findUnique({ where: { id } });
-    if (!existing) {
+    if (!existing || !canAccessSeries(user, existing)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     const series = await prisma.series.update({
@@ -72,8 +79,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(_request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
+    const existing = await prisma.series.findUnique({ where: { id } });
+    if (!existing || !canAccessSeries(user, existing)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     await prisma.article.updateMany({
       where: { seriesId: id },
       data: { seriesId: null, seriesOrder: null },

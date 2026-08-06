@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (!body.imageId) {
         return NextResponse.json({ error: "Thiếu imageId" }, { status: 400 });
       }
-      let gallery = resolveGallery(article).filter((g) => g.id !== body.imageId);
+      const gallery = resolveGallery(article).filter((g) => g.id !== body.imageId);
       const cleanPublish = injectGalleryIntoCleanPublish(article.cleanPublish, gallery);
       const hero = gallery.find((g) => g.role === "hero") || gallery[0] || null;
       const updated = await prisma.article.update({

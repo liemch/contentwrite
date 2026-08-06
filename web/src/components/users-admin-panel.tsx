@@ -62,10 +62,7 @@ export function UsersAdminPanel() {
         dailyArticleLimit: dailyLimit,
       }),
     });
-    const data = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      temporaryPassword?: string;
-    };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
     setCreating(false);
 
     if (!res.ok) {
@@ -73,7 +70,7 @@ export function UsersAdminPanel() {
       return;
     }
 
-    setTempPassword(data.temporaryPassword || password);
+    setTempPassword(password);
     setMessage(`Đã tạo ${email}. Copy mật khẩu tạm bên dưới — không gửi email tự động.`);
     setEmail("");
     setName("");
@@ -94,22 +91,20 @@ export function UsersAdminPanel() {
   ) {
     setError("");
     setMessage("");
+    const sentPassword = body.password;
     const res = await fetch(`/api/users/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      temporaryPassword?: string;
-    };
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) {
       setError(data.error || "Cập nhật thất bại");
       return;
     }
-    if (data.temporaryPassword) {
-      setTempPassword(data.temporaryPassword);
-      setMessage("Đã reset mật khẩu — copy bên dưới.");
+    if (sentPassword) {
+      setTempPassword(sentPassword);
+      setMessage("Đã reset mật khẩu — copy bên dưới (chỉ hiển thị một lần trên màn hình này).");
     } else {
       setMessage("Đã cập nhật user.");
     }

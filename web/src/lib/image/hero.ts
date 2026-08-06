@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolveHeroPrompt, resolveImageAlt, sanitizeFluxPrompt } from "@/lib/image/hero-prompt";
 import { injectGalleryIntoCleanPublish, type GalleryImage } from "@/lib/image/gallery";
+import { assertPreviewSideEffectsAllowed } from "@/lib/deployment-env";
 
 export type HeroImageModel = "flux" | "qwen";
 
@@ -289,6 +290,7 @@ export async function generateHeroImage(input: {
   altOverride?: string | null;
   conceptVi?: string | null;
 }) {
+  assertPreviewSideEffectsAllowed("image/generateHeroImage");
   const prompt = resolveHeroPrompt({
     promptOverride: input.promptOverride,
     heroBrief: input.heroBrief,

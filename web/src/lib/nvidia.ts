@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { assertPreviewSideEffectsAllowed } from "@/lib/deployment-env";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -267,6 +268,7 @@ export async function chatCompletion(
   messages: ChatMessage[],
   options?: ChatOptions,
 ): Promise<string> {
+  assertPreviewSideEffectsAllowed("nvidia/chatCompletion");
   const retries = options?.retries ?? 2;
   const chatOpts: ChatOptions = { ...options };
   delete chatOpts.retries;
@@ -311,6 +313,13 @@ async function chatCompletionOnce(
 
 /** Ping Settings health — xác nhận key + model còn trong catalog (nhanh, ổn định) */
 export async function pingNvidia(): Promise<{ ok: boolean; detail: string; ms: number }> {
+  if (process.env.VERCEL_ENV === "preview" && process.env.ALLOW_PREVIEW_SIDE_EFFECTS !== "1") {
+    return {
+      ok: false,
+      detail: "Preview: NVIDIA ping disabled (set ALLOW_PREVIEW_SIDE_EFFECTS=1 to test)",
+      ms: 0,
+    };
+  }
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) {
     return { ok: false, detail: "NVIDIA_API_KEY chưa set", ms: 0 };

@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { getSessionSecretBytes } from "@/lib/auth-secret";
+import { isJwtMarkedInactive } from "@/lib/auth-session";
 import { COOKIE_NAME } from "@/lib/auth-cookie";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 const PUBLIC_PATHS = [
   "/login",
   "/api/auth/login",
-  "/api/health/integrations",
   "/api/cron/auto-write",
 ];
-
-function getSecret() {
-  const secret = process.env.SESSION_SECRET ?? process.env.ADMIN_PASSWORD;
-  if (!secret) return null;
-  return new TextEncoder().encode(secret);
-}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -27,13 +23,16 @@ export async function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
-  const secret = getSecret();
   let authed = false;
 
-  if (token && secret) {
+  if (token) {
     try {
-      await jwtVerify(token, secret);
-      authed = true;
+      const { payload } = await jwtVerify(token, getSessionSecretBytes());
+      if (isJwtMarkedInactive(payload.active)) {
+        authed = false;
+      } else {
+        authed = true;
+      }
     } catch {
       authed = false;
     }
@@ -44,7 +43,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname);
+    loginUrl.searchParams.set("next", safeInternalPath(pathname, "/dashboard"));
     return NextResponse.redirect(loginUrl);
   }
 

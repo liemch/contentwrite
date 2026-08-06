@@ -2,6 +2,8 @@ import { compare, hash } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { UserRole } from "@/generated/prisma/client";
+import { getSessionSecretBytes } from "@/lib/auth-secret";
+import { isSessionInvalidated } from "@/lib/auth-session";
 import { COOKIE_NAME } from "@/lib/auth-cookie";
 import { prisma } from "@/lib/db";
 
@@ -14,12 +16,12 @@ export type SessionUser = {
   name: string | null;
 };
 
+type JwtSessionMeta = {
+  sessionVersion?: number;
+};
+
 function getSecret() {
-  const secret = process.env.SESSION_SECRET ?? process.env.ADMIN_PASSWORD;
-  if (!secret) {
-    throw new Error("SESSION_SECRET or ADMIN_PASSWORD must be set");
-  }
-  return new TextEncoder().encode(secret);
+  return getSessionSecretBytes();
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -38,12 +40,15 @@ export async function createSession(user: {
   email: string;
   role: UserRole;
   name?: string | null;
+  updatedAt: Date;
 }) {
   const token = await new SignJWT({
     sub: user.id,
     email: user.email,
     role: user.role,
     name: user.name ?? null,
+    active: true,
+    sv: user.updatedAt.getTime(),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -65,13 +70,15 @@ export async function destroySession() {
   cookieStore.delete(COOKIE_NAME);
 }
 
-export async function getSession(): Promise<SessionUser | null> {
+/** JWT claims only — prefer requireUser() for authorization decisions. */
+export async function getSession(): Promise<(SessionUser & JwtSessionMeta) | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return null;
 
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    if (payload.active === false) return null;
     const userId = typeof payload.sub === "string" ? payload.sub : null;
     const email = typeof payload.email === "string" ? payload.email : null;
     const role = payload.role === "ADMIN" || payload.role === "EDITOR" ? payload.role : null;
@@ -82,13 +89,14 @@ export async function getSession(): Promise<SessionUser | null> {
       email,
       role,
       name: typeof payload.name === "string" ? payload.name : null,
+      sessionVersion: typeof payload.sv === "number" ? payload.sv : undefined,
     };
   } catch {
     return null;
   }
 }
 
-/** Tương thích cũ — true nếu có session hợp lệ */
+/** Tương thích cũ — true nếu có JWT hợp lệ (không kiểm tra active từ DB). */
 export async function verifySession(): Promise<boolean> {
   return Boolean(await getSession());
 }
@@ -100,7 +108,7 @@ export async function requireUser(): Promise<SessionUser> {
   }
 
   const user = await prisma.user.findUnique({ where: { id: session.userId } });
-  if (!user || !user.active) {
+  if (!user || isSessionInvalidated(user, session.sessionVersion)) {
     throw new AuthError("Tài khoản không còn hiệu lực", 401);
   }
 

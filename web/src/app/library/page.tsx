@@ -2,6 +2,7 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
+import { requireUserOrRedirect } from "@/lib/auth-guard";
 import { prisma } from "@/lib/db";
 import { WorkflowState } from "@/generated/prisma/client";
 import { DOMAIN_IDS, DOMAIN_META, isDomainId } from "@/lib/tfes/domains";
@@ -19,6 +20,7 @@ export default async function LibraryPage({
   searchParams: Promise<{ domain?: string; format?: string }>;
 }) {
   noStore();
+  await requireUserOrRedirect();
   const { domain, format } = await searchParams;
   const selected = isDomainId(domain) ? domain : "all";
   const selectedFormat = isPublishFormatId(format) ? format : "all";

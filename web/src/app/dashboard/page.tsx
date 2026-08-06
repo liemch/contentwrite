@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "@/components/app-shell";
 import { ArticleCard } from "@/components/article-card";
 import { AutoWriteWatcher } from "@/components/auto-write-watcher";
 import { PipelineQueue } from "@/components/pipeline-queue";
 import { editorialWhere, isAdmin } from "@/lib/access";
-import { getSession } from "@/lib/auth";
+import { requireUserOrRedirect } from "@/lib/auth-guard";
 import { getAutoWriteConfig } from "@/lib/auto-write/runner";
-import { isDue } from "@/lib/auto-write/schedule";
 import { BRAND } from "@/lib/brand";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { prisma } from "@/lib/db";
@@ -18,8 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   noStore();
-  const session = await getSession();
-  if (!session) redirect("/login");
+  const session = await requireUserOrRedirect();
 
   const [articles, autoConfig] = await Promise.all([
     prisma.article.findMany({
@@ -76,7 +73,6 @@ export default async function DashboardPage() {
       a.workflowState === WorkflowState.CORRECTION_REQUIRED,
   ).length;
   const admin = isAdmin(session);
-  const autoDue = admin && autoConfig.enabled && isDue(autoConfig.nextRunAt);
   const greetingName = session.name?.trim() || session.email?.split("@")[0] || "biên tập viên";
 
   return (
@@ -117,7 +113,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {admin && <AutoWriteWatcher due={autoDue} />}
+      {admin && <AutoWriteWatcher />}
 
       <section className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[

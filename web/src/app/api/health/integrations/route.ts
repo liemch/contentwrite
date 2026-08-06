@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
+import { authErrorResponse, requireAdmin } from "@/lib/auth";
 import { pingNvidia } from "@/lib/nvidia";
 import { pingTavily } from "@/lib/search";
 
-/** Health public — tách timing để biết Tavily vs NVIDIA chậm chỗ nào */
+/** Admin-only — probes external APIs (consumes quota). */
 export async function GET() {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    const res = authErrorResponse(error);
+    if (res) return res;
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const tavily = await pingTavily();
   const nvidia = await pingNvidia();
 

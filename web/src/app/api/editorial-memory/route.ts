@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
       topic,
       seriesId,
       limit: 6,
+      accessScope: isAdmin(user)
+        ? { mode: "admin" }
+        : { mode: "owner", userId: user.userId },
     });
     return NextResponse.json({ angles });
   } catch (error) {

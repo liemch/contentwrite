@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const body = (await request.json()) as {
       title?: string;
       description?: string;
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
         slug,
         description: body.description?.trim() || null,
         domain,
+        createdById: user.userId,
       },
     });
     return NextResponse.json({ series }, { status: 201 });

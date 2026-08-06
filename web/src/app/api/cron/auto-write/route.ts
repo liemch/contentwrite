@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  previewSideEffectBlockedResponse,
+  shouldBlockPreviewSideEffects,
+} from "@/lib/deployment-env";
 import { tickAutoWrite } from "@/lib/auto-write/runner";
 
 function authorizeCron(request: NextRequest): boolean {
@@ -17,6 +21,9 @@ function authorizeCron(request: NextRequest): boolean {
 
 /** Cron tick — chỉ chạy khi đến giờ & enabled */
 export async function GET(request: NextRequest) {
+  if (shouldBlockPreviewSideEffects()) {
+    return previewSideEffectBlockedResponse("cron/auto-write");
+  }
   if (!authorizeCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

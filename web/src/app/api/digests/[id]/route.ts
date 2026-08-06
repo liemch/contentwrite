@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canAccessDigest } from "@/lib/access";
 import { authErrorResponse, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -6,10 +7,10 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
     const digest = await prisma.digest.findUnique({ where: { id } });
-    if (!digest) {
+    if (!digest || !canAccessDigest(user, digest)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     return NextResponse.json({ digest });
@@ -22,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
     const body = (await request.json()) as {
       status?: "DRAFT" | "PUBLISHED";
@@ -30,7 +31,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       title?: string;
     };
     const existing = await prisma.digest.findUnique({ where: { id } });
-    if (!existing) {
+    if (!existing || !canAccessDigest(user, existing)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
@@ -58,8 +59,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
 export async function DELETE(_request: NextRequest, { params }: Params) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { id } = await params;
+    const existing = await prisma.digest.findUnique({ where: { id } });
+    if (!existing || !canAccessDigest(user, existing)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     await prisma.digest.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (error) {
