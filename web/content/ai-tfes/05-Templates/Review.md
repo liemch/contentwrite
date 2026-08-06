@@ -49,21 +49,14 @@ generated_at: <ISO-8601>
 - Required actions còn mở: <0 bắt buộc để Publish Ready>
 
 ## Decision
-> Runtime đọc `FINAL_DECISION` (machine lines). Dùng đúng enum dưới — **không** ghi `PUBLISH_READY` ở bước 9b (`PUBLISH_READY` là state sau Polish + Reader Sim).
+> Runtime đọc machine block theo đúng `review_phase`. Tên field và số dòng do prompt của phase cung cấp; không dùng field của phase khác. **Không** ghi `PUBLISH_READY` ở bước 9b (`PUBLISH_READY` là state sau Polish + Reader Sim).
 
 - `FINAL_REVIEWED`: tổng ≥90, Insight Depth ≥22, G1–G8 đạt, Fact Check `PASSED`, không còn action mở.
 - `MINOR_REVISION_REQUIRED`: 85–89 hoặc chỉ còn lỗi không đổi luận điểm.
 - `MAJOR_REVISION_REQUIRED`: 75–84 hoặc Fact Check `MINOR_ISSUE/MAJOR_ISSUE`.
 - `REWRITE_REQUIRED`: <75, Insight <22, hoặc Fact Check `FAILED`.
 
-Machine lines (mỗi trường một dòng, cuối file; CẤM TOTAL=0 và INSIGHT=0 khi đã có draft + Fact Check PASSED):
-```
-FINAL_TOTAL_SCORE: <0-100>
-FINAL_INSIGHT_SCORE: <0-30>
-GATES_G1_G8: <PASSED|FAILED>
-OPEN_REQUIRED_ACTIONS: <n>
-FINAL_DECISION: <FINAL_REVIEWED|MINOR_REVISION_REQUIRED|MAJOR_REVISION_REQUIRED|REWRITE_REQUIRED>
-```
+Machine lines: đặt ở cuối file, plain text, mỗi trường một dòng, dùng **đúng block được prompt của phase yêu cầu**. Template này không khai báo lại key để tránh trộn contract `EDITORIAL_REVIEW` và `FINAL_VERIFICATION`. CẤM điểm 0/0 khi đã có draft + Fact Check PASSED.
 
 **Kết luận:** <>  
 **Strengths:** <>  

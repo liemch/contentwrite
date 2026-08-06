@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-08-06 — WP2.6: Final Gate & Parser Reliability
+
+### Fixed
+
+- Final Verification 9b đọc draft bằng policy context chung 16k–32k theo `targetWordCount`, không còn clip 7k
+- Fact remediation dùng `cleanGenMaxTokens()` cho output toàn bộ draft, không còn hard-code 5.200
+- Editorial Review parser chỉ đọc exact machine lines; enum trong template/giải thích không còn gây REWRITE oan
+- Markdown table checklist được machine gate và Human Review parse bằng cùng helper
+- Header/separator/PASS row không còn trở thành finding Human Review
+
+### Changed
+
+- Canonical Editorial machine contract: `PROVISIONAL_TOTAL_SCORE`, `PROVISIONAL_INSIGHT_SCORE`,
+  `GATES_G1_G8`, `EDITORIAL_DECISION`
+- Legacy `FINAL_*` Editorial output vẫn được đọc như một contract riêng; không trộn canonical/legacy
+- `Review.md` không khai báo lại machine keys; prompt của mỗi phase là nguồn contract
+
+### Verification
+
+- 8 test files / 60 tests pass, gồm parser, prompt contract và source-level workflow wiring
+- Không đổi model, temperature, quality threshold, retry policy, state machine, DB hoặc auto-write
+- Cần validation trên bài production thật; không gọi AI trong test/build
+
+### Deferred
+
+- F7: tách remediation budget
+- F8: mở lại Human Review/reset counter
+- Manual editing cho `draft12`
+
+---
+
+## 2026-08-06 — WP2.5: Revision Context & Token Reliability
+
+### Fixed
+
+- Editorial Review nhận Research Brief và full draft theo context policy 16k–32k
+- Revision remediation dùng `cleanGenMaxTokens()` thay hard-code 5.600
+- Required Revisions mới nhất được đưa lên đầu prompt remediation, không còn mất do prefix clipping
+
+---
+
 ## 2026-08-06 — WP2: Quality Gate & Vercel Compatibility
 
 ### Added

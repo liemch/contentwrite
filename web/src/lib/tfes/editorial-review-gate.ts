@@ -4,6 +4,21 @@
  */
 import { WorkflowState } from "@/generated/prisma/client";
 import { TFES_CONTRACT } from "@/lib/tfes/contract";
+import { parseEditorialGateFailures } from "@/lib/tfes/editorial-checklist";
+
+export const EDITORIAL_REVIEW_MACHINE_KEYS = [
+  "PROVISIONAL_TOTAL_SCORE",
+  "PROVISIONAL_INSIGHT_SCORE",
+  "GATES_G1_G8",
+  "EDITORIAL_DECISION",
+] as const;
+
+export const LEGACY_EDITORIAL_REVIEW_MACHINE_KEYS = [
+  "FINAL_TOTAL_SCORE",
+  "FINAL_INSIGHT_SCORE",
+  "GATES_G1_G8",
+  "FINAL_DECISION",
+] as const;
 
 export type EditorialReviewInspection = {
   totalScore: number | null;
@@ -12,46 +27,39 @@ export type EditorialReviewInspection = {
   gateFailCount: number;
   decision: string;
   machineReadable: boolean;
+  machineContract: "canonical" | "legacy" | "invalid";
   /** State sau khi override theo điểm (nếu model tự khai EDITORIAL_REVIEWED oan). */
   resolvedState: WorkflowState;
   failureReasons: string[];
 };
 
-function numberAfter(text: string, label: RegExp): number | null {
+function machineNumber(text: string, key: string): number | null {
   let found: number | null = null;
   for (const candidate of text.split(/\r?\n/)) {
-    if (!new RegExp(label.source, "i").test(candidate)) continue;
     const normalized = candidate.replace(/[*`]/g, "");
-    const match = normalized.match(
-      new RegExp(`${label.source}\\s*[:：=]\\s*(\\d{1,3})`, "i"),
-    );
+    const match = normalized.match(new RegExp(`^\\s*${key}\\s*[:：=]\\s*(\\d{1,3})\\s*$`, "i"));
     if (match) found = Number(match[1]);
   }
   return found;
 }
 
-function machineEnum(text: string, label: string, values: string[]): string {
+function machineEnum(text: string, key: string, values: readonly string[]): string {
   let found = "";
   for (const candidate of text.split(/\r?\n/)) {
-    if (!candidate.toUpperCase().includes(label)) continue;
-    const matches = values.filter((value) =>
-      new RegExp(`\\b${value}\\b`, "i").test(candidate),
+    const normalized = candidate.replace(/[*`]/g, "");
+    const match = normalized.match(
+      new RegExp(`^\\s*${key}\\s*[:：=]\\s*([A-Z_]+)\\s*$`, "i"),
     );
-    if (matches.length === 1) found = matches[0];
+    if (!match) continue;
+    const value = match[1].toUpperCase();
+    if (values.includes(value)) found = value;
   }
   return found;
 }
 
 /** Đếm G1–G8 / N* bị đánh Fail trong checklist. */
 export function countEditorialGateFails(review: string): number {
-  const gateRe =
-    /(?:^|\n)\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?((?:G|N)\d+)\s*[^|\n]*?\bFail\b/gi;
-  const seen = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = gateRe.exec(review))) {
-    seen.add(m[1].toUpperCase());
-  }
-  return seen.size;
+  return parseEditorialGateFailures(review).length;
 }
 
 function stateFromEnum(decision: string): WorkflowState | null {
@@ -99,25 +107,48 @@ export function inspectEditorialReview(
   review: string | null | undefined,
 ): EditorialReviewInspection {
   const body = review ?? "";
-  const totalScore =
-    numberAfter(body, /PROVISIONAL_TOTAL_SCORE/) ??
-    numberAfter(body, /FINAL_TOTAL_SCORE/);
-  const insightScore =
-    numberAfter(body, /PROVISIONAL_INSIGHT_SCORE/) ??
-    numberAfter(body, /FINAL_INSIGHT_SCORE/);
-  const gatesStatus = machineEnum(body, "GATES_G1_G8", ["PASSED", "FAILED"]);
-  const decision = machineEnum(body, "EDITORIAL_DECISION", [
+  const canonicalTotal = machineNumber(body, "PROVISIONAL_TOTAL_SCORE");
+  const canonicalInsight = machineNumber(body, "PROVISIONAL_INSIGHT_SCORE");
+  const canonicalDecision = machineEnum(body, "EDITORIAL_DECISION", [
     "EDITORIAL_REVIEWED",
-    "MINOR_REVISION_REQUIRED",
-    "MAJOR_REVISION_REQUIRED",
-    "REWRITE_REQUIRED",
-  ]) || machineEnum(body, "FINAL_DECISION", [
-    "EDITORIAL_REVIEWED",
-    "FINAL_REVIEWED",
     "MINOR_REVISION_REQUIRED",
     "MAJOR_REVISION_REQUIRED",
     "REWRITE_REQUIRED",
   ]);
+  const hasCanonical =
+    canonicalTotal !== null || canonicalInsight !== null || Boolean(canonicalDecision);
+  const machineContract: EditorialReviewInspection["machineContract"] = hasCanonical
+    ? "canonical"
+    : machineNumber(body, "FINAL_TOTAL_SCORE") !== null ||
+        machineNumber(body, "FINAL_INSIGHT_SCORE") !== null ||
+        Boolean(machineEnum(body, "FINAL_DECISION", [
+          "EDITORIAL_REVIEWED",
+          "FINAL_REVIEWED",
+          "MINOR_REVISION_REQUIRED",
+          "MAJOR_REVISION_REQUIRED",
+          "REWRITE_REQUIRED",
+        ]))
+      ? "legacy"
+      : "invalid";
+  const totalScore =
+    machineContract === "canonical"
+      ? canonicalTotal
+      : machineNumber(body, "FINAL_TOTAL_SCORE");
+  const insightScore =
+    machineContract === "canonical"
+      ? canonicalInsight
+      : machineNumber(body, "FINAL_INSIGHT_SCORE");
+  const gatesStatus = machineEnum(body, "GATES_G1_G8", ["PASSED", "FAILED"]);
+  const decision =
+    machineContract === "canonical"
+      ? canonicalDecision
+      : machineEnum(body, "FINAL_DECISION", [
+          "EDITORIAL_REVIEWED",
+          "FINAL_REVIEWED",
+          "MINOR_REVISION_REQUIRED",
+          "MAJOR_REVISION_REQUIRED",
+          "REWRITE_REQUIRED",
+        ]);
 
   const gateFailCount = countEditorialGateFails(body);
   const gatesPassed =
@@ -126,8 +157,14 @@ export function inspectEditorialReview(
     decision === "FINAL_REVIEWED" ? "EDITORIAL_REVIEWED" : decision;
 
   const failureReasons: string[] = [];
-  if (totalScore === null) failureReasons.push("thiếu PROVISIONAL_TOTAL_SCORE");
-  if (insightScore === null) failureReasons.push("thiếu PROVISIONAL_INSIGHT_SCORE");
+  const expectedTotal =
+    machineContract === "legacy" ? "FINAL_TOTAL_SCORE" : "PROVISIONAL_TOTAL_SCORE";
+  const expectedInsight =
+    machineContract === "legacy" ? "FINAL_INSIGHT_SCORE" : "PROVISIONAL_INSIGHT_SCORE";
+  const expectedDecision =
+    machineContract === "legacy" ? "FINAL_DECISION" : "EDITORIAL_DECISION";
+  if (totalScore === null) failureReasons.push(`thiếu ${expectedTotal}`);
+  if (insightScore === null) failureReasons.push(`thiếu ${expectedInsight}`);
   if (!gatesStatus && gateFailCount === 0) {
     // Cho phép suy ra từ checklist nếu không có dòng máy
   } else if (gatesStatus === "FAILED" || gateFailCount > 0) {
@@ -138,32 +175,23 @@ export function inspectEditorialReview(
     );
   }
   if (!normalizedDecision) {
-    failureReasons.push("thiếu EDITORIAL_DECISION hợp lệ");
+    failureReasons.push(`thiếu ${expectedDecision} hợp lệ`);
   }
 
-  const fieldsPresent = totalScore !== null && insightScore !== null;
+  const fieldsPresent =
+    totalScore !== null &&
+    insightScore !== null &&
+    Boolean(gatesStatus) &&
+    Boolean(normalizedDecision);
   const degenerate = totalScore === 0 && insightScore === 0;
   const machineReadable = fieldsPresent && !degenerate;
 
   let resolvedState: WorkflowState;
   if (!machineReadable) {
-    // Fallback enum / regex như trước — nhưng Fail gate → không cho EDITORIAL_REVIEWED
-    const fromEnum = stateFromEnum(normalizedDecision);
-    const fromText = /REWRITE_REQUIRED/i.test(body)
-      ? WorkflowState.REWRITE_REQUIRED
-      : /MAJOR_REVISION_REQUIRED/i.test(body)
-        ? WorkflowState.MAJOR_REVISION_REQUIRED
-        : /MINOR_REVISION_REQUIRED/i.test(body)
-          ? WorkflowState.MINOR_REVISION_REQUIRED
-          : WorkflowState.EDITORIAL_REVIEWED;
-    resolvedState = fromEnum ?? fromText;
-    if (
-      resolvedState === WorkflowState.EDITORIAL_REVIEWED &&
-      (gateFailCount > 0 || gatesStatus === "FAILED")
-    ) {
-      resolvedState = WorkflowState.MINOR_REVISION_REQUIRED;
-      failureReasons.push("còn gate Fail — không cho EDITORIAL_REVIEWED");
-    }
+    // Không quét enum trên toàn văn: template/giải thích có thể liệt kê REWRITE_REQUIRED.
+    // Malformed output không được PASS và cũng không được tự nâng thành REWRITE.
+    resolvedState = WorkflowState.MINOR_REVISION_REQUIRED;
+    failureReasons.push("machine output Editorial Review không hợp lệ — cần chấm lại");
   } else {
     const fromScores = stateFromScores(
       totalScore,
@@ -201,6 +229,7 @@ export function inspectEditorialReview(
     gateFailCount,
     decision: normalizedDecision,
     machineReadable,
+    machineContract,
     resolvedState,
     failureReasons,
   };

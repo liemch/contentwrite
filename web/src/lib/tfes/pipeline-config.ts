@@ -19,6 +19,19 @@ export const PIPELINE_CONFIG = {
     cleanMaxBuffer: 300,
   },
 
+  /** Ngân sách context ký tự cho bước chấm (8) và Revision Remediation */
+  context: {
+    /** Sàn ký tự nháp cấp cho reviewer — phải đủ để đọc References/Takeaways/Discussion */
+    reviewDraftMinChars: 16_000,
+    reviewDraftMaxChars: 32_000,
+    /** Nháp 12 phần dài hơn bản sạch — ước lượng ký tự/từ tiếng Việt kèm buffer */
+    reviewDraftCharsPerWord: 9,
+    reviewResearchBriefChars: 3_000,
+    /** Required Revisions mới nhất từ 9b — đứng đầu prompt remediation */
+    revisionFinalVerificationChars: 3_000,
+    revisionFailureReasonChars: 700,
+  },
+
   /** Retry / vòng lặp */
   retries: {
     maxReaderSimRetries: 1,

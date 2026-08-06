@@ -20,7 +20,9 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP0-B (old plan)** | Security hardening (merged into WP0-B above) | — | — |
 | **WP1** | Database & Deployment Safety | **Done** | — |
 | **WP2** | Quality Gate & Vercel Compatibility | **Done** | WP0-A tests, WP1 |
-| **WP3** | Auto-write Reliability | Planned | WP1 optional |
+| **WP2.5** | Revision Context & Token Reliability (F1–F3) | **Done** | WP2 |
+| **WP2.6** | Final Gate & Parser Reliability | **Done — needs production validation** | WP2.5 |
+| **WP3-min** | Auto-write Reliability (decision-gated) | Proposed | Production metrics + auto-write demand |
 | **WP4** | Performance Quick Wins | Planned | WP1 |
 | **WP5** | Workflow Maintainability | Planned | WP2 |
 
@@ -35,13 +37,37 @@ Q3 2026
 ├── WP0-A ✅ Security isolation
 ├── WP0-B ✅ Inactive session, temp password, tab fix
 ├── WP1 ✅    Migrations, remove db push from build
-└── WP2 ✅    CI + Vercel build safety + Preview guards
+├── WP2 ✅    CI + Vercel build safety + Preview guards
+├── WP2.5 ✅  Full review context + revision token/feedback
+└── WP2.6 ✅  Final gate context + parser reliability
 
 Q4 2026
-├── WP3       Auto-write resume / cron alignment
-├── WP4       Indexes + payload trim
-└── WP5       Split workflow.ts (behavior-preserving)
+├── Validate  WP2.6 trên bài production từng remediation exhausted
+├── Assurance Production DB/backup/Preview + observability
+├── Product   Guided onboarding + measure completion/quality
+├── WP3-min   Only if auto-write demand/metrics justify
+├── WP4       Only measured hot paths
+└── WP5       After workflow tests
 ```
+
+---
+
+## Post-WP2 decision gate
+
+Post-implementation assessment: **7.0/10**, mức **MVP production cá nhân / Beta nhóm nhỏ**.
+
+Thứ tự khuyến nghị:
+
+1. Xác minh production migration, snapshot/restore và Preview DB isolation.
+2. Thêm observability + metrics workflow tối thiểu.
+3. Chạy một product loop: guided onboarding, đo completion/time-to-publish/editor score.
+4. Chỉ làm WP3-min khi auto-write là promise cần giữ hoặc usage data chứng minh giá trị.
+
+WP2.6 giữ nguyên retry/state architecture. F7 (tách retry budget), F8 (mở lại Human Review/reset counter)
+và sửa tay `draft12` được hoãn sang Work Package sau, chỉ thực hiện nếu production validation vẫn ghi nhận
+false exhaustion.
+
+Lý do: cron daily hiện chỉ tiến một workflow step; full WP3 trước khi biết mức sử dụng có nguy cơ over-engineering. Xem [post-wp2-assessment.md](./audit/post-wp2-assessment.md) và [next-step-recommendation.md](./next-step-recommendation.md).
 
 ---
 

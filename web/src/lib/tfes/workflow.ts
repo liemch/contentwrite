@@ -68,6 +68,11 @@ import {
 } from "@/lib/tfes/human-review";
 import { inspectEditorialReview } from "@/lib/tfes/editorial-review-gate";
 import {
+  buildRevisionFeedbackBlock,
+  reviewDraftClipChars,
+  withoutFinalVerification,
+} from "@/lib/tfes/review-context";
+import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
   buildCleanRepairDirectives,
@@ -1126,8 +1131,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               content: buildPipelinePrompt(
                 "finalize-review",
                 appendContext(
+                  clipText(
+                    article.researchBrief,
+                    PIPELINE_CONFIG.context.reviewResearchBriefChars,
+                  ),
                   clipText(article.insightGate, 1_200),
-                  clipText(stripPipelineMarks(article.draft12), 7_000),
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    reviewDraftClipChars(article.targetWordCount),
+                  ),
                   `Chủ đề: ${topic}`,
                 ),
                 undefined,
@@ -1285,6 +1297,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           articleId,
           ArtifactType.ARTICLE_DRAFT,
         );
+        // Feedback mới nhất đứng đầu: 9b append Required Revisions vào cuối knowledgeRecord,
+        // nên cách cắt theo prefix trước đây làm mất đúng phần cần sửa.
+        const revisionFeedback = appendContext(
+          buildRevisionFeedbackBlock(article),
+          priorPipelineSupportBlock({
+            knowledgeRecord: withoutFinalVerification(article.knowledgeRecord),
+            includeFact: false,
+          }),
+        );
         const repairedRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
@@ -1294,10 +1315,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "finalize-revision-remediate",
                 appendContext(
                   `Revision state: ${article.workflowState}`,
+                  revisionFeedback,
                   clipText(article.researchBrief, 4_000),
                   clipText(article.insightGate, 2_000),
-                  clipText(stripPipelineMarks(article.draft12), 12_000),
-                  clipText(article.knowledgeRecord, 6_000),
+                  // Cùng cửa sổ với reviewer: bản sửa không được cụt đuôi so với bản được chấm.
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    reviewDraftClipChars(article.targetWordCount),
+                  ),
                   clipText(article.factCheck, 5_000),
                   `Chủ đề: ${topic}`,
                 ),
@@ -1306,7 +1331,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 5600, temperature: 0.25, reasoningEffort: "low" },
+          {
+            maxTokens: cleanGenMaxTokens(article.targetWordCount),
+            temperature: 0.25,
+            reasoningEffort: "low",
+          },
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
@@ -1406,7 +1435,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 5200, temperature: 0.2, reasoningEffort: "low" },
+          {
+            maxTokens: cleanGenMaxTokens(article.targetWordCount),
+            temperature: 0.2,
+            reasoningEffort: "low",
+          },
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
@@ -1554,7 +1587,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 appendContext(
                   clipText(extractEditorialReview(article.knowledgeRecord), 3_000),
                   clipText(article.factCheck, 4_000),
-                  clipText(stripPipelineMarks(article.draft12), 7_000),
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    reviewDraftClipChars(article.targetWordCount),
+                  ),
                   `Chủ đề: ${topic}`,
                   rescoreHint,
                 ),
