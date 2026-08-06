@@ -6,6 +6,10 @@ import {
   REVIEW_DONE_MARK,
   stripPipelineMarks,
 } from "@/lib/tfes/parser";
+import {
+  isMarkdownTableHeaderOrSeparator,
+  parseEditorialGateFailures,
+} from "@/lib/tfes/editorial-checklist";
 
 export type HumanReviewDisposition = "fixed" | "accept";
 
@@ -55,16 +59,15 @@ export function parseEditorialFindings(
     findings.push(finding);
   };
 
-  // G1–G8 / N1–N6 marked Fail (checkbox hoặc dòng chữ)
-  const gateRe =
-    /(?:^|\n)\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?((?:G|N)\d+)\s*([^|\n]*?)(?:\bFail\b|\bFAIL\b)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = gateRe.exec(review))) {
-    const code = m[1].toUpperCase();
-    const rest = m[2].replace(/\s+/g, " ").trim().slice(0, 80);
+  // Dùng cùng parser với machine gate để bảng Markdown và bullet không lệch nhau.
+  for (const failure of parseEditorialGateFailures(review)) {
+    const code = failure.code;
     push({
       id: slugId(code, "gate"),
-      label: rest ? `${code}: ${rest}` : `${code} — Fail`,
+      label:
+        failure.label === `${code} — Fail`
+          ? failure.label
+          : `${code}: ${failure.label}`,
       severity: "fail",
     });
   }
@@ -73,6 +76,7 @@ export function parseEditorialFindings(
   for (const line of review.split(/\n/)) {
     const t = line.trim();
     if (!t || !/\bfail\b/i.test(t)) continue;
+    if (isMarkdownTableHeaderOrSeparator(t)) continue;
     if (/\bpass\b/i.test(t) && !/\bfail\b/i.test(t.replace(/\bpass\b/gi, ""))) continue;
     if (/^(?:\|?\s*-+\s*)+\|?$/.test(t)) continue;
     const cleaned = t
@@ -86,7 +90,7 @@ export function parseEditorialFindings(
     if (cleaned.length < 8) continue;
     if (/^(?:dimension|trọng|ghi chú)/i.test(cleaned)) continue;
     const codeMatch = cleaned.match(/\b((?:G|N)\d+)\b/i);
-    if (codeMatch && seen.has(slugId(codeMatch[1], "gate"))) continue;
+    if (codeMatch) continue;
     push({
       id: slugId(cleaned, "fail"),
       label: cleaned,
@@ -130,7 +134,14 @@ export function parseEditorialFindings(
   }
 
   // Fallback: nếu AI ghi Fail chung nhưng parser không bắt được dòng cụ thể
-  if (findings.length === 0 && /\bfail\b|major\s*revision|rewrite/i.test(review)) {
+  const hasActionableFailureText = review
+    .split(/\r?\n/)
+    .some(
+      (line) =>
+        !isMarkdownTableHeaderOrSeparator(line) &&
+        (/\bfail(?:ed)?\b/i.test(line) || /\bmajor\s+revision\b|\brewrite\b/i.test(line)),
+    );
+  if (findings.length === 0 && hasActionableFailureText) {
     push({
       id: "review-summary",
       label: "Review AI có Fail / Revision — đọc tab Review và xác nhận từng điểm",

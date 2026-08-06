@@ -1435,7 +1435,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 5200, temperature: 0.2, reasoningEffort: "low" },
+          {
+            maxTokens: cleanGenMaxTokens(article.targetWordCount),
+            temperature: 0.2,
+            reasoningEffort: "low",
+          },
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
         assertFullDraftQuality(repairedDraft);
@@ -1583,7 +1587,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 appendContext(
                   clipText(extractEditorialReview(article.knowledgeRecord), 3_000),
                   clipText(article.factCheck, 4_000),
-                  clipText(stripPipelineMarks(article.draft12), 7_000),
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    reviewDraftClipChars(article.targetWordCount),
+                  ),
                   `Chủ đề: ${topic}`,
                   rescoreHint,
                 ),
