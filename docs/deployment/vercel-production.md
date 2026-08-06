@@ -27,6 +27,7 @@
 - Build **không** gọi `prisma db push`
 - Build **không** gọi `prisma migrate deploy`
 - `postinstall` + build: `prisma generate` only (không cần `DATABASE_URL` để compile)
+- Prisma client khởi tạo **lazy** (`lib/db.ts`) — Next.js collect page data không mở connection
 - Fonts: `@fontsource/*` bundled — **không** fetch Google Fonts lúc build
 - `prebuild`: sync `AI-TFES` → `content/ai-tfes` (filesystem read-only source trong repo)
 

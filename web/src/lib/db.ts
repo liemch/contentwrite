@@ -16,8 +16,23 @@ function createPrismaClient() {
   });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getPrismaClient(): PrismaClient {
+  globalForPrisma.prisma ??= createPrismaClient();
+  return globalForPrisma.prisma;
 }
+
+/**
+ * Lazy proxy: the client is created on first property access, never at import time.
+ * Next.js collects page data during build without a database, so module-scope
+ * instantiation would fail the build.
+ */
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, property) {
+    const client = getPrismaClient();
+    const value = Reflect.get(client, property, client);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+  has(_target, property) {
+    return property in getPrismaClient();
+  },
+});

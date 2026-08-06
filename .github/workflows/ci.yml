@@ -45,9 +45,7 @@ jobs:
       - name: Lint
         run: npm run lint:ci
 
-      - name: Build (offline fonts, no DB)
+      # No env on purpose: build must compile without DATABASE_URL, secrets, or network
+      # beyond npm. This step is the regression guard for that guarantee.
+      - name: Build (offline fonts, no DB, no secrets)
         run: npm run build
-        env:
-          # Build must not require production secrets or live DB
-          SESSION_SECRET: ci-build-session-secret-min-32-chars-long
-          ADMIN_PASSWORD: ci-admin-password-not-for-production

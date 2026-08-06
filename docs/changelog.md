@@ -21,6 +21,7 @@
 - Build does not call `db push`, `migrate deploy`, or paid APIs
 - Build does not fetch Google Fonts (bundled fontsource)
 - Prisma generate only — no DATABASE_URL required to compile
+- Prisma client instantiated lazily so page-data collection works without a database
 
 ### Not changed
 

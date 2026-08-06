@@ -26,6 +26,7 @@
 |------|----------|
 | `web/src/app/layout.tsx` | Fontsource thay `next/font/google` |
 | `web/src/app/globals.css` | Font CSS variables |
+| `web/src/lib/db.ts` | Lazy Prisma client — build không cần `DATABASE_URL` |
 | `web/src/lib/deployment-env.ts` | Preview tier + guards |
 | `web/src/lib/deployment-env.test.ts` | 4 tests |
 | `web/src/app/api/cron/auto-write/route.ts` | Preview block |
