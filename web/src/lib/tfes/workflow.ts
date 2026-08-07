@@ -53,6 +53,7 @@ import {
   countBlockingFactClaims,
   isFactRemediationExhausted,
   MAX_FACT_REMEDIATION_RETRIES,
+  summarizeFactCheck,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
 import {
@@ -76,6 +77,7 @@ import {
   withoutFinalVerification,
 } from "@/lib/tfes/review-context";
 import { buildRemediationTelemetry } from "@/lib/tfes/remediation-telemetry";
+import { finalizePhaseOf } from "@/lib/tfes/finalize-phase";
 import {
   countRemediationsInCurrentCycle,
   REMEDIATION_CYCLE_ANCHOR_ACTIONS,
@@ -493,39 +495,7 @@ async function remediationBudgetForRun(input: {
   return countRemediationsInCurrentCycle(transitions, input.remediationAction);
 }
 
-function finalizePhaseOf(article: {
-  knowledgeRecord?: string | null;
-  factCheck?: string | null;
-  cleanPublish?: string | null;
-  errorMessage?: string | null;
-  workflowState?: WorkflowState;
-}): "review" | "await-human" | "revision-remediate" | "fact-remediate" | "fact" | "final-verify" | "publish" | "polish" | "reader-sim" | "done" {
-  const kr = article.knowledgeRecord ?? "";
-  const fc = article.factCheck ?? "";
-  const clean = (article.cleanPublish ?? "").trim();
-  const reviewDone = kr.includes(REVIEW_DONE_MARK) || Boolean(fc.trim());
-  if (isAwaitingHumanReview(article)) return "await-human";
-  if (
-    article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED ||
-    article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED ||
-    article.workflowState === WorkflowState.REWRITE_REQUIRED
-  ) return "revision-remediate";
-  if (!reviewDone) return "review";
-  if (article.workflowState === WorkflowState.FACT_CHECK_FAILED) return "fact-remediate";
-  if (!fc.trim()) return "fact";
-  if (!kr.includes(FINAL_REVIEW_DONE_MARK)) return "final-verify";
-  if (clean.length < 80) return "publish";
-  // Reader Sim fail → polish lại kèm feedback
-  if (article.errorMessage && /Reader Sim chưa đạt/i.test(article.errorMessage)) {
-    return "polish";
-  }
-  if (article.errorMessage && isCleanPublishQualityFail(article.errorMessage)) {
-    return "polish";
-  }
-  if (!clean.includes(CLEAN_POLISH_MARK)) return "polish";
-  if (!kr.includes(READER_SIM_DONE_MARK)) return "reader-sim";
-  return "done";
-}
+/** Phase routing lives in a pure module so the Fact Check loop can be asserted in tests. */
 
 function failedInsightGate(text: string): boolean {
   // Ưu tiên tín hiệu đạt rõ ràng
@@ -1623,26 +1593,63 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           { maxTokens: 2500, temperature: 0.3, reasoningEffort: "low" },
         );
 
+        const factLlmMs = Date.now() - llmStarted;
         const parsed = parseFullOutput(finalizeA);
         const factCheckContent = parsed.factCheck ?? finalizeA;
         const statusPassed = /^PASSED$/i.test(verificationStatus(factCheckContent));
         const blockingClaims = countBlockingFactClaims(factCheckContent);
         const passed = statusPassed && blockingClaims === 0;
+        const factSummary = summarizeFactCheck(factCheckContent);
+        const factBudget = await remediationBudgetForRun({
+          articleId,
+          workflowRunId: article.workflowRunId,
+          remediationAction: "fact-check",
+        });
+        const factAttempt = factBudget.cycleCount + 1;
+        const factFailureReason = passed
+          ? null
+          : !statusPassed
+            ? "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check."
+            : `Fact Check còn ${blockingClaims} blocking claim — không chấp nhận PASSED khi vẫn có Unsupported/Contradicted/Unverifiable.`;
         const transitioned = await commitTransition({
           to: passed ? WorkflowState.FACT_CHECKED : WorkflowState.FACT_CHECK_FAILED,
           action: "fact-check",
           success: passed,
           articlePatch: {
             factCheck: factCheckContent,
-            errorMessage: passed
-              ? null
-              : !statusPassed
-                ? "Fact Check chưa PASSED — cần sửa claim hoặc chạy lại Fact Check."
-                : `Fact Check còn ${blockingClaims} blocking claim — không chấp nhận PASSED khi vẫn có Unsupported/Contradicted/Unverifiable.`,
+            errorMessage: factFailureReason,
           },
           details: {
             verificationStatus: verificationStatus(factCheckContent),
             blockingClaims,
+            lifetimeRemediationCount: factBudget.lifetimeCount + 1,
+            cycleRemediationCount: factAttempt,
+            cycleAnchorAction: factBudget.cycleAnchorAction,
+            telemetry: buildRemediationTelemetry({
+              articleId,
+              workflowState: passed
+                ? WorkflowState.FACT_CHECKED
+                : WorkflowState.FACT_CHECK_FAILED,
+              transitionName: "fact-check",
+              draft: stripPipelineMarks(article.draft12),
+              result: passed ? "pass" : "fail",
+              attempt: factAttempt,
+              retryCount: factAttempt,
+              lifetimeRemediationCount: factBudget.lifetimeCount + 1,
+              cycleRemediationCount: factAttempt,
+              decision: factSummary.verdict ?? "UNPARSED",
+              failureReasons: factFailureReason ? [factFailureReason] : [],
+              machineReadable: !factSummary.malformedOutput,
+              machineContract: factSummary.malformedOutput ? "invalid" : "fact-ledger",
+              maxTokens: 2500,
+              llmMs: factLlmMs,
+              errorClass: passed
+                ? null
+                : factSummary.malformedOutput
+                  ? "parser"
+                  : "content",
+              fact: factSummary,
+            }),
           },
           artifact: {
             type: ArtifactType.FACT_CHECK,
@@ -1652,7 +1659,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         });
         return withTimings(transitioned, {
-          llmMs: Date.now() - llmStarted,
+          llmMs: factLlmMs,
           finalizePhase: passed ? "fact" : "fact-fail",
         });
       }
