@@ -23,6 +23,9 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP2.5** | Revision Context & Token Reliability (F1–F3) | **Done** | WP2 |
 | **WP2.6** | Final Gate & Parser Reliability | **Done — needs production validation** | WP2.5 |
 | **WP2.7** | Production Validation & Measurement | **Implemented — cohort pending** | WP2.5, WP2.6 |
+| **WP-V2-01** | Convergence KPI Telemetry | **Done — cohort pending** | WP2.7 |
+| **WP-V2-02** | Best Candidate Lock | **Done — flag OFF** | WP-V2-01 |
+| **WP-V2-03–05** | AI-TFES v2 RC1 guards/preserve/brake | **Done — Preview validation pending** | WP-V2-01, WP-V2-02 |
 | **WP-E0A** | Editorial Trajectory Benchmark | **On hold until WP2.7 decision** | WP2.7 GO |
 | **WP3-min** | Auto-write Reliability (decision-gated) | Proposed | Production metrics + auto-write demand |
 | **WP4** | Performance Quick Wins | Planned | WP1 |
@@ -45,6 +48,8 @@ Q3 2026
 
 Q4 2026
 ├── WP2.7      Deployment SHA + telemetry + timeline + recovery + feedback
+├── AI-TFES RC1 Convergence telemetry + candidate lock + Final guard + preserve + brake
+├── RC1 Preview Four controlled trajectories, then bounded production canary
 ├── Cohort     5 clean + 3 exhausted + short/medium/long coverage
 ├── Decide     GO / HOLD / CANCEL-REDESIGN cho WP-E0A
 ├── Assurance Production DB/backup/Preview + observability

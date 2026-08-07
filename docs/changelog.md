@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-08-07 — AI-TFES v2 RC1 (WP-V2-03–05)
+
+### Added
+
+- Deterministic craft-only False Final MINOR Guard
+- MINOR-only preservation prompt and optional section-change metadata
+- Regression Auto-ack Brake using the existing Human Review path
+- Centralized independently rollbackable RC1 flags and `aiTfesVersion` exposure
+- Guard/brake/revision/manual-recovery metrics and version-filtered cohort report
+- RC1 unit, compatibility, wiring, and production-failure trajectory tests
+
+### Safety
+
+- All behavior flags default OFF
+- Unknown Final residuals and malformed review scores fail safe
+- No model, threshold, retry, state-machine, schema, migration, or environment change
+- No Section Patch, Final Delta, Typed Defects, split budgets, or multi-agent implementation
+
+---
+
+## 2026-08-07 — WP-V2-02: Best Candidate Lock
+
+### Added
+
+- Deterministic, cycle-scoped best-candidate controller with configurable epsilon
+- Immutable best-draft promotion revisions while preserving rejected candidates for audit
+- Exhaustion retention and missing-artifact preflight protection
+- Lock-aware convergence telemetry and bounded cohort metrics
+- Unit, trajectory, wiring, and metrics tests without live AI/production DB calls
+
+### Safety
+
+- Feature defaults OFF in `PIPELINE_CONFIG.aiTfesV2.bestCandidateLock`
+- OFF preserves current accept-always behavior
+- Rejected candidates still consume the existing remediation attempt
+- Restoring best invalidates Fact Check and downstream publish outputs
+- No prompt, model, threshold, retry, state-machine, Prisma schema, migration, or env change
+
+---
+
 ## 2026-08-07 — WP2.7: Production Validation & Measurement
 
 ### Added

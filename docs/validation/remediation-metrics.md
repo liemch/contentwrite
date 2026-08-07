@@ -7,6 +7,10 @@
 - Attempts/gates/timing: `WorkflowTransition.details.telemetry` (`wp2.7-v1`).
 - Fact Check attempts: transition action `fact-check`; WP2.7.1 adds structured
   `details.telemetry.fact`.
+- Convergence observations: optional `details.telemetry.convergence` (WP-V2-01).
+- Candidate retention observations: lock-aware convergence fields (WP-V2-02).
+- RC1 controller observations: `telemetry.finalMinorGuard`, `minorPreserve`,
+  `autoAckBrake`, `aiTfesVersion`, and exact `aiTfesConfig`.
 - Manual revisions: `manual-draft-revision`.
 - Feedback: `Article.deskJson.validationFeedback`.
 
@@ -34,6 +38,28 @@ The report is read-only and does not inspect artifact content, prompts or creden
 | Unsupported claim distribution | Fact Check attempts grouped by `fact.unsupportedClaimCount` | Fact Check attempts with numeric unsupported count |
 | Claims-without-source distribution | Fact Check attempts grouped by `fact.claimsWithoutSourceCount` | Fact Check attempts with numeric missing-source count |
 | Malformed Fact output rate | Fact Check attempts with `fact.malformedOutput=true` | Fact Check attempts with a boolean malformed flag |
+| Editorial score monotonicity | Consecutive Editorial score pairs with delta ≥ 0 | Consecutive Editorial score pairs |
+| Average Editorial score delta | Sum of consecutive Editorial score deltas | Consecutive Editorial score pairs |
+| Candidate regression rate | Post-revision Editorial candidates with score below previous Editorial score | Post-revision Editorial candidates with comparable scores |
+| Final regression rate | Final scores below the latest preceding Editorial score | Final attempts with comparable scores and no intervening draft-changing remediation |
+| Average Final score delta | Sum of `Final score - latest Editorial score` | Comparable Final attempts |
+| Retry convergence rate | Post-revision Editorial candidates with non-decreasing score | Post-revision Editorial candidates with comparable scores |
+| Average rewrite count/article | `remediate-required-revision` transitions | All cohort articles |
+| Lock candidate regression rate | Lock-aware comparable candidates below `bestScore - epsilon` | Lock-aware Editorial candidate comparisons |
+| Rejected regression count | Regression candidates rejected by enabled lock | Count, not a rate |
+| Retained-best rate | Rejected candidates whose best artifact was restored | Rejected candidates with an explicit restore outcome |
+| Average rejected score delta | Sum of rejected `candidateScore - bestScore` | Rejected candidates with numeric delta |
+| Exhaustion with best retained rate | Lock-enabled exhaustion events retaining best | Lock-enabled exhaustion events with a boolean retention outcome |
+| Revision convergence rate | Completed revision-remediated articles without revision exhaustion | Articles with `remediate-required-revision` |
+| Manual recovery rate | Exhausted articles using `manual-draft-revision` | Exhausted articles |
+| False Final MINOR eligible rate | Craft-only high-quality Final MINOR observations | Lock-aware machine-readable Final MINOR observations |
+| Suppressed Final MINOR rate | Eligible observations suppressed while guard enabled | Guard-enabled eligible observations |
+| Post-suppression publish/lock rate | Suppressed Final transitions successfully entering Final lock | Suppressed Final MINOR events |
+| Later human-correction rate | Suppressed articles with later allowlisted human action | Suppressed Final MINOR events |
+| Auto-ack regression suppression rate | Regression auto-acks suppressed | Brake-enabled post-revision auto-ack opportunities |
+| Regression loops interrupted rate | Brake events with no remediation before human pause/action | Human-brake events |
+| Human intervention after brake rate | Brake events followed by Human Review/manual recovery | Human-brake events |
+| Completion after brake rate | Completed articles exposed to a human brake | Human-brake events |
 
 ## Fact Check telemetry (WP2.7.1)
 
@@ -86,6 +112,69 @@ coverage explicit instead of treating legacy unknowns as zero.
 - Distribution objects are histograms: key `2` means “attempts with two findings”; the
   value is the number of attempts in that bucket.
 
+## Convergence telemetry (WP-V2-01)
+
+Editorial Review, revision rewrite, and Final Verification transitions may contain an
+additive `telemetry.convergence` object:
+
+- `observation`: `editorial`, `rewrite`, or `final`.
+- `currentScore`: score emitted by the current Editorial/Final observation.
+- `previousEditorialScore`: latest prior machine-readable Editorial score.
+- `scoreDelta`: `currentScore - previousEditorialScore`.
+- `scoreDirection`: `improved`, `flat`, `declined`, or `unknown`.
+- `candidateRegression`: true only when a post-revision Editorial candidate scores below
+  the previous Editorial candidate.
+- `finalRegression`: true only when Final scores below the latest Editorial candidate
+  and no draft-changing remediation occurred between those observations.
+- `retryConverging`: true when a post-revision Editorial score is non-decreasing. This is
+  a direction metric, not proof that the article passed.
+- `rewriteCount`: lifetime `remediate-required-revision` transition count in the workflow
+  run.
+
+These fields are observational only. They do not alter prompt selection, thresholds,
+retry budgets, workflow state, candidate acceptance, or AI output.
+
+### Backward compatibility
+
+The report calculates convergence metrics from chronological transition actions and the
+existing `telemetry.totalScore`, so runs recorded before WP-V2-01 remain measurable.
+Nested `telemetry.convergence` enriches new events but is not required by the aggregator.
+Missing or malformed scores are excluded from the relevant denominator rather than
+inferred as zero.
+
+## Best Candidate Lock telemetry (WP-V2-02)
+
+Lock-aware Editorial rows extend `telemetry.convergence` with best/candidate scores, delta,
+epsilon, accept/reject outcome, retained/rejected artifact revisions, flag state, and restore
+status. Exhaustion rows additionally report `bestRetainedAtExhaustion`.
+
+For these rows, `candidateRegression` uses the controller rule
+`candidateScore < bestScore - epsilon`; the WP-V2-01 chronological trajectory metric remains
+available separately under `convergence.candidateRegressionRate`.
+
+The report's `candidateLock` section is deliberately not backfilled from legacy score pairs.
+Only rows containing an explicit boolean `lockEnabled` participate. Therefore:
+
+- a legacy row is unknown rather than accepted;
+- a first candidate with no best is excluded from comparison denominators;
+- missing restore outcomes are excluded rather than counted as failures;
+- zero denominators return `null`.
+
+## AI-TFES v2 RC1 telemetry
+
+Every new remediation telemetry row records `aiTfesVersion` and the exact four behavior flag
+exposures plus Candidate Lock epsilon. All behavior flags OFF produces `v1.6`; any RC1 behavior
+flag ON produces `v2-rc1`.
+
+- `finalMinorGuard` records deterministic eligibility, suppression, reason class, compared
+  scores, Fact status, residual count, and flag state.
+- `minorPreserve` records the prompt version and best-effort changed/unchanged section counts.
+- `autoAckBrake` records eligibility, regression suppression, scores/delta/epsilon, reason,
+  and Human Review routing.
+
+Legacy rows without these nested objects are excluded from RC-specific denominators. The
+report does not infer OFF, success, or failure from missing keys.
+
 ## Interpretation rules
 
 - Null denominator produces `null`, never `0%`.
@@ -98,6 +187,8 @@ coverage explicit instead of treating legacy unknowns as zero.
 - Feedback averages only include submitted responses.
 - Every Fact Check metric has a named denominator. A zero denominator produces `null`;
   legacy unknown fields are never inferred as zero.
+- Every convergence rate has an explicit comparison denominator. A single Editorial
+  observation produces `null` monotonicity/delta rates, not a synthetic success.
 
 ## Command
 
@@ -113,6 +204,13 @@ npm run db:report:remediation -- \
   --since 2026-08-07T00:00:00Z \
   --until 2026-09-07T00:00:00Z \
   --format md
+```
+
+Control/RC comparison over the same bounded manifest:
+
+```bash
+npm run db:report:remediation -- --manifest <cohort.json> --ai-tfes-version v1.6 --format json
+npm run db:report:remediation -- --manifest <cohort.json> --ai-tfes-version v2-rc1 --format json
 ```
 
 The script refuses an unbounded whole-database scan.
