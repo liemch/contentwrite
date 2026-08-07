@@ -1,4 +1,5 @@
 import { getDeploymentVersion } from "@/lib/deployment-version";
+import type { FactCheckSummary } from "@/lib/tfes/fact-ledger";
 
 export const REMEDIATION_TELEMETRY_VERSION = "wp2.7-v1";
 
@@ -34,6 +35,8 @@ export type RemediationTelemetry = {
   errorClass: RemediationErrorClass;
   result: RemediationResult;
   deploymentVersion: string;
+  /** Present only on Fact Check transitions; counts from the existing ledger parser. */
+  fact?: FactCheckSummary;
 };
 
 export type RemediationTelemetryInput = {
@@ -57,6 +60,7 @@ export type RemediationTelemetryInput = {
   maxTokens?: number | null;
   llmMs?: number | null;
   errorClass?: RemediationErrorClass;
+  fact?: FactCheckSummary;
 };
 
 function safeInteger(value: number | null | undefined): number | null {
@@ -121,5 +125,6 @@ export function buildRemediationTelemetry(
     errorClass: input.errorClass ?? null,
     result: input.result,
     deploymentVersion: deployment.commitSha,
+    ...(input.fact ? { fact: input.fact } : {}),
   };
 }

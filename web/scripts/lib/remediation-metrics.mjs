@@ -27,6 +27,19 @@ function telemetryOf(transition) {
     : null;
 }
 
+function addDistributionValue(distribution, value) {
+  if (!Number.isFinite(value) || value < 0) return false;
+  const key = String(Math.round(value));
+  distribution[key] = (distribution[key] ?? 0) + 1;
+  return true;
+}
+
+function sortedDistribution(distribution) {
+  return Object.fromEntries(
+    Object.entries(distribution).sort(([a], [b]) => Number(a) - Number(b)),
+  );
+}
+
 export function aggregateRemediationMetrics(articles) {
   const gateFailDistribution = Object.fromEntries(
     Array.from({ length: 8 }, (_, index) => [`G${index + 1}`, 0]),
@@ -45,6 +58,19 @@ export function aggregateRemediationMetrics(articles) {
   let manualInterventionArticles = 0;
   let recoveryAttempts = 0;
   let recoverySuccesses = 0;
+  let factCheckAttempts = 0;
+  let articlesWithFactCheck = 0;
+  let factFirstPassArticles = 0;
+  let articlesWithFactRemediation = 0;
+  let factRemediationPassedArticles = 0;
+  let malformedFactOutputs = 0;
+  let factAttemptsWithMalformedFlag = 0;
+  let factAttemptsWithBlockingCount = 0;
+  let factAttemptsWithUnsupportedCount = 0;
+  let factAttemptsWithClaimsWithoutSourceCount = 0;
+  const blockingClaimDistribution = {};
+  const unsupportedClaimDistribution = {};
+  const claimsWithoutSourceDistribution = {};
   const scoreTrend = { improved: 0, flat: 0, declined: 0, unavailable: 0 };
   const feedbackTotals = {
     finalUsability: 0,
@@ -67,6 +93,25 @@ export function aggregateRemediationMetrics(articles) {
       return telemetryOf(transition)?.result === "exhausted";
     });
     const manual = actions.some((action) => MANUAL_ACTIONS.has(action));
+    const factChecks = transitions.filter((transition) => transition.action === "fact-check");
+    const factRemediations = transitions.filter(
+      (transition) => transition.action === "remediate-fact-check",
+    );
+    factCheckAttempts += factChecks.length;
+    if (factChecks.length > 0) {
+      articlesWithFactCheck += 1;
+      if (factChecks[0].success === true) factFirstPassArticles += 1;
+    }
+    if (factRemediations.length > 0) {
+      articlesWithFactRemediation += 1;
+      const firstRemediationAt = new Date(factRemediations[0].createdAt).getTime();
+      const laterFactPass = factChecks.some(
+        (transition) =>
+          transition.success === true &&
+          new Date(transition.createdAt).getTime() > firstRemediationAt,
+      );
+      if (laterFactPass) factRemediationPassedArticles += 1;
+    }
     remediationAttempts += remediations;
     if (completed && remediations === 0) firstPass += 1;
     if (remediations > 0) {
@@ -93,6 +138,32 @@ export function aggregateRemediationMetrics(articles) {
       const telemetry = telemetryOf(transition);
       if (!telemetry) continue;
       telemetryEvents += 1;
+      if (transition.action === "fact-check" && telemetry.fact) {
+        const fact = telemetry.fact;
+        if (typeof fact.malformedOutput === "boolean") {
+          factAttemptsWithMalformedFlag += 1;
+          if (fact.malformedOutput) malformedFactOutputs += 1;
+        }
+        if (addDistributionValue(blockingClaimDistribution, fact.blockingClaimCount)) {
+          factAttemptsWithBlockingCount += 1;
+        }
+        if (
+          addDistributionValue(
+            unsupportedClaimDistribution,
+            fact.unsupportedClaimCount,
+          )
+        ) {
+          factAttemptsWithUnsupportedCount += 1;
+        }
+        if (
+          addDistributionValue(
+            claimsWithoutSourceDistribution,
+            fact.claimsWithoutSourceCount,
+          )
+        ) {
+          factAttemptsWithClaimsWithoutSourceCount += 1;
+        }
+      }
       for (const gate of telemetry.gateFailures ?? []) {
         if (gate in gateFailDistribution) gateFailDistribution[gate] += 1;
       }
@@ -158,6 +229,13 @@ export function aggregateRemediationMetrics(articles) {
       finalVerifyAttempts,
       telemetryEvents,
       recoveryAttempts,
+        factCheckAttempts,
+        articlesWithFactCheck,
+        articlesWithFactRemediation,
+        factAttemptsWithMalformedFlag,
+        factAttemptsWithBlockingCount,
+        factAttemptsWithUnsupportedCount,
+        factAttemptsWithClaimsWithoutSourceCount,
     },
     firstPassRate: rate(firstPass, total),
     remediationPassRate: rate(remediationPassed, remediationArticles),
@@ -171,6 +249,26 @@ export function aggregateRemediationMetrics(articles) {
     draftTruncationIndicatorRate: rate(truncationIndicators, total),
     recoverySuccessRate: rate(recoverySuccesses, recoveryAttempts),
     editorManualInterventionRate: rate(manualInterventionArticles, total),
+    factCheck: {
+      averageAttemptsPerArticle:
+        total > 0 ? Number((factCheckAttempts / total).toFixed(2)) : null,
+      firstPassRate: rate(factFirstPassArticles, articlesWithFactCheck),
+      remediationPassRate: rate(
+        factRemediationPassedArticles,
+        articlesWithFactRemediation,
+      ),
+      blockingClaimDistribution: sortedDistribution(blockingClaimDistribution),
+      unsupportedClaimDistribution: sortedDistribution(
+        unsupportedClaimDistribution,
+      ),
+      claimsWithoutSourceDistribution: sortedDistribution(
+        claimsWithoutSourceDistribution,
+      ),
+      malformedOutputRate: rate(
+        malformedFactOutputs,
+        factAttemptsWithMalformedFlag,
+      ),
+    },
     scoreTrend,
     editorFeedback: {
       responses: feedbackCount,
@@ -201,6 +299,10 @@ export function aggregateRemediationMetrics(articles) {
       truncationIndicators,
       manualInterventionArticles,
       recoverySuccesses,
+      factCheckAttempts,
+      factFirstPassArticles,
+      factRemediationPassedArticles,
+      malformedFactOutputs,
     },
   };
 }

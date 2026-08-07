@@ -1,5 +1,5 @@
 /**
- * Read-only WP2.7 cohort report.
+ * Read-only WP2.7/WP2.7.1 cohort report, including Fact Check observability metrics.
  *
  * Usage:
  *   node --env-file=.env scripts/report-remediation-metrics.mjs --manifest cohort.json --format json
@@ -42,7 +42,7 @@ function render(payload, format) {
       .join("\n");
   }
   return [
-    "# WP2.7 Remediation Metrics",
+    "# WP2.7 Remediation & Fact Check Metrics",
     "",
     `Generated: ${payload.generatedAt}`,
     `Selection: ${payload.selection}`,

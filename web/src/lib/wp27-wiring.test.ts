@@ -48,6 +48,22 @@ describe("WP2.7 authorization and wiring", () => {
     expect(telemetry).not.toContain("apiKey:");
   });
 
+  it("records Fact Check itself so the timeline shows validation between remediations", () => {
+    const workflow = source("src/lib/tfes/workflow.ts");
+    const timeline = source("src/components/remediation-timeline.tsx");
+    expect(workflow).toContain('transitionName: "fact-check"');
+    expect(workflow).toContain("summarizeFactCheck(factCheckContent)");
+    expect(workflow).toContain('remediationAction: "fact-check"');
+    // Timeline renders any transition carrying telemetry; fact rows add a reason label.
+    expect(timeline).toContain("factFailureLabel");
+    expect(timeline).toContain("blockingClaimCount");
+    // Fact Check rows recorded before WP2.7.1 have no telemetry and must still render.
+    expect(timeline).toContain("legacyFactTelemetry");
+    const factLedger = source("src/lib/tfes/fact-ledger.ts");
+    expect(factLedger).toContain("export function summarizeFactCheck");
+    expect(factLedger).not.toContain("claimText");
+  });
+
   it("opens a fresh remediation budget after manual draft recovery without deleting lifetime history", () => {
     const workflow = source("src/lib/tfes/workflow.ts");
     const budget = source("src/lib/tfes/remediation-budget.ts");

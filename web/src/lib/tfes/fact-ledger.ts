@@ -136,6 +136,42 @@ export function verificationStatus(factCheck: string | null | undefined): string
   return unique.length === 1 ? unique[0] : "";
 }
 
+export type FactCheckSummary = {
+  /** Parsed Verification Status, or null when the ledger is unreadable. */
+  verdict: string | null;
+  claimCount: number;
+  blockingClaimCount: number;
+  unsupportedClaimCount: number;
+  unverifiableClaimCount: number;
+  claimsWithoutSourceCount: number;
+  /** Parser could not read a status line or any claim row. */
+  malformedOutput: boolean;
+};
+
+/**
+ * Deterministic Fact Check shape for telemetry. Counts only; never claim text,
+ * source content or prompts. Citation-mismatch has no parser today, so it is not reported.
+ */
+export function summarizeFactCheck(
+  factCheck: string | null | undefined,
+): FactCheckSummary {
+  const claims = parseFactClaims(factCheck);
+  const status = verificationStatus(factCheck);
+  const unsupported = claims.filter((claim) => isBadAiVerdict(claim.aiVerdict));
+  const unverifiable = claims.filter(
+    (claim) => !isBadAiVerdict(claim.aiVerdict) && isBlockingFactClaim(claim),
+  );
+  return {
+    verdict: status || null,
+    claimCount: claims.length,
+    blockingClaimCount: claims.filter(isBlockingFactClaim).length,
+    unsupportedClaimCount: unsupported.length,
+    unverifiableClaimCount: unverifiable.length,
+    claimsWithoutSourceCount: claims.filter((claim) => !claim.source.trim()).length,
+    malformedOutput: !status || claims.length === 0,
+  };
+}
+
 export const MAX_FACT_REMEDIATION_RETRIES = 3;
 
 export function isFactRemediationExhausted(

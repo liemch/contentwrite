@@ -2,9 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type FactSummary = {
+  verdict?: string | null;
+  claimCount?: number;
+  blockingClaimCount?: number;
+  unsupportedClaimCount?: number;
+  unverifiableClaimCount?: number;
+  claimsWithoutSourceCount?: number;
+  malformedOutput?: boolean;
+};
+
 type Telemetry = {
   schemaVersion?: string;
   transitionName?: string;
+  fact?: FactSummary;
   attempt?: number | null;
   retryCount?: number | null;
   remediationCount?: number | null;
@@ -32,8 +43,53 @@ type TimelineTransition = {
     telemetry?: Telemetry;
     lifetimeRemediationCount?: number | null;
     cycleRemediationCount?: number | null;
+    verificationStatus?: string | null;
+    blockingClaims?: number | null;
   } | null;
 };
+
+/**
+ * Fact Check rows written before WP2.7.1 carry no telemetry. Rebuild the minimum
+ * display shape from their existing details so older runs still show validation steps.
+ */
+function legacyFactTelemetry(transition: TimelineTransition): Telemetry | null {
+  if (transition.action !== "fact-check") return null;
+  const details = transition.details;
+  if (!details) return null;
+  const verdict = details.verificationStatus ?? null;
+  const blocking = details.blockingClaims ?? null;
+  if (verdict === null && blocking === null) return null;
+  return {
+    schemaVersion: "legacy",
+    transitionName: "fact-check",
+    decision: verdict || "UNPARSED",
+    result: transition.success ? "pass" : "fail",
+    errorClass: transition.success ? null : "content",
+    fact: {
+      verdict,
+      blockingClaimCount: blocking ?? undefined,
+      malformedOutput: !verdict,
+    },
+  };
+}
+
+/** Why this Fact Check attempt failed, using only parsed ledger counts. */
+function factFailureLabel(fact: FactSummary): string | null {
+  if (fact.malformedOutput) return "ledger không đọc được (parser)";
+  const parts: string[] = [];
+  if (fact.blockingClaimCount) parts.push(`${fact.blockingClaimCount} blocking`);
+  if (fact.unsupportedClaimCount) {
+    parts.push(`${fact.unsupportedClaimCount} unsupported`);
+  }
+  if (fact.unverifiableClaimCount) {
+    parts.push(`${fact.unverifiableClaimCount} unverifiable`);
+  }
+  if (fact.claimsWithoutSourceCount) {
+    parts.push(`${fact.claimsWithoutSourceCount} thiếu nguồn`);
+  }
+  if (fact.claimCount != null) parts.push(`${fact.claimCount} claim`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 function remediationBudgetLabel(
   telemetry: Telemetry,
@@ -100,7 +156,7 @@ export function RemediationTimeline({
     const scored = transitions
       .map((transition) => ({
         transition,
-        telemetry: transition.details?.telemetry,
+        telemetry: transition.details?.telemetry ?? legacyFactTelemetry(transition),
       }))
       .filter(
         (row): row is { transition: TimelineTransition; telemetry: Telemetry } =>
@@ -155,6 +211,7 @@ export function RemediationTimeline({
               const score = telemetry.totalScore ?? null;
               const gates = telemetry.gateFailures?.join(", ") || "—";
               const budgetLabel = remediationBudgetLabel(telemetry, transition.details);
+              const factLabel = telemetry.fact ? factFailureLabel(telemetry.fact) : null;
               return (
                 <tr key={transition.id} className="border-b border-[var(--line)]/70 align-top">
                   <td className="px-2 py-2">
@@ -178,9 +235,14 @@ export function RemediationTimeline({
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-right" title={gates}>
-                    {telemetry.gateFailCount ?? "—"}
+                  <td className="px-2 py-2 text-right" title={factLabel ?? gates}>
+                    {telemetry.gateFailCount ?? telemetry.fact?.blockingClaimCount ?? "—"}
                     {gates !== "—" && <span className="block text-[10px]">{gates}</span>}
+                    {factLabel && (
+                      <span className="block text-left text-[10px] text-[var(--ink-faint)]">
+                        {factLabel}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-2">{telemetry.decision ?? transition.toState}</td>
                   <td className="px-2 py-2 text-right">
