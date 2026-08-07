@@ -76,7 +76,22 @@ import {
   reviewDraftClipChars,
   withoutFinalVerification,
 } from "@/lib/tfes/review-context";
+import {
+  buildConvergenceTelemetry,
+  readTelemetryScore,
+} from "@/lib/tfes/convergence-telemetry";
+import { evaluateFinalMinorGuard } from "@/lib/tfes/final-minor-guard";
+import {
+  candidatesInCurrentCycle,
+  cycleIdFor,
+  evaluateCandidateLock,
+  latestCycleAnchor,
+  selectBestCandidate,
+  type BestCandidateReference,
+  type CycleAnchor,
+} from "@/lib/tfes/best-candidate-lock";
 import { buildRemediationTelemetry } from "@/lib/tfes/remediation-telemetry";
+import { getDeploymentVersion } from "@/lib/deployment-version";
 import { finalizePhaseOf } from "@/lib/tfes/finalize-phase";
 import {
   countRemediationsInCurrentCycle,
@@ -86,6 +101,11 @@ import {
   assertExpectedWorkflowVersion,
   prepareManualDraftRecovery,
 } from "@/lib/tfes/manual-draft-recovery";
+import {
+  minorPreserveInstructions,
+  parseMinorPreserveOutput,
+} from "@/lib/tfes/minor-preserve-prompt";
+import { evaluateRegressionAutoAckBrake } from "@/lib/tfes/regression-auto-ack-brake";
 import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
@@ -493,6 +513,302 @@ async function remediationBudgetForRun(input: {
     orderBy: { createdAt: "asc" },
   });
   return countRemediationsInCurrentCycle(transitions, input.remediationAction);
+}
+
+/**
+ * Best-effort read-only context for WP-V2-01 telemetry.
+ * Observability failure must never change AI workflow behavior.
+ */
+async function convergenceContextForRun(
+  articleId: string,
+  workflowRunId: string,
+): Promise<{
+  previousEditorialScore: number | null;
+  previousEditorialGateFailCount: number | null;
+  previousEditorialPassed: boolean;
+  rewriteCount: number | null;
+  finalComparisonValid: boolean;
+}> {
+  try {
+    const transitions = await prisma.workflowTransition.findMany({
+      where: {
+        articleId,
+        workflowRunId,
+        action: {
+          in: [
+            "editorial-review",
+            "editorial-review-after-revision",
+            "remediate-required-revision",
+            "remediate-fact-check",
+            "manual-draft-revision",
+          ],
+        },
+      },
+      select: { action: true, details: true, success: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const editorialIndex = transitions.findIndex(
+      (transition) =>
+        (transition.action === "editorial-review" ||
+          transition.action === "editorial-review-after-revision") &&
+        readTelemetryScore(transition.details) !== null,
+    );
+    const previousEditorialScore =
+      editorialIndex >= 0
+        ? readTelemetryScore(transitions[editorialIndex].details)
+        : null;
+    const previousEditorialDetails =
+      editorialIndex >= 0 ? objectValue(transitions[editorialIndex].details) : null;
+    const previousEditorialTelemetry = objectValue(
+      previousEditorialDetails?.telemetry,
+    );
+    const previousEditorialGateFailCount =
+      finiteNumber(previousEditorialTelemetry?.gateFailCount) ??
+      finiteNumber(previousEditorialDetails?.gateFailCount);
+    const previousEditorialPassed =
+      editorialIndex >= 0 &&
+      (transitions[editorialIndex].success === true ||
+        previousEditorialTelemetry?.result === "pass");
+    const draftChangedAfterEditorial =
+      editorialIndex >= 0 &&
+      transitions
+        .slice(0, editorialIndex)
+        .some((transition) =>
+          [
+            "remediate-required-revision",
+            "remediate-fact-check",
+            "manual-draft-revision",
+          ].includes(transition.action),
+        );
+    const rewriteCount = transitions.filter(
+      (transition) => transition.action === "remediate-required-revision",
+    ).length;
+    return {
+      previousEditorialScore,
+      previousEditorialGateFailCount,
+      previousEditorialPassed,
+      rewriteCount,
+      finalComparisonValid:
+        previousEditorialScore !== null && !draftChangedAfterEditorial,
+    };
+  } catch {
+    return {
+      previousEditorialScore: null,
+      previousEditorialGateFailCount: null,
+      previousEditorialPassed: false,
+      rewriteCount: null,
+      finalComparisonValid: false,
+    };
+  }
+}
+
+type DraftArtifactSnapshot = {
+  revision: number;
+  content: string;
+  metadata: unknown;
+};
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function storedCandidateReference(details: unknown): BestCandidateReference | null {
+  const candidate = objectValue(objectValue(details)?.candidateLock);
+  const stored = objectValue(candidate?.candidate);
+  const draftRevision = finiteNumber(stored?.draftRevision);
+  const editorialScore = finiteNumber(stored?.editorialScore);
+  const reviewedAt = typeof stored?.reviewedAt === "string" ? stored.reviewedAt : null;
+  if (draftRevision === null || editorialScore === null || !reviewedAt) return null;
+  return {
+    draftRevision: Math.round(draftRevision),
+    editorialScore: Math.round(editorialScore),
+    gateFailCount: finiteNumber(stored?.gateFailCount),
+    decision: typeof stored?.decision === "string" ? stored.decision : null,
+    workflowVersion: finiteNumber(stored?.workflowVersion),
+    reviewedAt,
+    cycleId: typeof stored?.cycleId === "string" ? stored.cycleId : "workflow-run:start",
+    cycleAnchorAction:
+      stored?.cycleAnchorAction === "human-review-confirmed" ||
+      stored?.cycleAnchorAction === "manual-draft-revision"
+        ? stored.cycleAnchorAction
+        : null,
+    deploymentVersion:
+      typeof stored?.deploymentVersion === "string" ? stored.deploymentVersion : null,
+  };
+}
+
+/**
+ * Read-only reconstruction supports pre-WP-V2-02 reviews by linking their REVIEW artifact
+ * to the immutable ARTICLE_DRAFT source revision.
+ */
+async function bestCandidateContextForRun(
+  articleId: string,
+  workflowRunId: string,
+): Promise<{
+  best: BestCandidateReference | null;
+  anchor: CycleAnchor | null;
+  activeDraft: DraftArtifactSnapshot | null;
+}> {
+  const [transitions, reviewArtifacts, activeDraft] = await Promise.all([
+    prisma.workflowTransition.findMany({
+      where: {
+        articleId,
+        workflowRunId,
+        action: {
+          in: [
+            "editorial-review",
+            "editorial-review-after-revision",
+            ...REMEDIATION_CYCLE_ANCHOR_ACTIONS,
+          ],
+        },
+      },
+      select: { action: true, details: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.workflowArtifact.findMany({
+      where: {
+        articleId,
+        workflowRunId,
+        type: ArtifactType.REVIEW,
+        sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+      },
+      select: { sourceRevision: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.workflowArtifact.findFirst({
+      where: { articleId, workflowRunId, type: ArtifactType.ARTICLE_DRAFT },
+      select: { revision: true, content: true, metadata: true },
+      orderBy: { revision: "desc" },
+    }),
+  ]);
+
+  const anchors: CycleAnchor[] = transitions
+    .filter(
+      (transition) =>
+        transition.action === "human-review-confirmed" ||
+        transition.action === "manual-draft-revision",
+    )
+    .map((transition) => ({
+      action: transition.action as CycleAnchor["action"],
+      createdAt: transition.createdAt,
+    }));
+  const candidates: BestCandidateReference[] = [];
+  for (const transition of transitions) {
+    if (
+      transition.action !== "editorial-review" &&
+      transition.action !== "editorial-review-after-revision"
+    ) {
+      continue;
+    }
+    const lockDetails = objectValue(objectValue(transition.details)?.candidateLock);
+    if (
+      lockDetails?.candidateEligible === false ||
+      lockDetails?.candidateRejected === true
+    ) {
+      continue;
+    }
+    const stored = storedCandidateReference(transition.details);
+    if (stored) {
+      candidates.push(stored);
+      continue;
+    }
+    const score = readTelemetryScore(transition.details);
+    if (score === null) continue;
+    const source = [...reviewArtifacts]
+      .reverse()
+      .find(
+        (artifact) =>
+          artifact.sourceRevision !== null &&
+          artifact.createdAt.getTime() <= transition.createdAt.getTime(),
+      );
+    if (!source?.sourceRevision) continue;
+    const details = objectValue(transition.details);
+    const telemetry = objectValue(details?.telemetry);
+    const anchorAtReview = latestCycleAnchor(
+      anchors.filter(
+        (anchor) =>
+          new Date(anchor.createdAt).getTime() <= transition.createdAt.getTime(),
+      ),
+    );
+    candidates.push({
+      draftRevision: source.sourceRevision,
+      editorialScore: score,
+      gateFailCount:
+        finiteNumber(details?.gateFailCount) ?? finiteNumber(telemetry?.gateFailCount),
+      decision:
+        typeof details?.decision === "string"
+          ? details.decision
+          : typeof telemetry?.decision === "string"
+            ? telemetry.decision
+            : null,
+      workflowVersion: null,
+      reviewedAt: transition.createdAt.toISOString(),
+      cycleId: cycleIdFor(anchorAtReview),
+      cycleAnchorAction: anchorAtReview?.action ?? null,
+      deploymentVersion:
+        typeof telemetry?.deploymentVersion === "string"
+          ? telemetry.deploymentVersion
+          : null,
+    });
+  }
+  const anchor = latestCycleAnchor(anchors);
+  return {
+    best: selectBestCandidate(candidatesInCurrentCycle(candidates, anchors)),
+    anchor,
+    activeDraft,
+  };
+}
+
+function promotionMetadata(input: {
+  keptCandidateRevision: number;
+  rejectedCandidateRevision: number | null;
+  reason: "review-rejected" | "exhaustion";
+}) {
+  return {
+    bestCandidatePromotion: {
+      ...input,
+      wp: "WP-V2-02",
+    },
+  };
+}
+
+function activeArtifactRetainsBest(
+  artifact: DraftArtifactSnapshot | null,
+  bestRevision: number,
+): boolean {
+  if (!artifact) return false;
+  if (artifact.revision === bestRevision) return true;
+  const promotion = objectValue(objectValue(artifact.metadata)?.bestCandidatePromotion);
+  return finiteNumber(promotion?.keptCandidateRevision) === bestRevision;
+}
+
+async function restorableBestArtifact(input: {
+  articleId: string;
+  workflowRunId: string;
+  bestRevision: number;
+}): Promise<DraftArtifactSnapshot | null> {
+  const artifacts = await prisma.workflowArtifact.findMany({
+    where: {
+      articleId: input.articleId,
+      workflowRunId: input.workflowRunId,
+      type: ArtifactType.ARTICLE_DRAFT,
+    },
+    select: { revision: true, content: true, metadata: true },
+    orderBy: { revision: "desc" },
+  });
+  return (
+    artifacts.find((artifact) => artifact.revision === input.bestRevision) ??
+    artifacts.find((artifact) =>
+      activeArtifactRetainsBest(artifact, input.bestRevision),
+    ) ??
+    null
+  );
 }
 
 /** Phase routing lives in a pure module so the Fact Check loop can be asserted in tests. */
@@ -1160,6 +1476,93 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const isPostRevisionReview = (article.knowledgeRecord ?? "").includes(
           POST_REVISION_REVIEW_MARK,
         );
+        const [convergenceContext, lockContext] = await Promise.all([
+          convergenceContextForRun(articleId, article.workflowRunId),
+          bestCandidateContextForRun(articleId, article.workflowRunId),
+        ]);
+        const currentDraftRevision = lockContext.activeDraft?.revision ?? null;
+        const currentScore =
+          typeof inspection.totalScore === "number" ? inspection.totalScore : null;
+        const candidate: BestCandidateReference | null =
+          currentDraftRevision !== null && currentScore !== null
+            ? {
+                draftRevision: currentDraftRevision,
+                editorialScore: currentScore,
+                gateFailCount: inspection.gateFailCount,
+                decision: inspection.decision,
+                workflowVersion: article.workflowVersion,
+                reviewedAt: new Date().toISOString(),
+                cycleId: cycleIdFor(lockContext.anchor),
+                cycleAnchorAction: lockContext.anchor?.action ?? null,
+                deploymentVersion: getDeploymentVersion().shortSha,
+              }
+            : null;
+        const lockEvaluation = evaluateCandidateLock({
+          config: PIPELINE_CONFIG.aiTfesV2.bestCandidateLock,
+          bestBefore: lockContext.best,
+          candidate,
+          machineReadable:
+            inspection.machineReadable && inspection.machineContract !== "invalid",
+        });
+        const autoAckBrake = evaluateRegressionAutoAckBrake({
+          enabled:
+            PIPELINE_CONFIG.aiTfesV2.regressionAutoAckBrake.enabled,
+          isPostRevisionReview,
+          candidateEligible: lockEvaluation.candidateEligible,
+          candidateRegression: lockEvaluation.candidateRegression,
+          bestScore: lockEvaluation.bestBefore?.editorialScore ?? null,
+          candidateScore: currentScore,
+          scoreDelta: lockEvaluation.candidateScoreDelta,
+          epsilon: lockEvaluation.epsilon,
+        });
+        const {
+          suppressAutoAck,
+          ...autoAckBrakeTelemetry
+        } = autoAckBrake;
+        const bestArtifact =
+          lockEvaluation.candidateRejected && lockEvaluation.bestBefore
+            ? await restorableBestArtifact({
+                articleId,
+                workflowRunId: article.workflowRunId,
+                bestRevision: lockEvaluation.bestBefore.draftRevision,
+              })
+            : null;
+        const restoreStatus =
+          !lockEvaluation.lockEnabled
+            ? "disabled"
+            : !lockEvaluation.candidateRejected
+              ? "not-needed"
+              : bestArtifact
+                ? "restored"
+                : "missing-artifact";
+        const keptCandidateRevision =
+          lockEvaluation.bestAfter?.draftRevision ?? null;
+        const rejectedCandidateRevision = lockEvaluation.candidateRejected
+          ? currentDraftRevision
+          : null;
+        const convergence = buildConvergenceTelemetry({
+          observation: "editorial",
+          currentScore: inspection.totalScore,
+          previousEditorialScore: convergenceContext.previousEditorialScore,
+          isPostRevisionReview,
+          rewriteCount: convergenceContext.rewriteCount,
+          candidateLock: {
+            bestEditorialScore:
+              lockEvaluation.bestBefore?.editorialScore ??
+              lockEvaluation.bestAfter?.editorialScore ??
+              null,
+            candidateEditorialScore: currentScore,
+            candidateScoreDelta: lockEvaluation.candidateScoreDelta,
+            candidateRegression: lockEvaluation.candidateRegression,
+            candidateRejected: lockEvaluation.candidateRejected,
+            keptCandidateRevision,
+            rejectedCandidateRevision,
+            epsilon: lockEvaluation.epsilon,
+            lockEnabled: lockEvaluation.lockEnabled,
+            acceptedDespiteRegression: lockEvaluation.acceptedDespiteRegression,
+            restoreStatus,
+          },
+        });
         const cleanReview = reviewOut
           .replaceAll(POST_REVISION_REVIEW_MARK, "")
           .trim();
@@ -1167,7 +1570,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         // Sau revision: đạt → auto-ack; chưa đạt → auto xếp «nhờ AI sửa» để soft-continue
         // không bị kẹt await-human giữa vòng 9b. Lần Review đầu vẫn chờ người.
         let nextKnowledge: string;
-        if (isPostRevisionReview) {
+        if (isPostRevisionReview && suppressAutoAck) {
+          nextKnowledge = withHumanReviewPendingMark(cleanReview).replaceAll(
+            POST_REVISION_REVIEW_MARK,
+            "",
+          );
+        } else if (isPostRevisionReview) {
           if (reviewState === WorkflowState.EDITORIAL_REVIEWED) {
             nextKnowledge = applyHumanReviewToKnowledge(
               cleanReview,
@@ -1219,16 +1627,43 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           );
         }
 
+        const restoreFailed = restoreStatus === "missing-artifact";
+        const effectiveReviewState =
+          restoreFailed && reviewState === WorkflowState.EDITORIAL_REVIEWED
+            ? WorkflowState.MINOR_REVISION_REQUIRED
+            : reviewState;
         const transitioned = await commitTransition({
-          to: reviewState,
+          to: effectiveReviewState,
           action: isPostRevisionReview
             ? "editorial-review-after-revision"
             : "editorial-review",
-          success: reviewState === WorkflowState.EDITORIAL_REVIEWED,
+          success:
+            reviewState === WorkflowState.EDITORIAL_REVIEWED &&
+            !lockEvaluation.candidateRejected &&
+            !suppressAutoAck &&
+            !restoreFailed,
           articlePatch: {
             knowledgeRecord: nextKnowledge,
+            ...(bestArtifact
+              ? {
+                  draft12: `${bestArtifact.content}\n\n${WRITE_DONE_MARK}`,
+                  factCheck: null,
+                  cleanPublish: null,
+                  heroBrief: null,
+                }
+              : {}),
             errorMessage:
-              reviewState === WorkflowState.EDITORIAL_REVIEWED
+              restoreFailed
+                ? "Best Candidate Lock không tìm thấy draft artifact cần restore; candidate không được phép publish."
+                : suppressAutoAck
+                  ? lockEvaluation.candidateRejected
+                    ? `Regression Auto-ack Brake đã dừng progression; best revision ${bestArtifact?.revision ?? "unknown"} đang active và cần Human Review.`
+                    : autoAckBrakeTelemetry.reason === "regression"
+                      ? "Regression Auto-ack Brake đã dừng progression; Candidate Lock đang OFF nên candidate hiện tại được giữ để Human Review."
+                      : "Regression Auto-ack Brake đã dừng progression vì review không đủ dữ liệu an toàn; cần Human Review."
+                : lockEvaluation.candidateRejected
+                  ? `Best Candidate Lock đã reject revision ${currentDraftRevision ?? "unknown"} và restore revision ${bestArtifact?.revision ?? "unknown"}.`
+                  : reviewState === WorkflowState.EDITORIAL_REVIEWED
                 ? null
                 : inspection.failureReasons.length
                   ? `Editorial Review chưa đạt — ${inspection.failureReasons.join(" · ")}.`
@@ -1237,20 +1672,56 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           details: {
             ...inspection,
             isPostRevisionReview,
-            autoHumanAck: isPostRevisionReview,
+            autoHumanAck:
+              isPostRevisionReview && !suppressAutoAck,
+            autoAckBrake: autoAckBrakeTelemetry,
+            candidateLock: {
+              candidate,
+              bestBefore: lockEvaluation.bestBefore,
+              bestAfter: lockEvaluation.bestAfter,
+              candidateEligible: lockEvaluation.candidateEligible,
+              candidateScoreDelta: lockEvaluation.candidateScoreDelta,
+              candidateRegression: lockEvaluation.candidateRegression,
+              candidateRejected: lockEvaluation.candidateRejected,
+              acceptedDespiteRegression: lockEvaluation.acceptedDespiteRegression,
+              keptCandidateRevision,
+              rejectedCandidateRevision,
+              epsilon: lockEvaluation.epsilon,
+              lockEnabled: lockEvaluation.lockEnabled,
+              attemptConsumed: isPostRevisionReview,
+              reason: lockEvaluation.reason,
+              restoreStatus,
+            },
             telemetry: buildRemediationTelemetry({
               articleId,
-              workflowState: reviewState,
+              workflowState: effectiveReviewState,
               transitionName: isPostRevisionReview
                 ? "editorial-review-after-revision"
                 : "editorial-review",
               draft: stripPipelineMarks(article.draft12),
               result:
-                reviewState === WorkflowState.EDITORIAL_REVIEWED ? "pass" : "fail",
+                lockEvaluation.candidateRejected ||
+                suppressAutoAck ||
+                restoreFailed
+                  ? "fail"
+                  : reviewState === WorkflowState.EDITORIAL_REVIEWED
+                    ? "pass"
+                    : "fail",
               attempt: isPostRevisionReview ? 2 : 1,
               gateFailCount: inspection.gateFailCount,
               gateFailures,
-              failureReasons: inspection.failureReasons,
+              failureReasons: [
+                ...inspection.failureReasons,
+                ...(lockEvaluation.candidateRejected
+                  ? [
+                      `Candidate revision ${currentDraftRevision ?? "unknown"} rejected by Best Candidate Lock`,
+                    ]
+                  : []),
+                ...(restoreFailed ? ["Best candidate artifact missing"] : []),
+                ...(suppressAutoAck
+                  ? ["Post-revision auto-ack suppressed; Human Review required"]
+                  : []),
+              ],
               totalScore: inspection.totalScore,
               machineReadable: inspection.machineReadable,
               machineContract: inspection.machineContract,
@@ -1258,19 +1729,44 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               maxTokens: reviewMaxTokens,
               llmMs: reviewLlmMs,
               errorClass:
-                inspection.machineReadable && inspection.machineContract !== "invalid"
+                lockEvaluation.candidateRejected ||
+                suppressAutoAck ||
+                restoreFailed
+                  ? "content"
+                  : inspection.machineReadable && inspection.machineContract !== "invalid"
                   ? inspection.resolvedState === WorkflowState.EDITORIAL_REVIEWED
                     ? null
                     : "content"
                   : "parser",
+              convergence,
+              autoAckBrake: autoAckBrakeTelemetry,
             }),
           },
-          artifact: {
-            type: ArtifactType.REVIEW,
-            content: cleanReview,
-            sourceRevision: await latestArtifactRevision(articleId, ArtifactType.ARTICLE_DRAFT),
-            sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
-          },
+          artifacts: [
+            {
+              type: ArtifactType.REVIEW,
+              content: cleanReview,
+              sourceRevision: currentDraftRevision,
+              sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+            },
+            ...(bestArtifact
+              ? [
+                  {
+                    type: ArtifactType.ARTICLE_DRAFT,
+                    content: bestArtifact.content,
+                    sourceRevision: bestArtifact.revision,
+                    sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+                    metadata: promotionMetadata({
+                      keptCandidateRevision:
+                        lockEvaluation.bestBefore?.draftRevision ??
+                        bestArtifact.revision,
+                      rejectedCandidateRevision,
+                      reason: "review-rejected",
+                    }),
+                  },
+                ]
+              : []),
+          ],
         });
         return withTimings(transitioned, {
           llmMs: reviewLlmMs,
@@ -1294,14 +1790,64 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           remediationAction: "remediate-required-revision",
         });
         const remediationAttempts = revisionBudget.cycleCount;
+        const [rewriteConvergenceContext, exhaustionLockContext] = await Promise.all([
+          convergenceContextForRun(articleId, article.workflowRunId),
+          bestCandidateContextForRun(articleId, article.workflowRunId),
+        ]);
         if (remediationAttempts >= MAX_REVISION_REMEDIATION_RETRIES) {
+          const lockEnabled = PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.enabled;
+          const best = exhaustionLockContext.best;
+          const alreadyRetained =
+            best !== null &&
+            activeArtifactRetainsBest(
+              exhaustionLockContext.activeDraft,
+              best.draftRevision,
+            );
+          const bestArtifact =
+            lockEnabled && best && !alreadyRetained
+              ? await restorableBestArtifact({
+                  articleId,
+                  workflowRunId: article.workflowRunId,
+                  bestRevision: best.draftRevision,
+                })
+              : null;
+          const bestRetainedAtExhaustion = !lockEnabled
+            ? null
+            : !best
+              ? null
+              : alreadyRetained || Boolean(bestArtifact);
+          const restoreStatus = !lockEnabled
+            ? "disabled"
+            : alreadyRetained || !best
+              ? "not-needed"
+              : bestArtifact
+                ? "restored"
+                : "missing-artifact";
+          const activeScore = rewriteConvergenceContext.previousEditorialScore;
+          const candidateScoreDelta =
+            activeScore !== null && best
+              ? activeScore - best.editorialScore
+              : null;
           const stopped = await commitPatch({
             action: "revision-remediation-exhausted",
             success: false,
             articlePatch: {
+              ...(bestArtifact
+                ? {
+                    draft12: `${bestArtifact.content}\n\n${WRITE_DONE_MARK}`,
+                    factCheck: null,
+                    cleanPublish: null,
+                    heroBrief: null,
+                  }
+                : {}),
               errorMessage:
-                `Revision chưa đạt sau ${MAX_REVISION_REMEDIATION_RETRIES} lần remediation — ` +
-                "cần editor sửa tay hoặc làm lại workflow.",
+                restoreStatus === "missing-artifact"
+                  ? "Revision exhausted; Best Candidate Lock không tìm thấy artifact để restore. Candidate hiện tại bị chặn publish."
+                  : lockEnabled && bestRetainedAtExhaustion
+                    ? `Revision chưa đạt sau ${MAX_REVISION_REMEDIATION_RETRIES} lần remediation — ` +
+                      "đã giữ candidate tốt nhất; cần editor sửa tay hoặc làm lại workflow."
+                    : `Revision chưa đạt sau ${MAX_REVISION_REMEDIATION_RETRIES} lần remediation — ` +
+                      "cần editor sửa tay hoặc làm lại workflow.",
             },
             details: {
               remediationAttempts,
@@ -1309,6 +1855,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               cycleRemediationCount: revisionBudget.cycleCount,
               cycleAnchorAction: revisionBudget.cycleAnchorAction,
               revisionState: article.workflowState,
+              candidateLock: {
+                best,
+                lockEnabled,
+                epsilon: PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon,
+                bestRetainedAtExhaustion,
+                restoreStatus,
+                keptCandidateRevision: best?.draftRevision ?? null,
+                activeDraftRevision:
+                  exhaustionLockContext.activeDraft?.revision ?? null,
+              },
               telemetry: buildRemediationTelemetry({
                 articleId,
                 workflowState: article.workflowState,
@@ -1321,16 +1877,124 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 cycleRemediationCount: revisionBudget.cycleCount,
                 failureReasons: [article.errorMessage ?? "Revision remediation exhausted"],
                 errorClass: "content",
+                convergence: buildConvergenceTelemetry({
+                  observation: "rewrite",
+                  previousEditorialScore:
+                    rewriteConvergenceContext.previousEditorialScore,
+                  rewriteCount: revisionBudget.lifetimeCount,
+                  candidateLock: {
+                    bestEditorialScore: best?.editorialScore ?? null,
+                    candidateEditorialScore: activeScore,
+                    candidateScoreDelta,
+                    candidateRegression:
+                      candidateScoreDelta !== null
+                        ? candidateScoreDelta <
+                          -PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon
+                        : null,
+                    candidateRejected: false,
+                    keptCandidateRevision: best?.draftRevision ?? null,
+                    rejectedCandidateRevision: null,
+                    epsilon: PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon,
+                    lockEnabled,
+                    acceptedDespiteRegression: false,
+                    bestRetainedAtExhaustion,
+                    restoreStatus,
+                  },
+                }),
               }),
             },
+            ...(bestArtifact
+              ? {
+                  artifact: {
+                    type: ArtifactType.ARTICLE_DRAFT,
+                    content: bestArtifact.content,
+                    sourceRevision: bestArtifact.revision,
+                    sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
+                    metadata: promotionMetadata({
+                      keptCandidateRevision:
+                        best?.draftRevision ?? bestArtifact.revision,
+                      rejectedCandidateRevision:
+                        exhaustionLockContext.activeDraft?.revision ?? null,
+                      reason: "exhaustion",
+                    }),
+                  },
+                }
+              : {}),
           });
           return withTimings(stopped, {
             finalizePhase: "revision-remediation-exhausted",
           });
         }
 
+        if (
+          PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.enabled &&
+          exhaustionLockContext.best
+        ) {
+          const restorable = await restorableBestArtifact({
+            articleId,
+            workflowRunId: article.workflowRunId,
+            bestRevision: exhaustionLockContext.best.draftRevision,
+          });
+          if (!restorable) {
+            const blocked = await commitPatch({
+              action: "best-candidate-lock-artifact-missing",
+              success: false,
+              articlePatch: {
+                errorMessage:
+                  "Best Candidate Lock đã chặn remediation vì artifact tốt nhất bị thiếu; active draft không bị thay đổi.",
+              },
+              details: {
+                bestCandidate: exhaustionLockContext.best,
+                lockEnabled: true,
+                epsilon: PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon,
+                telemetry: buildRemediationTelemetry({
+                  articleId,
+                  workflowState: article.workflowState,
+                  transitionName: "best-candidate-lock-artifact-missing",
+                  draft: stripPipelineMarks(article.draft12),
+                  result: "error",
+                  errorClass: "runtime",
+                  failureReasons: ["Best candidate artifact missing"],
+                  convergence: buildConvergenceTelemetry({
+                    observation: "rewrite",
+                    previousEditorialScore:
+                      rewriteConvergenceContext.previousEditorialScore,
+                    rewriteCount: revisionBudget.lifetimeCount,
+                    candidateLock: {
+                      bestEditorialScore:
+                        exhaustionLockContext.best.editorialScore,
+                      candidateEditorialScore:
+                        rewriteConvergenceContext.previousEditorialScore,
+                      candidateScoreDelta: null,
+                      candidateRegression: null,
+                      candidateRejected: false,
+                      keptCandidateRevision:
+                        exhaustionLockContext.best.draftRevision,
+                      rejectedCandidateRevision: null,
+                      epsilon: PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon,
+                      lockEnabled: true,
+                      acceptedDespiteRegression: false,
+                      restoreStatus: "missing-artifact",
+                    },
+                  }),
+                }),
+              },
+            });
+            return withTimings(blocked, {
+              finalizePhase: "best-candidate-lock-artifact-missing",
+            });
+          }
+        }
+
         const llmStarted = Date.now();
         const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
+        const minorPreservePrompt = minorPreserveInstructions({
+          enabled:
+            PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
+          revisionSeverity: article.workflowState,
+          version:
+            PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
+        });
         const previousDraftRevision = await latestArtifactRevision(
           articleId,
           ArtifactType.ARTICLE_DRAFT,
@@ -1363,6 +2027,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   ),
                   clipText(article.factCheck, 5_000),
                   `Chủ đề: ${topic}`,
+                  minorPreservePrompt,
                 ),
                 undefined,
                 shapeBlockFor(article),
@@ -1375,8 +2040,31 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             reasoningEffort: "low",
           },
         );
-        const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        const preserveOutput = minorPreservePrompt
+          ? parseMinorPreserveOutput(repairedRaw)
+          : {
+              draft: repairedRaw,
+              changedSections: [],
+              unchangedSections: [],
+              metadataReadable: false,
+            };
+        const repairedDraft = sanitizeEditorialBody(
+          stripPipelineMarks(preserveOutput.draft),
+        );
         const remediationLlmMs = Date.now() - llmStarted;
+        const minorPreserveTelemetry = minorPreservePrompt
+          ? {
+              minorPreservePromptVersion:
+                PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
+              changedSectionCount: preserveOutput.metadataReadable
+                ? preserveOutput.changedSections.length
+                : null,
+              unchangedSectionCount: preserveOutput.metadataReadable
+                ? preserveOutput.unchangedSections.length
+                : null,
+              preserveMetadataReadable: preserveOutput.metadataReadable,
+            }
+          : null;
         assertFullDraftQuality(repairedDraft);
         assertEngineeringGoldBar({
           domain: article.domain,
@@ -1411,6 +2099,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             invalidatedFinalReview: Boolean(article.knowledgeRecord?.includes(FINAL_REVIEW_DONE_MARK)),
             previousDraftRevision,
             requiresReReview: true,
+            ...(minorPreserveTelemetry
+              ? { minorPreserve: minorPreserveTelemetry }
+              : {}),
             lifetimeRemediationCount: revisionBudget.lifetimeCount + 1,
             cycleRemediationCount: remediationAttempts + 1,
             cycleAnchorAction: revisionBudget.cycleAnchorAction,
@@ -1428,6 +2119,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               maxTokens: remediationMaxTokens,
               llmMs: remediationLlmMs,
               errorClass: "content",
+              convergence: buildConvergenceTelemetry({
+                observation: "rewrite",
+                previousEditorialScore:
+                  rewriteConvergenceContext.previousEditorialScore,
+                rewriteCount: revisionBudget.lifetimeCount + 1,
+              }),
+              ...(minorPreserveTelemetry
+                ? { minorPreserve: minorPreserveTelemetry }
+                : {}),
             }),
           },
           artifact: {
@@ -1806,7 +2506,55 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               : "final-verify-format-retry",
           });
         }
-        const nextState = result.publishReady
+        const finalConvergenceContext = await convergenceContextForRun(
+          articleId,
+          article.workflowRunId,
+        );
+        const finalConvergence = buildConvergenceTelemetry({
+          observation: "final",
+          currentScore: result.totalScore,
+          previousEditorialScore:
+            finalConvergenceContext.finalComparisonValid
+              ? finalConvergenceContext.previousEditorialScore
+              : null,
+          rewriteCount: finalConvergenceContext.rewriteCount,
+        });
+        const finalMinorGuard = evaluateFinalMinorGuard({
+          enabled:
+            PIPELINE_CONFIG.aiTfesV2.falseFinalMinorGuard.enabled,
+          machineReadable: result.machineReadable,
+          alreadyPublishReady: result.publishReady,
+          finalDecision: result.decision,
+          finalReview,
+          finalScore: result.totalScore,
+          finalInsightScore: result.insightScore,
+          finalGatesPassed: result.gatesPassed,
+          factPassed: result.factPassed,
+          blockingClaims: result.blockingClaims,
+          openActions: result.openActions,
+          editorialPassed:
+            finalConvergenceContext.previousEditorialPassed &&
+            finalConvergenceContext.finalComparisonValid,
+          editorialScore: finalConvergenceContext.previousEditorialScore,
+          editorialGateFailCount:
+            finalConvergenceContext.previousEditorialGateFailCount,
+          editorialThreshold: TFES_CONTRACT.editorialReview.minimumTotalScore,
+          insightFloor: TFES_CONTRACT.finalReview.minimumInsightScore,
+        });
+        const effectivePublishReady =
+          result.publishReady || finalMinorGuard.suppressed;
+        const finalMinorGuardTelemetry = {
+          finalMinorGuardEligible: finalMinorGuard.eligible,
+          finalMinorSuppressed: finalMinorGuard.suppressed,
+          finalMinorReasonClass: finalMinorGuard.reasonClass,
+          finalScore: result.totalScore,
+          editorialScore: finalConvergenceContext.previousEditorialScore,
+          factPassed: result.factPassed,
+          blockingResidualCount: finalMinorGuard.blockingResidualCount,
+          guardEnabled:
+            PIPELINE_CONFIG.aiTfesV2.falseFinalMinorGuard.enabled,
+        };
+        const nextState = effectivePublishReady
           ? WorkflowState.FINAL_REVIEWED
           : (result.totalScore ?? 0) < 75 ||
               (result.insightScore ?? 0) < TFES_CONTRACT.finalReview.minimumInsightScore
@@ -1814,25 +2562,27 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             : (result.totalScore ?? 0) < 85
               ? WorkflowState.MAJOR_REVISION_REQUIRED
               : WorkflowState.MINOR_REVISION_REQUIRED;
-        const nextKr = `${article.knowledgeRecord ?? ""}\n\n## Final Verification (pipeline)\n${finalReview}${result.publishReady ? `\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
+        const nextKr = `${article.knowledgeRecord ?? ""}\n\n## Final Verification (pipeline)\n${finalReview}${effectivePublishReady ? `\n\n${FINAL_REVIEW_DONE_MARK}` : ""}`.trim();
         const transitioned = await commitTransition({
           to: nextState,
           action: "final-verification",
-          success: result.publishReady,
+          success: effectivePublishReady,
           articlePatch: {
             knowledgeRecord: nextKr,
-            errorMessage: result.publishReady
+            errorMessage: effectivePublishReady
               ? null
               : `Final Verification chưa đạt — ${result.failureReasons.join(" · ")}.`,
           },
           details: {
             ...result,
+            effectivePublishReady,
+            finalMinorGuard: finalMinorGuardTelemetry,
             telemetry: buildRemediationTelemetry({
               articleId,
               workflowState: nextState,
               transitionName: "final-verification",
               draft: stripPipelineMarks(article.draft12),
-              result: result.publishReady ? "pass" : "fail",
+              result: effectivePublishReady ? "pass" : "fail",
               gateFailCount: finalGateFailures.length,
               gateFailures: finalGateFailures,
               failureReasons: result.failureReasons,
@@ -1842,7 +2592,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               decision: nextState,
               maxTokens: finalVerifyMaxTokens,
               llmMs: finalVerifyLlmMs,
-              errorClass: result.publishReady ? null : "content",
+              errorClass: effectivePublishReady ? null : "content",
+              convergence: finalConvergence,
+              finalMinorGuard: finalMinorGuardTelemetry,
             }),
           },
           artifact: {
@@ -1854,7 +2606,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         return withTimings(transitioned, {
           llmMs: finalVerifyLlmMs,
-          finalizePhase: result.publishReady ? "final-verify" : "final-verify-fail",
+          finalizePhase: effectivePublishReady
+            ? "final-verify"
+            : "final-verify-fail",
         });
       }
 

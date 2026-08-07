@@ -1,10 +1,46 @@
 import { getDeploymentVersion } from "@/lib/deployment-version";
+import type { ConvergenceTelemetry } from "@/lib/tfes/convergence-telemetry";
 import type { FactCheckSummary } from "@/lib/tfes/fact-ledger";
+import {
+  activeAiTfesVersion,
+  PIPELINE_CONFIG,
+  type AiTfesVersion,
+} from "@/lib/tfes/pipeline-config";
 
 export const REMEDIATION_TELEMETRY_VERSION = "wp2.7-v1";
 
 export type RemediationResult = "pass" | "fail" | "retry" | "exhausted" | "error";
 export type RemediationErrorClass = "content" | "parser" | "runtime" | "timeout" | null;
+
+export type FinalMinorGuardTelemetry = {
+  finalMinorGuardEligible: boolean;
+  finalMinorSuppressed: boolean;
+  finalMinorReasonClass: string;
+  finalScore: number | null;
+  editorialScore: number | null;
+  factPassed: boolean;
+  blockingResidualCount: number;
+  guardEnabled: boolean;
+};
+
+export type MinorPreserveTelemetry = {
+  minorPreservePromptVersion: string | null;
+  changedSectionCount: number | null;
+  unchangedSectionCount: number | null;
+  preserveMetadataReadable: boolean;
+};
+
+export type AutoAckBrakeTelemetry = {
+  autoAckEligible: boolean;
+  autoAckSuppressedForRegression: boolean;
+  bestScore: number | null;
+  candidateScore: number | null;
+  scoreDelta: number | null;
+  epsilon: number;
+  humanBrakeTriggered: boolean;
+  brakeEnabled: boolean;
+  reason: "regression" | "unreadable" | "not-eligible" | "disabled";
+};
 
 export type RemediationTelemetry = {
   schemaVersion: typeof REMEDIATION_TELEMETRY_VERSION;
@@ -35,8 +71,21 @@ export type RemediationTelemetry = {
   errorClass: RemediationErrorClass;
   result: RemediationResult;
   deploymentVersion: string;
+  aiTfesVersion: AiTfesVersion;
+  aiTfesConfig: {
+    bestCandidateLock: boolean;
+    bestCandidateEpsilon: number;
+    falseFinalMinorGuard: boolean;
+    minorPreservePrompt: boolean;
+    regressionAutoAckBrake: boolean;
+  };
   /** Present only on Fact Check transitions; counts from the existing ledger parser. */
   fact?: FactCheckSummary;
+  /** Additive WP-V2-01 trajectory observation; never controls workflow behavior. */
+  convergence?: ConvergenceTelemetry;
+  finalMinorGuard?: FinalMinorGuardTelemetry;
+  minorPreserve?: MinorPreserveTelemetry;
+  autoAckBrake?: AutoAckBrakeTelemetry;
 };
 
 export type RemediationTelemetryInput = {
@@ -61,6 +110,10 @@ export type RemediationTelemetryInput = {
   llmMs?: number | null;
   errorClass?: RemediationErrorClass;
   fact?: FactCheckSummary;
+  convergence?: ConvergenceTelemetry;
+  finalMinorGuard?: FinalMinorGuardTelemetry;
+  minorPreserve?: MinorPreserveTelemetry;
+  autoAckBrake?: AutoAckBrakeTelemetry;
 };
 
 function safeInteger(value: number | null | undefined): number | null {
@@ -125,6 +178,23 @@ export function buildRemediationTelemetry(
     errorClass: input.errorClass ?? null,
     result: input.result,
     deploymentVersion: deployment.commitSha,
+    aiTfesVersion: activeAiTfesVersion(),
+    aiTfesConfig: {
+      bestCandidateLock:
+        PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.enabled,
+      bestCandidateEpsilon:
+        PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.epsilon,
+      falseFinalMinorGuard:
+        PIPELINE_CONFIG.aiTfesV2.falseFinalMinorGuard.enabled,
+      minorPreservePrompt:
+        PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
+      regressionAutoAckBrake:
+        PIPELINE_CONFIG.aiTfesV2.regressionAutoAckBrake.enabled,
+    },
     ...(input.fact ? { fact: input.fact } : {}),
+    ...(input.convergence ? { convergence: input.convergence } : {}),
+    ...(input.finalMinorGuard ? { finalMinorGuard: input.finalMinorGuard } : {}),
+    ...(input.minorPreserve ? { minorPreserve: input.minorPreserve } : {}),
+    ...(input.autoAckBrake ? { autoAckBrake: input.autoAckBrake } : {}),
   };
 }

@@ -4,6 +4,7 @@
  * Usage:
  *   node --env-file=.env scripts/report-remediation-metrics.mjs --manifest cohort.json --format json
  *   node --env-file=.env scripts/report-remediation-metrics.mjs --since 2026-08-07 --until 2026-09-07 --format md
+ *   Add --ai-tfes-version v1.6|v2-rc1 to compare control and RC exposure.
  */
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
@@ -59,8 +60,12 @@ async function main() {
   const sinceArg = argument("since");
   const untilArg = argument("until");
   const format = argument("format", "json");
+  const aiTfesVersion = argument("ai-tfes-version");
   if (!["json", "csv", "md"].includes(format)) {
     throw new Error("--format phải là json, csv hoặc md");
+  }
+  if (aiTfesVersion && !["v1.6", "v2-rc1"].includes(aiTfesVersion)) {
+    throw new Error("--ai-tfes-version phải là v1.6 hoặc v2-rc1");
   }
   if (!manifestPath && !sinceArg) {
     throw new Error("Cần --manifest <file.json> hoặc --since <ISO date>; script không quét toàn DB mặc định");
@@ -120,13 +125,25 @@ async function main() {
       },
       orderBy: { createdAt: "asc" },
     });
+    const selectedArticles = aiTfesVersion
+      ? articles
+          .map((article) => ({
+            ...article,
+            transitions: article.transitions.filter(
+              (transition) =>
+                transition.details?.telemetry?.aiTfesVersion === aiTfesVersion,
+            ),
+          }))
+          .filter((article) => article.transitions.length > 0)
+      : articles;
     const payload = {
       generatedAt: new Date().toISOString(),
       mode: "read-only",
       selection: articleIds
         ? `manifest:${resolve(manifestPath)}`
         : `createdAt:[${since.toISOString()},${until?.toISOString() ?? "now"})`,
-      metrics: aggregateRemediationMetrics(articles),
+      aiTfesVersion: aiTfesVersion ?? "all",
+      metrics: aggregateRemediationMetrics(selectedArticles),
     };
     process.stdout.write(`${render(payload, format)}\n`);
   } finally {
