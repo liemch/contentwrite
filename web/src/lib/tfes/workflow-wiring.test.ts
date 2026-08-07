@@ -50,8 +50,12 @@ describe("WP2.6 workflow wiring", () => {
       "// Bước 9: Fact Check",
     );
 
-    expect(revision).toContain("maxTokens: cleanGenMaxTokens(article.targetWordCount)");
-    expect(fact).toContain("maxTokens: cleanGenMaxTokens(article.targetWordCount)");
+    for (const remediation of [revision, fact]) {
+      expect(remediation).toContain(
+        "const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount)",
+      );
+      expect(remediation).toContain("maxTokens: remediationMaxTokens");
+    }
     expect(revision).not.toMatch(/maxTokens:\s*(?:5600|5_600)/);
     expect(fact).not.toMatch(/maxTokens:\s*(?:5200|5_200)/);
   });

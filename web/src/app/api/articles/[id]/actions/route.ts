@@ -12,6 +12,8 @@ import {
   retractArticle,
   resetWorkflow,
   runWorkflowStep,
+  saveEditorValidationFeedback,
+  saveManualDraftRevision,
   saveFactHumanVerdicts,
 } from "@/lib/tfes/workflow";
 import type { HumanReviewItem } from "@/lib/tfes/human-review";
@@ -36,6 +38,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         | "publish"
         | "confirm-human-review"
         | "polish-human-edits"
+        | "save-manual-draft"
+        | "save-validation-feedback"
         | "save-fact-verdicts"
         | "request-correction"
         | "apply-correction"
@@ -54,6 +58,13 @@ export async function POST(request: NextRequest, { params }: Params) {
       }>;
       correction?: string;
       meaningChanged?: boolean;
+      draftMarkdown?: string;
+      expectedVersion?: number;
+      finalUsability?: number;
+      manualEditEffort?: number;
+      confusingStep?: string;
+      errorHelpfulness?: number;
+      reuseIntent?: number;
     };
 
     switch (body.action) {
@@ -85,6 +96,41 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
       case "save-fact-verdicts": {
         const next = await saveFactHumanVerdicts(id, body.factClaims ?? []);
+        return NextResponse.json({ article: next });
+      }
+      case "save-manual-draft": {
+        if (typeof body.expectedVersion !== "number") {
+          return NextResponse.json(
+            { error: "expectedVersion là bắt buộc" },
+            { status: 400 },
+          );
+        }
+        const next = await saveManualDraftRevision({
+          articleId: id,
+          draftMarkdown: body.draftMarkdown ?? "",
+          actorId: user.userId,
+          expectedVersion: body.expectedVersion,
+        });
+        return NextResponse.json({ article: next });
+      }
+      case "save-validation-feedback": {
+        if (typeof body.expectedVersion !== "number") {
+          return NextResponse.json(
+            { error: "expectedVersion là bắt buộc" },
+            { status: 400 },
+          );
+        }
+        const next = await saveEditorValidationFeedback({
+          articleId: id,
+          actorId: user.userId,
+          expectedVersion: body.expectedVersion,
+          finalUsability: body.finalUsability ?? 0,
+          manualEditEffort: body.manualEditEffort ?? 0,
+          confusingStep: body.confusingStep ?? "",
+          errorHelpfulness: body.errorHelpfulness ?? 0,
+          reuseIntent: body.reuseIntent ?? 0,
+          note: body.notes,
+        });
         return NextResponse.json({ article: next });
       }
       case "approve": {

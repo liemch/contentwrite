@@ -35,6 +35,12 @@ export default function SettingsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [adminUsers, setAdminUsers] = useState<{ id: string; email: string }[]>([]);
+  const [deploymentVersion, setDeploymentVersion] = useState<{
+    commitSha: string;
+    shortSha: string;
+    source: string;
+    tier: string;
+  } | null>(null);
 
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState<{
@@ -63,9 +69,10 @@ export default function SettingsPage() {
       return;
     }
 
-    const [res, usersRes] = await Promise.all([
+    const [res, usersRes, versionRes] = await Promise.all([
       fetch("/api/settings/auto-write"),
       fetch("/api/users"),
+      fetch("/api/health/version"),
     ]);
     setLoading(false);
     if (!res.ok) {
@@ -82,6 +89,17 @@ export default function SettingsPage() {
       setAdminUsers(
         ud.users.filter((u) => u.role === "ADMIN" && u.active).map((u) => ({ id: u.id, email: u.email })),
       );
+    }
+    if (versionRes.ok) {
+      const vd = (await versionRes.json()) as {
+        version?: {
+          commitSha: string;
+          shortSha: string;
+          source: string;
+          tier: string;
+        };
+      };
+      setDeploymentVersion(vd.version ?? null);
     }
   }
 
@@ -771,6 +789,24 @@ export default function SettingsPage() {
           </form>
 
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+            <div className="surface-card p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                Production version
+              </p>
+              <p className="mt-2 font-mono text-sm font-semibold text-[var(--ink)]">
+                {deploymentVersion?.shortSha ?? "unknown"}
+              </p>
+              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                {deploymentVersion
+                  ? `${deploymentVersion.tier} · ${deploymentVersion.source}`
+                  : "Không đọc được build metadata."}
+              </p>
+              {deploymentVersion?.commitSha !== "unknown" && (
+                <p className="mt-2 break-all font-mono text-[11px] text-[var(--ink-faint)]">
+                  {deploymentVersion?.commitSha}
+                </p>
+              )}
+            </div>
             <div className="surface-card p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
                 Kiểm tra API

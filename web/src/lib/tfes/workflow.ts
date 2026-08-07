@@ -51,12 +51,14 @@ import {
 } from "@/lib/tfes/final-verification";
 import {
   countBlockingFactClaims,
+  isFactRemediationExhausted,
   MAX_FACT_REMEDIATION_RETRIES,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
 import {
   MAX_FINAL_VERIFICATION_FORMAT_RETRIES,
   MAX_REVISION_REMEDIATION_RETRIES,
+  isRevisionRemediationExhausted,
 } from "@/lib/tfes/retry-policy";
 import {
   applyHumanReviewToKnowledge,
@@ -67,11 +69,21 @@ import {
   type HumanReviewPayload,
 } from "@/lib/tfes/human-review";
 import { inspectEditorialReview } from "@/lib/tfes/editorial-review-gate";
+import { parseEditorialGateFailures } from "@/lib/tfes/editorial-checklist";
 import {
   buildRevisionFeedbackBlock,
   reviewDraftClipChars,
   withoutFinalVerification,
 } from "@/lib/tfes/review-context";
+import { buildRemediationTelemetry } from "@/lib/tfes/remediation-telemetry";
+import {
+  countRemediationsInCurrentCycle,
+  REMEDIATION_CYCLE_ANCHOR_ACTIONS,
+} from "@/lib/tfes/remediation-budget";
+import {
+  assertExpectedWorkflowVersion,
+  prepareManualDraftRecovery,
+} from "@/lib/tfes/manual-draft-recovery";
 import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
@@ -459,6 +471,26 @@ async function expandCleanIfShort(input: {
   // Chỉ nhận nếu dài hơn rõ (tránh model rút gọn)
   if (countWords(expanded) > words + 80) return expanded;
   return input.clean;
+}
+
+/** Live remediation budget for the current recovery cycle; lifetime stays in transition history. */
+async function remediationBudgetForRun(input: {
+  articleId: string;
+  workflowRunId: string;
+  remediationAction: string;
+}) {
+  const transitions = await prisma.workflowTransition.findMany({
+    where: {
+      articleId: input.articleId,
+      workflowRunId: input.workflowRunId,
+      action: {
+        in: [input.remediationAction, ...REMEDIATION_CYCLE_ANCHOR_ACTIONS],
+      },
+    },
+    select: { action: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return countRemediationsInCurrentCycle(transitions, input.remediationAction);
 }
 
 function finalizePhaseOf(article: {
@@ -1123,6 +1155,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 8: Review — lưu tạm vào knowledgeRecord + REVIEW_DONE_MARK + chờ người
       if (finPhase === "review") {
         const llmStarted = Date.now();
+        const reviewMaxTokens = 2200;
         const reviewOut = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
@@ -1147,10 +1180,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
+          { maxTokens: reviewMaxTokens, temperature: 0.35, reasoningEffort: "low" },
         );
 
         const inspection = inspectEditorialReview(reviewOut);
+        const reviewLlmMs = Date.now() - llmStarted;
+        const gateFailures = parseEditorialGateFailures(reviewOut).map((failure) => failure.code);
         const reviewState = inspection.resolvedState;
         const isPostRevisionReview = (article.knowledgeRecord ?? "").includes(
           POST_REVISION_REVIEW_MARK,
@@ -1233,6 +1268,32 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             ...inspection,
             isPostRevisionReview,
             autoHumanAck: isPostRevisionReview,
+            telemetry: buildRemediationTelemetry({
+              articleId,
+              workflowState: reviewState,
+              transitionName: isPostRevisionReview
+                ? "editorial-review-after-revision"
+                : "editorial-review",
+              draft: stripPipelineMarks(article.draft12),
+              result:
+                reviewState === WorkflowState.EDITORIAL_REVIEWED ? "pass" : "fail",
+              attempt: isPostRevisionReview ? 2 : 1,
+              gateFailCount: inspection.gateFailCount,
+              gateFailures,
+              failureReasons: inspection.failureReasons,
+              totalScore: inspection.totalScore,
+              machineReadable: inspection.machineReadable,
+              machineContract: inspection.machineContract,
+              decision: inspection.decision,
+              maxTokens: reviewMaxTokens,
+              llmMs: reviewLlmMs,
+              errorClass:
+                inspection.machineReadable && inspection.machineContract !== "invalid"
+                  ? inspection.resolvedState === WorkflowState.EDITORIAL_REVIEWED
+                    ? null
+                    : "content"
+                  : "parser",
+            }),
           },
           artifact: {
             type: ArtifactType.REVIEW,
@@ -1242,7 +1303,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         });
         return withTimings(transitioned, {
-          llmMs: Date.now() - llmStarted,
+          llmMs: reviewLlmMs,
           finalizePhase: "review",
         });
       }
@@ -1257,25 +1318,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       }
 
       if (finPhase === "revision-remediate") {
-        const latestHumanConfirmation = await prisma.workflowTransition.findFirst({
-          where: {
-            articleId,
-            workflowRunId: article.workflowRunId,
-            action: "human-review-confirmed",
-          },
-          orderBy: { createdAt: "desc" },
-          select: { createdAt: true },
+        const revisionBudget = await remediationBudgetForRun({
+          articleId,
+          workflowRunId: article.workflowRunId,
+          remediationAction: "remediate-required-revision",
         });
-        const remediationAttempts = await prisma.workflowTransition.count({
-          where: {
-            articleId,
-            workflowRunId: article.workflowRunId,
-            action: "remediate-required-revision",
-            ...(latestHumanConfirmation
-              ? { createdAt: { gt: latestHumanConfirmation.createdAt } }
-              : {}),
-          },
-        });
+        const remediationAttempts = revisionBudget.cycleCount;
         if (remediationAttempts >= MAX_REVISION_REMEDIATION_RETRIES) {
           const stopped = await commitPatch({
             action: "revision-remediation-exhausted",
@@ -1285,7 +1333,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 `Revision chưa đạt sau ${MAX_REVISION_REMEDIATION_RETRIES} lần remediation — ` +
                 "cần editor sửa tay hoặc làm lại workflow.",
             },
-            details: { remediationAttempts, revisionState: article.workflowState },
+            details: {
+              remediationAttempts,
+              lifetimeRemediationCount: revisionBudget.lifetimeCount,
+              cycleRemediationCount: revisionBudget.cycleCount,
+              cycleAnchorAction: revisionBudget.cycleAnchorAction,
+              revisionState: article.workflowState,
+              telemetry: buildRemediationTelemetry({
+                articleId,
+                workflowState: article.workflowState,
+                transitionName: "revision-remediation-exhausted",
+                draft: stripPipelineMarks(article.draft12),
+                result: "exhausted",
+                attempt: remediationAttempts,
+                remediationCount: remediationAttempts,
+                lifetimeRemediationCount: revisionBudget.lifetimeCount,
+                cycleRemediationCount: revisionBudget.cycleCount,
+                failureReasons: [article.errorMessage ?? "Revision remediation exhausted"],
+                errorClass: "content",
+              }),
+            },
           });
           return withTimings(stopped, {
             finalizePhase: "revision-remediation-exhausted",
@@ -1293,6 +1360,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
 
         const llmStarted = Date.now();
+        const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
         const previousDraftRevision = await latestArtifactRevision(
           articleId,
           ArtifactType.ARTICLE_DRAFT,
@@ -1332,12 +1400,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             },
           ],
           {
-            maxTokens: cleanGenMaxTokens(article.targetWordCount),
+            maxTokens: remediationMaxTokens,
             temperature: 0.25,
             reasoningEffort: "low",
           },
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        const remediationLlmMs = Date.now() - llmStarted;
         assertFullDraftQuality(repairedDraft);
         assertEngineeringGoldBar({
           domain: article.domain,
@@ -1372,6 +1441,24 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             invalidatedFinalReview: Boolean(article.knowledgeRecord?.includes(FINAL_REVIEW_DONE_MARK)),
             previousDraftRevision,
             requiresReReview: true,
+            lifetimeRemediationCount: revisionBudget.lifetimeCount + 1,
+            cycleRemediationCount: remediationAttempts + 1,
+            cycleAnchorAction: revisionBudget.cycleAnchorAction,
+            telemetry: buildRemediationTelemetry({
+              articleId,
+              workflowState: WorkflowState.DRAFTED,
+              transitionName: "remediate-required-revision",
+              draft: repairedDraft,
+              result: "retry",
+              attempt: remediationAttempts + 1,
+              retryCount: remediationAttempts + 1,
+              remediationCount: remediationAttempts + 1,
+              lifetimeRemediationCount: revisionBudget.lifetimeCount + 1,
+              cycleRemediationCount: remediationAttempts + 1,
+              maxTokens: remediationMaxTokens,
+              llmMs: remediationLlmMs,
+              errorClass: "content",
+            }),
           },
           artifact: {
             type: ArtifactType.ARTICLE_DRAFT,
@@ -1381,20 +1468,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         });
         return withTimings(transitioned, {
-          llmMs: Date.now() - llmStarted,
+          llmMs: remediationLlmMs,
           finalizePhase: "revision-remediate",
         });
       }
 
       // FACT_CHECK_FAILED: sửa exact Article revision trước khi kiểm tra lại.
       if (finPhase === "fact-remediate") {
-        const remediationAttempts = await prisma.workflowTransition.count({
-          where: {
-            articleId,
-            workflowRunId: article.workflowRunId,
-            action: "remediate-fact-check",
-          },
+        const factBudget = await remediationBudgetForRun({
+          articleId,
+          workflowRunId: article.workflowRunId,
+          remediationAction: "remediate-fact-check",
         });
+        const remediationAttempts = factBudget.cycleCount;
         if (remediationAttempts >= MAX_FACT_REMEDIATION_RETRIES) {
           const stopped = await commitPatch({
             action: "fact-remediation-exhausted",
@@ -1406,7 +1492,23 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             },
             details: {
               remediationAttempts,
+              lifetimeRemediationCount: factBudget.lifetimeCount,
+              cycleRemediationCount: factBudget.cycleCount,
+              cycleAnchorAction: factBudget.cycleAnchorAction,
               verificationStatus: verificationStatus(article.factCheck),
+              telemetry: buildRemediationTelemetry({
+                articleId,
+                workflowState: article.workflowState,
+                transitionName: "fact-remediation-exhausted",
+                draft: stripPipelineMarks(article.draft12),
+                result: "exhausted",
+                attempt: remediationAttempts,
+                remediationCount: remediationAttempts,
+                lifetimeRemediationCount: factBudget.lifetimeCount,
+                cycleRemediationCount: factBudget.cycleCount,
+                failureReasons: [article.errorMessage ?? "Fact remediation exhausted"],
+                errorClass: "content",
+              }),
             },
           });
           return withTimings(stopped, {
@@ -1415,6 +1517,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
 
         const llmStarted = Date.now();
+        const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
         const previousDraftRevision = await latestArtifactRevision(
           articleId,
           ArtifactType.ARTICLE_DRAFT,
@@ -1436,12 +1539,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             },
           ],
           {
-            maxTokens: cleanGenMaxTokens(article.targetWordCount),
+            maxTokens: remediationMaxTokens,
             temperature: 0.2,
             reasoningEffort: "low",
           },
         );
         const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        const remediationLlmMs = Date.now() - llmStarted;
         assertFullDraftQuality(repairedDraft);
         assertEngineeringGoldBar({
           domain: article.domain,
@@ -1460,6 +1564,24 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             failedVerificationStatus: verificationStatus(article.factCheck),
             invalidatedFactCheck: true,
             previousDraftRevision,
+            lifetimeRemediationCount: factBudget.lifetimeCount + 1,
+            cycleRemediationCount: remediationAttempts + 1,
+            cycleAnchorAction: factBudget.cycleAnchorAction,
+            telemetry: buildRemediationTelemetry({
+              articleId,
+              workflowState: WorkflowState.EDITORIAL_REVIEWED,
+              transitionName: "remediate-fact-check",
+              draft: repairedDraft,
+              result: "retry",
+              attempt: remediationAttempts + 1,
+              retryCount: remediationAttempts + 1,
+              remediationCount: remediationAttempts + 1,
+              lifetimeRemediationCount: factBudget.lifetimeCount + 1,
+              cycleRemediationCount: remediationAttempts + 1,
+              maxTokens: remediationMaxTokens,
+              llmMs: remediationLlmMs,
+              errorClass: "content",
+            }),
           },
           artifact: {
             type: ArtifactType.ARTICLE_DRAFT,
@@ -1469,7 +1591,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         });
         return withTimings(transitioned, {
-          llmMs: Date.now() - llmStarted,
+          llmMs: remediationLlmMs,
           finalizePhase: "fact-remediate",
         });
       }
@@ -1554,7 +1676,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               errorMessage:
                 `Pre-9b: ${msg} — sửa draft trước Khóa Review (tránh vòng Fact-check oan).`,
             },
-            details: { phase: "pre-final-verify", goldBar: true },
+            details: {
+              phase: "pre-final-verify",
+              goldBar: true,
+              telemetry: buildRemediationTelemetry({
+                articleId,
+                workflowState: WorkflowState.MINOR_REVISION_REQUIRED,
+                transitionName: "pre-final-verification-gold-bar",
+                draft: stripPipelineMarks(article.draft12),
+                result: "fail",
+                failureReasons: [msg],
+                errorClass: "content",
+              }),
+            },
           });
           return withTimings(transitioned, {
             finalizePhase: "final-verify-precheck-fail",
@@ -1562,6 +1696,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
 
         const llmStarted = Date.now();
+        const finalVerifyMaxTokens = 2200;
         const rescoreHint =
           article.errorMessage &&
           /Final Verification output chưa đúng machine format|điểm thoái hoá|không khớp band điểm/i.test(
@@ -1597,9 +1732,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ),
             },
           ],
-          { maxTokens: 2200, temperature: 0.2, reasoningEffort: "low" },
+          { maxTokens: finalVerifyMaxTokens, temperature: 0.2, reasoningEffort: "low" },
         );
         const result = inspectFinalVerification(finalReview, article.factCheck);
+        const finalVerifyLlmMs = Date.now() - llmStarted;
+        const finalGateFailures = parseEditorialGateFailures(finalReview).map(
+          (failure) => failure.code,
+        );
         if (!result.machineReadable) {
           const formatAttempts = await prisma.workflowTransition.count({
             where: {
@@ -1623,7 +1762,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 : `Final Verification output chưa đúng machine format ` +
                   `(${reasonHint}; lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
             },
-            details: { ...result, formatAttempt: nextAttempt },
+            details: {
+              ...result,
+              formatAttempt: nextAttempt,
+              telemetry: buildRemediationTelemetry({
+                articleId,
+                workflowState: article.workflowState,
+                transitionName: "final-verification-format-invalid",
+                draft: stripPipelineMarks(article.draft12),
+                result: exhausted ? "exhausted" : "retry",
+                attempt: nextAttempt,
+                retryCount: nextAttempt,
+                gateFailCount: finalGateFailures.length,
+                gateFailures: finalGateFailures,
+                failureReasons: result.failureReasons,
+                totalScore: result.totalScore,
+                machineReadable: result.machineReadable,
+                machineContract: "invalid",
+                decision: null,
+                maxTokens: finalVerifyMaxTokens,
+                llmMs: finalVerifyLlmMs,
+                errorClass: "parser",
+              }),
+            },
             artifact: {
               type: ArtifactType.REVIEW,
               content: finalReview,
@@ -1632,7 +1793,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             },
           });
           return withTimings(updated, {
-            llmMs: Date.now() - llmStarted,
+            llmMs: finalVerifyLlmMs,
             finalizePhase: exhausted
               ? "final-verify-format-exhausted"
               : "final-verify-format-retry",
@@ -1657,7 +1818,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ? null
               : `Final Verification chưa đạt — ${result.failureReasons.join(" · ")}.`,
           },
-          details: { ...result },
+          details: {
+            ...result,
+            telemetry: buildRemediationTelemetry({
+              articleId,
+              workflowState: nextState,
+              transitionName: "final-verification",
+              draft: stripPipelineMarks(article.draft12),
+              result: result.publishReady ? "pass" : "fail",
+              gateFailCount: finalGateFailures.length,
+              gateFailures: finalGateFailures,
+              failureReasons: result.failureReasons,
+              totalScore: result.totalScore,
+              machineReadable: result.machineReadable,
+              machineContract: result.machineReadable ? "final-v1" : "invalid",
+              decision: nextState,
+              maxTokens: finalVerifyMaxTokens,
+              llmMs: finalVerifyLlmMs,
+              errorClass: result.publishReady ? null : "content",
+            }),
+          },
           artifact: {
             type: ArtifactType.REVIEW,
             content: finalReview,
@@ -1666,7 +1846,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         });
         return withTimings(transitioned, {
-          llmMs: Date.now() - llmStarted,
+          llmMs: finalVerifyLlmMs,
           finalizePhase: result.publishReady ? "final-verify" : "final-verify-fail",
         });
       }
@@ -2214,7 +2394,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             }
           : {}),
         },
-        details: { isTimeout, isQuality, isCleanPublishFail },
+        details: {
+          isTimeout,
+          isQuality,
+          isCleanPublishFail,
+          telemetry: buildRemediationTelemetry({
+            articleId,
+            workflowState: cursor.state,
+            transitionName: "workflow-step-error",
+            draft: stripPipelineMarks(article.draft12),
+            result: "error",
+            failureReasons: [redactSecrets(raw)],
+            errorClass: isTimeout ? "timeout" : isQuality ? "content" : "runtime",
+          }),
+        },
       });
     } catch (patchError) {
       if (!/Workflow conflict/i.test(String(patchError))) throw patchError;
@@ -2246,6 +2439,80 @@ export async function resetWorkflow(articleId: string): Promise<Article> {
       articleShapeSnapshot: null,
       openingPattern: null,
       narrativePattern: null,
+    },
+  });
+}
+
+/**
+ * Minimal exhausted recovery: preserve the run and counters, append a manual draft revision,
+ * invalidate downstream outputs, then force Editorial Review from DRAFTED.
+ */
+export async function saveManualDraftRevision(input: {
+  articleId: string;
+  draftMarkdown: string;
+  actorId: string;
+  expectedVersion: number;
+}): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({
+    where: { id: input.articleId },
+  });
+  assertExpectedWorkflowVersion(article.workflowVersion, input.expectedVersion);
+
+  const [previousDraftRevision, revisionAttempts, factAttempts] = await Promise.all([
+    latestArtifactRevision(input.articleId, ArtifactType.ARTICLE_DRAFT),
+    prisma.workflowTransition.count({
+      where: {
+        articleId: input.articleId,
+        workflowRunId: article.workflowRunId,
+        action: "remediate-required-revision",
+      },
+    }),
+    prisma.workflowTransition.count({
+      where: {
+        articleId: input.articleId,
+        workflowRunId: article.workflowRunId,
+        action: "remediate-fact-check",
+      },
+    }),
+  ]);
+  const prepared = prepareManualDraftRecovery({
+    draftMarkdown: input.draftMarkdown,
+    currentDraft: article.draft12,
+    knowledgeRecord: article.knowledgeRecord,
+    factCheck: article.factCheck,
+    errorMessage: article.errorMessage,
+    revisionAttempts,
+    factAttempts,
+  });
+
+  return transitionArticle({
+    articleId: input.articleId,
+    expectedState: article.workflowState,
+    expectedVersion: input.expectedVersion,
+    to: WorkflowState.DRAFTED,
+    action: "manual-draft-revision",
+    actorId: input.actorId,
+    articlePatch: prepared.articlePatch,
+    details: {
+      ...prepared.details,
+      previousDraftRevision,
+      telemetry: buildRemediationTelemetry({
+        articleId: input.articleId,
+        workflowState: WorkflowState.DRAFTED,
+        transitionName: "manual-draft-revision",
+        draft: prepared.nextDraft,
+        result: "retry",
+        remediationCount: 0,
+        lifetimeRemediationCount: prepared.details.remediationCount,
+        cycleRemediationCount: 0,
+        errorClass: "content",
+      }),
+    },
+    artifact: {
+      type: ArtifactType.ARTICLE_DRAFT,
+      content: prepared.nextDraft,
+      sourceRevision: previousDraftRevision,
+      sourceArtifactType: ArtifactType.ARTICLE_DRAFT,
     },
   });
 }
@@ -2922,4 +3189,53 @@ export async function saveFactHumanVerdicts(
       }),
     },
   });
+}
+
+/** Article-scoped WP2.7 feedback; metadata only, so it does not create a workflow transition. */
+export async function saveEditorValidationFeedback(input: {
+  articleId: string;
+  actorId: string;
+  expectedVersion: number;
+  finalUsability: number;
+  manualEditEffort: number;
+  confusingStep: string;
+  errorHelpfulness: number;
+  reuseIntent: number;
+  note?: string;
+}): Promise<Article> {
+  const article = await prisma.article.findUniqueOrThrow({
+    where: { id: input.articleId },
+  });
+  const completed = new Set<WorkflowState>([
+    WorkflowState.PUBLISH_READY,
+    WorkflowState.APPROVED,
+    WorkflowState.PUBLISHED,
+  ]).has(article.workflowState);
+  const exhausted =
+    isRevisionRemediationExhausted(article.errorMessage) ||
+    isFactRemediationExhausted(article.errorMessage);
+  if (!completed && !exhausted) {
+    throw new Error("Chỉ thu feedback khi bài đã hoàn thành hoặc remediation exhausted");
+  }
+
+  const { buildEditorValidationFeedback, mergeDeskJson } = await import(
+    "@/lib/tfes/desk-state"
+  );
+  const validationFeedback = buildEditorValidationFeedback({
+    ...input,
+    userId: input.actorId,
+  });
+  const updated = await prisma.article.updateMany({
+    where: {
+      id: input.articleId,
+      workflowVersion: input.expectedVersion,
+    },
+    data: {
+      deskJson: mergeDeskJson(article.deskJson, { validationFeedback }),
+    },
+  });
+  if (updated.count !== 1) {
+    throw new Error("Workflow conflict: bài đã thay đổi trước khi lưu feedback");
+  }
+  return prisma.article.findUniqueOrThrow({ where: { id: input.articleId } });
 }

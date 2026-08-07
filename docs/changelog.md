@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-08-07 — WP2.7: Production Validation & Measurement
+
+### Added
+
+- Admin-only deployment SHA diagnostics with Vercel/Git fallback and `unknown`
+- Versioned remediation telemetry in `WorkflowTransition.details`
+- Article-scoped remediation timeline with score/gate/retry/runtime classification
+- Optimistic manual `draft12` recovery with immutable artifact revision
+- Private five-question editor feedback in `deskJson`
+- Read-only JSON/CSV/Markdown cohort metrics report
+- Production validation, metrics, version-verification and feedback protocols
+
+### Safety
+
+- No workflow refactor, queue, worker, microservice or WP-E0A implementation
+- Manual recovery preserves remediation counters and reruns Editorial Review
+- No Prisma schema/migration or required env change
+- Telemetry excludes prompts, article body and secrets
+- Automated tests do not call AI; production cohort remains manual/admin-triggered
+
+### Validation status
+
+- Technical implementation complete pending all automated quality gates
+- WP2.5/WP2.6 remain unvalidated until Cohorts A/B/C satisfy the protocol
+- WP-E0A remains **DO AFTER PRODUCT VALIDATION**
+
+---
+
 ## 2026-08-06 — WP2.6: Final Gate & Parser Reliability
 
 ### Fixed
