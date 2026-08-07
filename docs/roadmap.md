@@ -27,6 +27,7 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP-V2-02** | Best Candidate Lock | **Done — flag OFF** | WP-V2-01 |
 | **WP-V2-03–05** | AI-TFES v2 RC1 guards/preserve/brake | **Done — Preview validation pending** | WP-V2-01, WP-V2-02 |
 | **WP-PV2-01** | Prompt Architecture v2 priority trio | **Done — flag OFF; READY FOR RC2 PREVIEW** | AI-TFES v2 RC1 |
+| **WP-PV2-02** | Editorial Format Reliability (parser fail ≠ content fail) | **Done — production blocker fixed** | WP-PV2-01 |
 | **WP-E0A** | Editorial Trajectory Benchmark | **On hold until WP2.7 decision** | WP2.7 GO |
 | **WP3-min** | Auto-write Reliability (decision-gated) | Proposed | Production metrics + auto-write demand |
 | **WP4** | Performance Quick Wins | Planned | WP1 |

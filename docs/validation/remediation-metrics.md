@@ -68,6 +68,11 @@ The report is read-only and does not inspect artifact content, prompts or creden
 | Average estimated input tokens | Sum of `prompt.inputTokenEstimate` | Prompt events for that ID |
 | Average prompt context reduction | Sum of `prompt.contextReductionRatio` | Prompt events with both context sizes |
 | Prompt malformed rate | Prompt events with `prompt.malformedOutput=true` | Prompt events for that ID |
+| Editorial malformed output rate | Editorial attempts with `prompt.malformedOutput=true` | Editorial attempts carrying a boolean malformed flag |
+| Editorial format retry success rate | `editorial-review-format-invalid` events whose next Editorial attempt is machine-readable | `editorial-review-format-invalid` events |
+| Editorial format retry exhaustion rate | `editorial-review-format-exhausted` events | Editorial format failure events (invalid + exhausted) |
+| Parser failures causing human pause | `editorial-review-format-exhausted` events | Count, not a rate |
+| False content-failure prevention count | Editorial format failure events that stayed out of the revision budget | Count, not a rate |
 
 ## Fact Check telemetry (WP2.7.1)
 
@@ -209,6 +214,38 @@ excluded from reduction denominators.
 
 Legacy rows without `telemetry.prompt` are unknown and excluded. Full prompts, article content,
 defect prose, and claim text are never copied into telemetry.
+
+## Editorial format reliability telemetry (WP-PV2-02)
+
+A malformed Editorial machine output is a **format** defect and is recorded on its own
+transitions, `editorial-review-format-invalid` (retry) and
+`editorial-review-format-exhausted` (human pause). Both carry `errorClass="parser"`,
+`totalScore=null`, `machineReadable=false`, and `revisionBudgetConsumed=false`, so a
+parser defect can never be read as a quality score, a content verdict, or a spent
+revision attempt.
+
+`telemetry.prompt` on Editorial attempts additionally records:
+
+- `parserVersion` — parser module that produced the result;
+- `malformedReasonCode` — `no-machine-contract`, `json-unparseable`, `json-truncated`,
+  `missing-total-score`, `missing-insight-score`, `placeholder-score`,
+  `missing-decision`, `gates-incomplete`, or `degenerate-scores`;
+- `rawOutputLength` — response length in characters, never the response body;
+- `outputTruncated` — `known` when a marked object never closed, `suspected` when the
+  response ends mid-token;
+- `formatRetryCount` / `formatRetrySucceeded` — format-only retries spent in the
+  current recovery cycle and whether the retry recovered.
+
+The `editorialFormat` report section uses only rows that carry these fields. Rows written
+before WP-PV2-02 have no `prompt.malformedOutput` and stay out of the denominator instead
+of being counted as clean parses. `editorial-review-format-exhausted` is deliberately not
+part of `EXHAUSTED_ACTIONS`: a parser pause is not content exhaustion and must not inflate
+`exhaustionRate`.
+
+Raw LLM responses are not copied into telemetry or transition details. The malformed
+response is stored once as a `REVIEW` artifact — with no draft `sourceRevision`, so Best
+Candidate Lock never maps it to a candidate — and is reused only to build the
+format-repair prompt.
 
 ## Interpretation rules
 

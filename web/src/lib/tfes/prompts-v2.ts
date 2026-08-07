@@ -22,6 +22,9 @@ export type EditorialGateV2 = {
   reason?: string;
 };
 
+export const EDITORIAL_DIAGNOSIS_MARKER_V2 = "EDITORIAL_DIAGNOSIS_JSON:";
+const MAX_EDITORIAL_DEFECTS = 12;
+
 type MarkdownSection = {
   id: string;
   heading: string;
@@ -79,37 +82,81 @@ and Structure. Evidence remains provisional until Fact Audit.
 
 Return exactly one marked JSON object. No machine decision may exist only in prose.
 
+Output shape (replace placeholders with real values, keep key names exactly):
+
 EDITORIAL_DIAGNOSIS_JSON:
 {
   "contractVersion": "editorial-diagnosis.v2",
-  "totalScore": 0,
-  "insightScore": 0,
+  "totalScore": <integer 1-100>,
+  "insightScore": <integer 0-30>,
   "gates": [
-    {"id":"G1","status":"PASSED","reason":""},
-    {"id":"G2","status":"PASSED","reason":""},
-    {"id":"G3","status":"PASSED","reason":""},
-    {"id":"G4","status":"PASSED","reason":""},
-    {"id":"G5","status":"PASSED","reason":""},
-    {"id":"G6","status":"PASSED","reason":""},
-    {"id":"G7","status":"PASSED","reason":""},
-    {"id":"G8","status":"PASSED","reason":""}
+    {"id":"G1","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G2","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G3","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G4","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G5","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G6","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G7","status":"PASSED|FAILED","reason":"<short>"},
+    {"id":"G8","status":"PASSED|FAILED","reason":"<short>"}
   ],
-  "decision": "EDITORIAL_REVIEWED",
+  "decision": "EDITORIAL_REVIEWED|MINOR_REVISION_REQUIRED|MAJOR_REVISION_REQUIRED|REWRITE_REQUIRED",
   "defects": [],
   "requiredActions": []
 }
 
-Rules:
-- decision enum: EDITORIAL_REVIEWED | MINOR_REVISION_REQUIRED |
-  MAJOR_REVISION_REQUIRED | REWRITE_REQUIRED.
+Machine format rules (violating any of these voids the response):
+- Emit the marker line ${EDITORIAL_DIAGNOSIS_MARKER_V2} exactly once, then the JSON object.
+- After the JSON object, write nothing at all. No prose, no code fence, no summary.
+- totalScore and insightScore are JSON numbers, never strings, never 0 placeholders,
+  never "85/100".
+- gates is an array with all eight entries G1..G8; status is exactly PASSED or FAILED.
+- decision uses one exact enum value, uppercase with underscores.
+- No trailing comma, no comment, no unescaped newline inside a string.
+- Keep the whole object under ${MAX_EDITORIAL_DEFECTS} defects so the response is never truncated.
+
+Content rules:
 - Every defect must include defectId, type, severity, location.sectionId, diagnosis,
   requiredOutcome, allowedMutations, evidenceRefs, and blocking.
+- severity is MINOR | MAJOR | REWRITE; blocking is a JSON boolean.
 - Defects diagnose only. Do not include replacement section/article content.
 - EDITORIAL_REVIEWED requires totalScore >=85, insightScore >=20, and G1–G8 PASSED.
 - Unknown extra JSON fields are allowed; required fields above are mandatory.
 
 === CONTEXT ===
 ${context}`;
+}
+
+/**
+ * Format-only repair. Re-emits the previous judgement in the machine contract
+ * without re-reviewing the article, so scores cannot drift on a parser retry.
+ */
+export function buildEditorialFormatRepairPromptV2(input: {
+  previousOutput: string;
+  malformedReason: string;
+}): string {
+  return `PROMPT_ID: editorial-diagnosis
+VERSION: 2.0
+CONTRACT_VERSION: editorial-diagnosis.v2
+ROLE: FORMAT_REPAIR
+
+Your previous Editorial Diagnosis could not be parsed (reason: ${input.malformedReason}).
+
+Do NOT review the article again. Do NOT change any judgement you already made.
+Convert the previous output below into the exact machine contract and nothing else.
+
+- Reuse the scores, gate statuses, decision, defects, and required actions already present.
+- If a required value is genuinely absent from the previous output, infer nothing:
+  emit the most conservative value consistent with what is present
+  (missing gate status -> FAILED, missing decision -> MINOR_REVISION_REQUIRED).
+- Never emit 0 for totalScore.
+
+Emit the marker line ${EDITORIAL_DIAGNOSIS_MARKER_V2} exactly once, then one JSON object with
+keys contractVersion, totalScore, insightScore, gates (G1..G8), decision, defects,
+requiredActions. Numbers are JSON numbers. No prose before or after the object.
+No code fence. No trailing comma.
+
+=== PREVIOUS OUTPUT ===
+${clipText(input.previousOutput, 8_000)}`;
 }
 
 export function buildMinorRemediationContextV2(input: {

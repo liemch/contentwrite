@@ -5,11 +5,21 @@
 import { WorkflowState } from "@/generated/prisma/client";
 import { TFES_CONTRACT } from "@/lib/tfes/contract";
 import { parseEditorialGateFailures } from "@/lib/tfes/editorial-checklist";
-import { parseMarkedPromptJson } from "@/lib/tfes/prompt-registry";
-import type {
-  EditorialDefectV2,
-  EditorialGateV2,
+import {
+  coerceMachineBoolean,
+  coerceMachineEnum,
+  coerceMachineInteger,
+  extractMarkedJson,
+  looksTruncated,
+  type MarkedJsonReason,
+} from "@/lib/tfes/machine-contract";
+import {
+  EDITORIAL_DIAGNOSIS_MARKER_V2,
+  type EditorialDefectV2,
+  type EditorialGateV2,
 } from "@/lib/tfes/prompts-v2";
+
+export const EDITORIAL_PARSER_VERSION = "editorial-review-gate@2.1";
 
 export const EDITORIAL_REVIEW_MACHINE_KEYS = [
   "PROVISIONAL_TOTAL_SCORE",
@@ -24,6 +34,18 @@ export const LEGACY_EDITORIAL_REVIEW_MACHINE_KEYS = [
   "GATES_G1_G8",
   "FINAL_DECISION",
 ] as const;
+
+/** Format defect classes. Never a content verdict — see `parseFailure`. */
+export type EditorialMalformedReason =
+  | "no-machine-contract"
+  | "json-unparseable"
+  | "json-truncated"
+  | "missing-total-score"
+  | "missing-insight-score"
+  | "placeholder-score"
+  | "missing-decision"
+  | "gates-incomplete"
+  | "degenerate-scores";
 
 export type EditorialReviewInspection = {
   totalScore: number | null;
@@ -40,6 +62,18 @@ export type EditorialReviewInspection = {
   /** State sau khi override theo điểm (nếu model tự khai EDITORIAL_REVIEWED oan). */
   resolvedState: WorkflowState;
   failureReasons: string[];
+  /**
+   * Machine output unusable. Callers MUST route this to format retry, never to
+   * a content verdict, a quality score, or a revision remediation attempt.
+   */
+  parseFailure: boolean;
+  malformedReasonCode: EditorialMalformedReason | null;
+  parserVersion: string;
+  rawOutputLength: number;
+  outputTruncated: "known" | "suspected" | null;
+  /** Raw parsed values kept for debugging only; never a quality score. */
+  rawTotalScore: number | null;
+  rawInsightScore: number | null;
 };
 
 const EDITORIAL_DECISIONS = [
@@ -55,6 +89,82 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+const GATE_STATUS_ALIASES = { PASS: "PASSED", OK: "PASSED", FAIL: "FAILED" };
+
+function normalizeGateId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const compact = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const match = compact.match(/^G(?:ATE)?0?([1-8])$/);
+  return match ? `G${match[1]}` : "";
+}
+
+function normalizeGateStatus(value: unknown): "PASSED" | "FAILED" | "" {
+  const bool = typeof value === "boolean" ? value : null;
+  if (bool !== null) return bool ? "PASSED" : "FAILED";
+  const enumValue = coerceMachineEnum(
+    value,
+    ["PASSED", "FAILED"],
+    GATE_STATUS_ALIASES,
+  );
+  return enumValue === "PASSED" || enumValue === "FAILED" ? enumValue : "";
+}
+
+function gateFrom(
+  id: string,
+  status: "PASSED" | "FAILED",
+  reason: unknown,
+): EditorialGateV2 {
+  return {
+    id,
+    status,
+    ...(typeof reason === "string" && reason.trim()
+      ? { reason: reason.slice(0, 300) }
+      : {}),
+  };
+}
+
+/** Accepts array-of-objects, array-of-strings, and object-map gate shapes. */
+function normalizeGates(value: unknown): EditorialGateV2[] {
+  const byId = new Map<string, EditorialGateV2>();
+  const add = (gate: EditorialGateV2 | null) => {
+    if (gate) byId.set(gate.id, gate);
+  };
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string") {
+        const [rawId, rawStatus] = item.split(/[:=—-]/, 2);
+        const id = normalizeGateId(rawId);
+        const status = normalizeGateStatus(rawStatus);
+        if (id && status) add(gateFrom(id, status, null));
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const gate = item as Record<string, unknown>;
+      const id = normalizeGateId(gate.id ?? gate.gate ?? gate.code);
+      const status = normalizeGateStatus(gate.status ?? gate.result ?? gate.value);
+      if (id && status) add(gateFrom(id, status, gate.reason));
+    }
+    return [...byId.values()];
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      const id = normalizeGateId(key);
+      if (!id) continue;
+      if (entry && typeof entry === "object") {
+        const nested = entry as Record<string, unknown>;
+        const status = normalizeGateStatus(nested.status ?? nested.result);
+        if (status) add(gateFrom(id, status, nested.reason));
+        continue;
+      }
+      const status = normalizeGateStatus(entry);
+      if (status) add(gateFrom(id, status, null));
+    }
+  }
+  return [...byId.values()];
+}
+
 function parseDefects(value: unknown): EditorialDefectV2[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -64,15 +174,20 @@ function parseDefects(value: unknown): EditorialDefectV2[] {
       defect.location && typeof defect.location === "object"
         ? (defect.location as Record<string, unknown>)
         : {};
-    const severity = defect.severity;
+    const severity = coerceMachineEnum(defect.severity, [
+      "MINOR",
+      "MAJOR",
+      "REWRITE",
+    ]);
+    const blocking = coerceMachineBoolean(defect.blocking);
     if (
       typeof defect.defectId !== "string" ||
       typeof defect.type !== "string" ||
-      !["MINOR", "MAJOR", "REWRITE"].includes(String(severity)) ||
+      !severity ||
       typeof location.sectionId !== "string" ||
       typeof defect.diagnosis !== "string" ||
       typeof defect.requiredOutcome !== "string" ||
-      typeof defect.blocking !== "boolean"
+      blocking === null
     ) {
       return [];
     }
@@ -93,12 +208,12 @@ function parseDefects(value: unknown): EditorialDefectV2[] {
       requiredOutcome: defect.requiredOutcome.slice(0, 500),
       allowedMutations: stringArray(defect.allowedMutations),
       evidenceRefs: stringArray(defect.evidenceRefs),
-      blocking: defect.blocking,
+      blocking,
     }];
   }).slice(0, 32);
 }
 
-function parseV2Editorial(review: string): {
+type V2Parse = {
   totalScore: number | null;
   insightScore: number | null;
   decision: string;
@@ -106,8 +221,14 @@ function parseV2Editorial(review: string): {
   defects: EditorialDefectV2[];
   requiredActions: string[];
   contractPresent: boolean;
-} {
-  const json = parseMarkedPromptJson(review, "EDITORIAL_DIAGNOSIS_JSON:");
+  extractReason: MarkedJsonReason;
+};
+
+const V2_CORE_KEYS = ["totalScore", "insightScore", "gates", "decision"];
+
+function parseV2Editorial(review: string): V2Parse {
+  const extracted = extractMarkedJson(review, EDITORIAL_DIAGNOSIS_MARKER_V2);
+  const json = extracted.json;
   if (!json) {
     return {
       totalScore: null,
@@ -117,45 +238,26 @@ function parseV2Editorial(review: string): {
       defects: [],
       requiredActions: [],
       contractPresent: false,
+      extractReason: extracted.reason,
     };
   }
-  const gates = Array.isArray(json.gates)
-    ? json.gates.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const gate = item as Record<string, unknown>;
-        const id = typeof gate.id === "string" ? gate.id.toUpperCase() : "";
-        const status =
-          gate.status === "PASSED" || gate.status === "FAILED" ? gate.status : "";
-        if (!/^G[1-8]$/.test(id) || !status) return [];
-        return [{
-          id,
-          status,
-          ...(typeof gate.reason === "string"
-            ? { reason: gate.reason.slice(0, 300) }
-            : {}),
-        } satisfies EditorialGateV2];
-      })
-    : [];
+  const declaredContract =
+    typeof json.contractVersion === "string" &&
+    json.contractVersion.trim().toLowerCase() === "editorial-diagnosis.v2";
   return {
-    totalScore:
-      typeof json.totalScore === "number" && Number.isFinite(json.totalScore)
-        ? Math.round(json.totalScore)
-        : null,
-    insightScore:
-      typeof json.insightScore === "number" && Number.isFinite(json.insightScore)
-        ? Math.round(json.insightScore)
-        : null,
-    decision:
-      typeof json.decision === "string" &&
-      EDITORIAL_DECISIONS.includes(
-        json.decision as (typeof EDITORIAL_DECISIONS)[number],
-      )
-        ? json.decision
-        : "",
-    gates,
+    totalScore: coerceMachineInteger(json.totalScore, { min: 0, max: 100 }),
+    insightScore: coerceMachineInteger(json.insightScore, { min: 0, max: 30 }),
+    decision: coerceMachineEnum(json.decision, EDITORIAL_DECISIONS, {
+      FINAL_REVIEWED: "EDITORIAL_REVIEWED",
+    }),
+    gates: normalizeGates(json.gates),
     defects: parseDefects(json.defects),
     requiredActions: stringArray(json.requiredActions),
-    contractPresent: json.contractVersion === "editorial-diagnosis.v2",
+    // A marked block is unambiguous about intent, so a missing contractVersion
+    // must not discard an otherwise complete diagnosis.
+    contractPresent:
+      declaredContract || V2_CORE_KEYS.some((key) => key in json),
+    extractReason: extracted.reason,
   };
 }
 
@@ -176,7 +278,9 @@ function machineNumber(text: string, key: string): number | null {
   let found: number | null = null;
   for (const candidate of text.split(/\r?\n/)) {
     const normalized = candidate.replace(/[*`]/g, "");
-    const match = normalized.match(new RegExp(`^\\s*${key}\\s*[:：=]\\s*(\\d{1,3})\\s*$`, "i"));
+    const match = normalized.match(
+      new RegExp(`^\\s*${key}\\s*[:：=]\\s*(\\d{1,3})(?:\\s*/\\s*\\d{1,3})?\\s*$`, "i"),
+    );
     if (match) found = Number(match[1]);
   }
   return found;
@@ -256,10 +360,13 @@ export function inspectEditorialReview(
   );
   const hasCanonical =
     canonicalTotal !== null || canonicalInsight !== null || Boolean(canonicalDecision);
-  const machineContract: EditorialReviewInspection["machineContract"] = hasCanonical
-    ? "canonical"
-    : v2.contractPresent
+  // The marked v2 block is the explicit contract, so it outranks canonical
+  // lines that may also appear in surrounding prose.
+  const machineContract: EditorialReviewInspection["machineContract"] =
+    v2.contractPresent
       ? "v2"
+      : hasCanonical
+        ? "canonical"
     : machineNumber(body, "FINAL_TOTAL_SCORE") !== null ||
         machineNumber(body, "FINAL_INSIGHT_SCORE") !== null ||
         Boolean(machineEnum(body, "FINAL_DECISION", [
@@ -374,7 +481,45 @@ export function inspectEditorialReview(
     insightScore >= 0 &&
     insightScore <= 30;
   const degenerate = totalScore === 0 && insightScore === 0;
-  const machineReadable = fieldsPresent && scoresInRange && !degenerate;
+  // The contract template ships literal zeros; a 0 total is an echoed
+  // placeholder, never a real TFES score, so it must not become a verdict.
+  const placeholderScore = totalScore === 0 && !degenerate;
+  const machineReadable =
+    fieldsPresent && scoresInRange && !degenerate && !placeholderScore;
+  if (placeholderScore) {
+    failureReasons.push("totalScore=0 là placeholder của template — cần chấm lại");
+  }
+
+  const malformedReasonCode: EditorialMalformedReason | null = machineReadable
+    ? null
+    : machineContract === "invalid"
+      ? v2.extractReason === "json-truncated"
+        ? "json-truncated"
+        : v2.extractReason === "json-unparseable" ||
+            v2.extractReason === "json-missing"
+          ? "json-unparseable"
+          : "no-machine-contract"
+      : degenerate
+        ? "degenerate-scores"
+        : placeholderScore
+          ? "placeholder-score"
+          : totalScore === null
+            ? "missing-total-score"
+            : insightScore === null
+              ? "missing-insight-score"
+              : !gatesStatus
+                ? "gates-incomplete"
+                : !normalizedDecision
+                  ? "missing-decision"
+                  : "no-machine-contract";
+  const outputTruncated: EditorialReviewInspection["outputTruncated"] =
+    machineReadable
+      ? null
+      : v2.extractReason === "json-truncated"
+        ? "known"
+        : looksTruncated(body)
+          ? "suspected"
+          : null;
 
   let resolvedState: WorkflowState;
   if (!machineReadable) {
@@ -413,11 +558,12 @@ export function inspectEditorialReview(
   }
 
   return {
-    totalScore,
-    insightScore,
+    // Unusable machine output must never surface as a quality score.
+    totalScore: machineReadable ? totalScore : null,
+    insightScore: machineReadable ? insightScore : null,
     gatesPassed: gatesPassed && gateFailCount === 0,
     gateFailCount,
-    decision: normalizedDecision,
+    decision: machineReadable ? normalizedDecision : "",
     machineReadable,
     machineContract,
     gates: machineContract === "v2" ? v2.gates : [],
@@ -426,5 +572,12 @@ export function inspectEditorialReview(
     requiredActions: machineContract === "v2" ? v2.requiredActions : [],
     resolvedState,
     failureReasons,
+    parseFailure: !machineReadable,
+    malformedReasonCode,
+    parserVersion: EDITORIAL_PARSER_VERSION,
+    rawOutputLength: body.length,
+    outputTruncated,
+    rawTotalScore: totalScore,
+    rawInsightScore: insightScore,
   };
 }
