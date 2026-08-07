@@ -4,7 +4,7 @@
  * Usage:
  *   node --env-file=.env scripts/report-remediation-metrics.mjs --manifest cohort.json --format json
  *   node --env-file=.env scripts/report-remediation-metrics.mjs --since 2026-08-07 --until 2026-09-07 --format md
- *   Add --ai-tfes-version v1.6|v2-rc1 to compare control and RC exposure.
+ *   Add --ai-tfes-version v1.6|v2-rc1|v2-rc2 to compare control and RC exposure.
  */
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
@@ -64,8 +64,11 @@ async function main() {
   if (!["json", "csv", "md"].includes(format)) {
     throw new Error("--format phải là json, csv hoặc md");
   }
-  if (aiTfesVersion && !["v1.6", "v2-rc1"].includes(aiTfesVersion)) {
-    throw new Error("--ai-tfes-version phải là v1.6 hoặc v2-rc1");
+  if (
+    aiTfesVersion &&
+    !["v1.6", "v2-rc1", "v2-rc2"].includes(aiTfesVersion)
+  ) {
+    throw new Error("--ai-tfes-version phải là v1.6, v2-rc1 hoặc v2-rc2");
   }
   if (!manifestPath && !sinceArg) {
     throw new Error("Cần --manifest <file.json> hoặc --since <ISO date>; script không quét toàn DB mặc định");

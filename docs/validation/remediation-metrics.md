@@ -11,6 +11,8 @@
 - Candidate retention observations: lock-aware convergence fields (WP-V2-02).
 - RC1 controller observations: `telemetry.finalMinorGuard`, `minorPreserve`,
   `autoAckBrake`, `aiTfesVersion`, and exact `aiTfesConfig`.
+- Prompt Architecture observations: `telemetry.prompt` for registry version, machine contract,
+  context characters, estimated tokens, defects, Lock residuals, and remediation medium.
 - Manual revisions: `manual-draft-revision`.
 - Feedback: `Article.deskJson.validationFeedback`.
 
@@ -60,6 +62,12 @@ The report is read-only and does not inspect artifact content, prompts or creden
 | Regression loops interrupted rate | Brake events with no remediation before human pause/action | Human-brake events |
 | Human intervention after brake rate | Brake events followed by Human Review/manual recovery | Human-brake events |
 | Completion after brake rate | Completed articles exposed to a human brake | Human-brake events |
+| Prompt architecture version events | Prompt telemetry events grouped by `1.6` / `2.0` | Count, not a rate |
+| Average prompt context characters | Sum of `prompt.contextCharacterLength` by prompt ID | Prompt events for that ID |
+| Average equivalent v1.6 context characters | Sum of `prompt.legacyContextCharacterLength` | Prompt events with a v1.6 comparison |
+| Average estimated input tokens | Sum of `prompt.inputTokenEstimate` | Prompt events for that ID |
+| Average prompt context reduction | Sum of `prompt.contextReductionRatio` | Prompt events with both context sizes |
+| Prompt malformed rate | Prompt events with `prompt.malformedOutput=true` | Prompt events for that ID |
 
 ## Fact Check telemetry (WP2.7.1)
 
@@ -175,6 +183,33 @@ flag ON produces `v2-rc1`.
 Legacy rows without these nested objects are excluded from RC-specific denominators. The
 report does not infer OFF, success, or failure from missing keys.
 
+## Prompt Architecture v2 telemetry (WP-PV2-01)
+
+Editorial Diagnosis, MINOR remediation, and Lock Verifier transitions record an additive
+`telemetry.prompt` object:
+
+- `promptId`, `promptVersion`, `contractVersion`, `role`, `source`;
+- `promptArchitectureVersion`: `1.6` or `2.0`;
+- `contextCharacterLength`;
+- `legacyContextCharacterLength`;
+- `contextReductionCharacters` and `contextReductionRatio`;
+- `inputTokenEstimate`, currently `ceil(context chars / 4)`;
+- phase-specific counts/outcomes such as `defectCount`, `remediationMedium`,
+  `lockDecision`, `blockingResidualCount`, `falseMinorSuppressed`, and `malformedOutput`.
+
+The context fields measure only assembled context, not full system/user prompt length. Token
+estimates are comparative indicators, not provider billing tokens. Missing legacy comparisons are
+excluded from reduction denominators.
+
+`promptContextById` reports averages independently for:
+
+- `editorial-diagnosis`;
+- `minor-remediation`;
+- `lock-verifier`.
+
+Legacy rows without `telemetry.prompt` are unknown and excluded. Full prompts, article content,
+defect prose, and claim text are never copied into telemetry.
+
 ## Interpretation rules
 
 - Null denominator produces `null`, never `0%`.
@@ -211,6 +246,7 @@ Control/RC comparison over the same bounded manifest:
 ```bash
 npm run db:report:remediation -- --manifest <cohort.json> --ai-tfes-version v1.6 --format json
 npm run db:report:remediation -- --manifest <cohort.json> --ai-tfes-version v2-rc1 --format json
+npm run db:report:remediation -- --manifest <cohort.json> --ai-tfes-version v2-rc2 --format json
 ```
 
 The script refuses an unbounded whole-database scan.

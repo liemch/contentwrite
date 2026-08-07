@@ -52,6 +52,7 @@ describe("WP2.7 remediation telemetry", () => {
         falseFinalMinorGuard: false,
         minorPreservePrompt: false,
         regressionAutoAckBrake: false,
+        promptArchitecture: false,
       },
       lifetimeRemediationCount: 4,
       cycleRemediationCount: 1,
@@ -83,5 +84,36 @@ describe("WP2.7 remediation telemetry", () => {
     expect(serialized).not.toContain("sk-live-value");
     expect(serialized).not.toContain("fullPrompt");
     expect(serialized).not.toContain("systemPrompt");
+  });
+
+  it("serializes prompt registry metadata and context estimates only", () => {
+    const telemetry = buildRemediationTelemetry({
+      articleId: "article-prompt-v2",
+      workflowState: "EDITORIAL_REVIEWED",
+      transitionName: "editorial-review",
+      draft: "# Private article body",
+      result: "pass",
+      prompt: {
+        promptId: "editorial-diagnosis",
+        promptVersion: "2.0",
+        contractVersion: "editorial-diagnosis.v2",
+        role: "DIAGNOSE",
+        source: "src/lib/tfes/prompts-v2.ts",
+        promptArchitectureVersion: "2.0",
+        contextCharacterLength: 12_000,
+        legacyContextCharacterLength: 16_000,
+        contextReductionCharacters: 4_000,
+        contextReductionRatio: 0.25,
+        inputTokenEstimate: 3_000,
+        defectCount: 0,
+      },
+    });
+    expect(telemetry.prompt).toMatchObject({
+      promptId: "editorial-diagnosis",
+      promptVersion: "2.0",
+      inputTokenEstimate: 3_000,
+      defectCount: 0,
+    });
+    expect(JSON.stringify(telemetry.prompt)).not.toContain("Private article body");
   });
 });
