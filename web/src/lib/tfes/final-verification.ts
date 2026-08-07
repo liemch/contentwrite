@@ -1,5 +1,6 @@
 import { countBlockingFactClaims, verificationStatus } from "@/lib/tfes/fact-ledger";
 import { TFES_CONTRACT } from "@/lib/tfes/contract";
+import { parseMarkedPromptJson } from "@/lib/tfes/prompt-registry";
 
 export type FinalVerification = {
   totalScore: number | null;
@@ -15,11 +16,142 @@ export type FinalVerification = {
     | null;
   blockingClaims: number;
   machineReadable: boolean;
+  machineContract: "final-v1" | "lock-v2" | "invalid";
   failureReasons: string[];
   publishReady: boolean;
   /** LLM dump 0/0 thay vì chấm thật — không được đưa vào vòng REWRITE. */
   degenerateScores: boolean;
+  lockDecision: string | null;
+  blockingResiduals: string[];
+  openRequiredActions: string[];
+  unresolvedDefectIds: string[];
+  optionalPolishActions: string[];
+  regressionDetected: boolean | null;
+  malformedOutput: boolean;
 };
+
+const LOCK_DECISIONS = [
+  "LOCKED",
+  "PATCH_REQUIRED",
+  "FACT_PATCH_REQUIRED",
+  "REWRITE_ESCALATION_REQUESTED",
+  "CONTEXT_INCOMPLETE",
+] as const;
+
+function lockStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const values = value.filter((item): item is string => typeof item === "string");
+  return values.length === value.length ? values.slice(0, 64) : null;
+}
+
+function inspectLockVerificationV2(
+  body: string,
+  factCheck: string | null | undefined,
+): FinalVerification | null {
+  const json = parseMarkedPromptJson(body, "LOCK_DECISION_JSON:");
+  if (!json) return null;
+  const lockDecision =
+    typeof json.lockDecision === "string" &&
+    LOCK_DECISIONS.includes(json.lockDecision as (typeof LOCK_DECISIONS)[number])
+      ? json.lockDecision
+      : null;
+  const factLockStatus =
+    json.factLockStatus === "PASSED" || json.factLockStatus === "FAILED"
+      ? json.factLockStatus
+      : null;
+  const insightFloorStatus =
+    json.insightFloorStatus === "PASSED" || json.insightFloorStatus === "FAILED"
+      ? json.insightFloorStatus
+      : null;
+  const blockingResiduals = lockStringArray(json.blockingResiduals);
+  const openRequiredActions = lockStringArray(json.openRequiredActions);
+  const unresolvedDefectIds = lockStringArray(json.unresolvedDefectIds);
+  const optionalPolishActions = lockStringArray(json.optionalPolishActions);
+  const regressionDetected =
+    typeof json.regressionDetected === "boolean"
+      ? json.regressionDetected
+      : null;
+  const factPassed = /^PASSED$/i.test(verificationStatus(factCheck));
+  const blockingClaims = countBlockingFactClaims(factCheck);
+  const fieldsPresent =
+    json.contractVersion === "lock-decision.v2" &&
+    lockDecision !== null &&
+    factLockStatus !== null &&
+    insightFloorStatus !== null &&
+    blockingResiduals !== null &&
+    openRequiredActions !== null &&
+    unresolvedDefectIds !== null &&
+    optionalPolishActions !== null &&
+    regressionDetected !== null;
+  const failureReasons: string[] = [];
+  if (!fieldsPresent) {
+    failureReasons.push("Lock Verifier v2 thiếu field machine-readable bắt buộc");
+  }
+  if (!factPassed || factLockStatus !== "PASSED") {
+    failureReasons.push("Fact lock chưa PASSED");
+  }
+  if (blockingClaims > 0) failureReasons.push(`${blockingClaims} blocking claim`);
+  if ((blockingResiduals?.length ?? 0) > 0) {
+    failureReasons.push(`${blockingResiduals?.length ?? 0} blocking residual`);
+  }
+  if ((openRequiredActions?.length ?? 0) > 0) {
+    failureReasons.push(`${openRequiredActions?.length ?? 0} required action còn mở`);
+  }
+  if ((unresolvedDefectIds?.length ?? 0) > 0) {
+    failureReasons.push(`${unresolvedDefectIds?.length ?? 0} blocking defect chưa đóng`);
+  }
+  if (insightFloorStatus !== "PASSED") failureReasons.push("Insight floor chưa đạt");
+  if (regressionDetected) failureReasons.push("Candidate regression detected");
+  if (lockDecision && lockDecision !== "LOCKED") {
+    failureReasons.push(`Lock decision=${lockDecision}`);
+  }
+  const machineReadable = fieldsPresent;
+  const publishReady = Boolean(
+    machineReadable &&
+      lockDecision === "LOCKED" &&
+      factPassed &&
+      factLockStatus === "PASSED" &&
+      insightFloorStatus === "PASSED" &&
+      blockingClaims === 0 &&
+      blockingResiduals?.length === 0 &&
+      openRequiredActions?.length === 0 &&
+      unresolvedDefectIds?.length === 0 &&
+      regressionDetected === false,
+  );
+  const mappedDecision: FinalVerification["decision"] =
+    lockDecision === "LOCKED"
+      ? "FINAL_REVIEWED"
+      : lockDecision === "REWRITE_ESCALATION_REQUESTED"
+        ? "REWRITE_REQUIRED"
+        : lockDecision === "FACT_PATCH_REQUIRED"
+          ? "MAJOR_REVISION_REQUIRED"
+          : lockDecision === "CONTEXT_INCOMPLETE"
+            ? null
+            : lockDecision
+              ? "MINOR_REVISION_REQUIRED"
+              : null;
+  return {
+    totalScore: null,
+    insightScore: null,
+    gatesPassed: true,
+    factPassed,
+    openActions: openRequiredActions?.length ?? null,
+    decision: mappedDecision,
+    blockingClaims,
+    machineReadable,
+    machineContract: machineReadable ? "lock-v2" : "invalid",
+    failureReasons,
+    publishReady,
+    degenerateScores: false,
+    lockDecision,
+    blockingResiduals: blockingResiduals ?? [],
+    openRequiredActions: openRequiredActions ?? [],
+    unresolvedDefectIds: unresolvedDefectIds ?? [],
+    optionalPolishActions: optionalPolishActions ?? [],
+    regressionDetected,
+    malformedOutput: !machineReadable,
+  };
+}
 
 /**
  * Điểm thoái hoá: cả TOTAL và Insight = 0.
@@ -97,6 +229,8 @@ export function inspectFinalVerification(
   factCheck: string | null | undefined,
 ): FinalVerification {
   const body = review ?? "";
+  const v2 = inspectLockVerificationV2(body, factCheck);
+  if (v2) return v2;
   const totalScore = numberAfter(body, /FINAL_TOTAL_SCORE/);
   const insightScore = numberAfter(body, /FINAL_INSIGHT_SCORE/);
   const openActions = numberAfter(body, /OPEN_REQUIRED_ACTIONS/);
@@ -195,9 +329,17 @@ export function inspectFinalVerification(
         : null,
     blockingClaims,
     machineReadable,
+    machineContract: machineReadable ? "final-v1" : "invalid",
     failureReasons,
     degenerateScores,
     publishReady,
+    lockDecision: null,
+    blockingResiduals: [],
+    openRequiredActions: [],
+    unresolvedDefectIds: [],
+    optionalPolishActions: [],
+    regressionDetected: null,
+    malformedOutput: !machineReadable,
   };
 }
 

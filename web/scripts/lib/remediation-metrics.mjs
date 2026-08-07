@@ -54,6 +54,30 @@ function sortedDistribution(distribution) {
   );
 }
 
+function summarizePromptContexts(accumulators) {
+  return Object.fromEntries(
+    Object.entries(accumulators).map(([promptId, value]) => [
+      promptId,
+      {
+        events: value.events,
+        averageContextChars: Number((value.contextChars / value.events).toFixed(2)),
+        averageLegacyContextChars:
+          value.legacyEvents > 0
+            ? Number((value.legacyChars / value.legacyEvents).toFixed(2))
+            : null,
+        averageInputTokenEstimate: Number(
+          (value.tokenEstimate / value.events).toFixed(2),
+        ),
+        averageContextReductionRatio:
+          value.reductionEvents > 0
+            ? Number((value.reductionRatio / value.reductionEvents).toFixed(4))
+            : null,
+        malformedRate: rate(value.malformed, value.events),
+      },
+    ]),
+  );
+}
+
 export function aggregateRemediationMetrics(articles) {
   const gateFailDistribution = Object.fromEntries(
     Array.from({ length: 8 }, (_, index) => [`G${index + 1}`, 0]),
@@ -117,7 +141,14 @@ export function aggregateRemediationMetrics(articles) {
   let regressionLoopsInterrupted = 0;
   let humanInterventionsAfterBrake = 0;
   let completionsAfterBrake = 0;
-  const aiTfesVersionEvents = { "v1.6": 0, "v2-rc1": 0, unknown: 0 };
+  const aiTfesVersionEvents = {
+    "v1.6": 0,
+    "v2-rc1": 0,
+    "v2-rc2": 0,
+    unknown: 0,
+  };
+  const promptArchitectureVersionEvents = { "1.6": 0, "2.0": 0, unknown: 0 };
+  const promptContextAccumulators = {};
   const blockingClaimDistribution = {};
   const unsupportedClaimDistribution = {};
   const claimsWithoutSourceDistribution = {};
@@ -241,7 +272,42 @@ export function aggregateRemediationMetrics(articles) {
       if (telemetry.aiTfesVersion === "v1.6") aiTfesVersionEvents["v1.6"] += 1;
       else if (telemetry.aiTfesVersion === "v2-rc1") {
         aiTfesVersionEvents["v2-rc1"] += 1;
+      } else if (telemetry.aiTfesVersion === "v2-rc2") {
+        aiTfesVersionEvents["v2-rc2"] += 1;
       } else aiTfesVersionEvents.unknown += 1;
+      const prompt = telemetry.prompt;
+      if (prompt) {
+        if (prompt.promptArchitectureVersion === "1.6") {
+          promptArchitectureVersionEvents["1.6"] += 1;
+        } else if (prompt.promptArchitectureVersion === "2.0") {
+          promptArchitectureVersionEvents["2.0"] += 1;
+        } else {
+          promptArchitectureVersionEvents.unknown += 1;
+        }
+        const promptId = prompt.promptId || "unknown";
+        const accumulator = (promptContextAccumulators[promptId] ??= {
+          events: 0,
+          contextChars: 0,
+          legacyEvents: 0,
+          legacyChars: 0,
+          tokenEstimate: 0,
+          reductionEvents: 0,
+          reductionRatio: 0,
+          malformed: 0,
+        });
+        accumulator.events += 1;
+        accumulator.contextChars += Number(prompt.contextCharacterLength ?? 0);
+        accumulator.tokenEstimate += Number(prompt.inputTokenEstimate ?? 0);
+        if (Number.isFinite(prompt.legacyContextCharacterLength)) {
+          accumulator.legacyEvents += 1;
+          accumulator.legacyChars += prompt.legacyContextCharacterLength;
+        }
+        if (Number.isFinite(prompt.contextReductionRatio)) {
+          accumulator.reductionEvents += 1;
+          accumulator.reductionRatio += prompt.contextReductionRatio;
+        }
+        if (prompt.malformedOutput === true) accumulator.malformed += 1;
+      }
       const finalGuard = telemetry.finalMinorGuard;
       if (
         finalGuard &&
@@ -555,6 +621,8 @@ export function aggregateRemediationMetrics(articles) {
       completionAfterBrakeRate: rate(completionsAfterBrake, brakeEvents),
     },
     aiTfesVersionEvents,
+    promptArchitectureVersionEvents,
+    promptContextById: summarizePromptContexts(promptContextAccumulators),
     scoreTrend,
     editorFeedback: {
       responses: feedbackCount,

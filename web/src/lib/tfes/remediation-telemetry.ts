@@ -1,6 +1,7 @@
 import { getDeploymentVersion } from "@/lib/deployment-version";
 import type { ConvergenceTelemetry } from "@/lib/tfes/convergence-telemetry";
 import type { FactCheckSummary } from "@/lib/tfes/fact-ledger";
+import type { PromptExecutionTelemetry } from "@/lib/tfes/prompt-registry";
 import {
   activeAiTfesVersion,
   PIPELINE_CONFIG,
@@ -78,6 +79,7 @@ export type RemediationTelemetry = {
     falseFinalMinorGuard: boolean;
     minorPreservePrompt: boolean;
     regressionAutoAckBrake: boolean;
+    promptArchitecture: boolean;
   };
   /** Present only on Fact Check transitions; counts from the existing ledger parser. */
   fact?: FactCheckSummary;
@@ -86,6 +88,7 @@ export type RemediationTelemetry = {
   finalMinorGuard?: FinalMinorGuardTelemetry;
   minorPreserve?: MinorPreserveTelemetry;
   autoAckBrake?: AutoAckBrakeTelemetry;
+  prompt?: PromptExecutionTelemetry;
 };
 
 export type RemediationTelemetryInput = {
@@ -114,6 +117,7 @@ export type RemediationTelemetryInput = {
   finalMinorGuard?: FinalMinorGuardTelemetry;
   minorPreserve?: MinorPreserveTelemetry;
   autoAckBrake?: AutoAckBrakeTelemetry;
+  prompt?: PromptExecutionTelemetry;
 };
 
 function safeInteger(value: number | null | undefined): number | null {
@@ -190,11 +194,14 @@ export function buildRemediationTelemetry(
         PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
       regressionAutoAckBrake:
         PIPELINE_CONFIG.aiTfesV2.regressionAutoAckBrake.enabled,
+      promptArchitecture:
+        PIPELINE_CONFIG.aiTfesV2.promptArchitecture.enabled,
     },
     ...(input.fact ? { fact: input.fact } : {}),
     ...(input.convergence ? { convergence: input.convergence } : {}),
     ...(input.finalMinorGuard ? { finalMinorGuard: input.finalMinorGuard } : {}),
     ...(input.minorPreserve ? { minorPreserve: input.minorPreserve } : {}),
     ...(input.autoAckBrake ? { autoAckBrake: input.autoAckBrake } : {}),
+    ...(input.prompt ? { prompt: input.prompt } : {}),
   };
 }

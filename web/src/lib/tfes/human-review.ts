@@ -10,6 +10,7 @@ import {
   isMarkdownTableHeaderOrSeparator,
   parseEditorialGateFailures,
 } from "@/lib/tfes/editorial-checklist";
+import { parseMarkedPromptJson } from "@/lib/tfes/prompt-registry";
 
 export type HumanReviewDisposition = "fixed" | "accept";
 
@@ -58,6 +59,48 @@ export function parseEditorialFindings(
     seen.add(finding.id);
     findings.push(finding);
   };
+
+  const v2 = parseMarkedPromptJson(review, "EDITORIAL_DIAGNOSIS_JSON:");
+  if (v2?.contractVersion === "editorial-diagnosis.v2") {
+    const defects = Array.isArray(v2.defects) ? v2.defects : [];
+    for (const item of defects) {
+      if (!item || typeof item !== "object") continue;
+      const defect = item as Record<string, unknown>;
+      const location =
+        defect.location && typeof defect.location === "object"
+          ? (defect.location as Record<string, unknown>)
+          : {};
+      if (
+        typeof defect.defectId !== "string" ||
+        typeof defect.requiredOutcome !== "string"
+      ) {
+        continue;
+      }
+      push({
+        id: defect.defectId,
+        label: `${typeof location.sectionId === "string" ? location.sectionId : "article"}: ${defect.requiredOutcome}`.slice(0, 180),
+        severity:
+          defect.severity === "MINOR"
+            ? "revision"
+            : defect.severity === "MAJOR" || defect.severity === "REWRITE"
+              ? "fail"
+              : "revision",
+      });
+    }
+    const requiredActions = Array.isArray(v2.requiredActions)
+      ? v2.requiredActions.filter(
+          (action): action is string => typeof action === "string",
+        )
+      : [];
+    for (const [index, action] of requiredActions.entries()) {
+      push({
+        id: `required-action-${index + 1}`,
+        label: `Required action: ${action}`.slice(0, 180),
+        severity: "revision",
+      });
+    }
+    return findings.slice(0, 16);
+  }
 
   // Dùng cùng parser với machine gate để bảng Markdown và bullet không lệch nhau.
   for (const failure of parseEditorialGateFailures(review)) {

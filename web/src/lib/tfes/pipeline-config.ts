@@ -63,6 +63,13 @@ export const PIPELINE_CONFIG = {
     regressionAutoAckBrake: {
       enabled: false,
     },
+    /** WP-PV2-01 selects only the first v2 prompt trio; all other prompts stay v1.6. */
+    promptArchitecture: {
+      enabled: false,
+      editorialDiagnosisVersion: "2.0",
+      minorRemediationVersion: "2.0",
+      lockVerifierVersion: "2.0",
+    },
   },
 
   /** Token gen bản sạch / polish / expand (trần API) */
@@ -77,10 +84,11 @@ export const PIPELINE_CONFIG = {
 
 export type PipelineConfig = typeof PIPELINE_CONFIG;
 
-export type AiTfesVersion = "v1.6" | "v2-rc1";
+export type AiTfesVersion = "v1.6" | "v2-rc1" | "v2-rc2";
 
 export function activeAiTfesVersion(): AiTfesVersion {
   const flags = PIPELINE_CONFIG.aiTfesV2;
+  if (flags.promptArchitecture.enabled) return "v2-rc2";
   return flags.bestCandidateLock.enabled ||
     flags.falseFinalMinorGuard.enabled ||
     flags.minorPreservePrompt.enabled ||

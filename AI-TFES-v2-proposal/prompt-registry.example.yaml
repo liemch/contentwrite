@@ -1,0 +1,45 @@
+registryVersion: 1
+status: proposal
+productionImportAllowed: false
+
+prompts:
+  editorial-diagnosis:
+    selectedVersion: 2.0.0
+    contractVersion: editorial-diagnosis.v2
+    role: DIAGNOSE
+    template: editorial-diagnosis.prompt.md
+    rolloutStatus: proposal
+    fallbackVersion: "1.6"
+    outputSchema: editorial-diagnosis.v2
+    maxOutputTokens: 2500
+
+  minor-remediation:
+    selectedVersion: 2.0.0
+    contractVersion: article-patch.v1
+    role: PATCH
+    template: minor-remediation.prompt.md
+    rolloutStatus: proposal
+    fallbackVersion: "1.6"
+    outputSchema: article-patch.v1
+    maxOutputTokens: 3000
+
+  fact-audit:
+    selectedVersion: 2.0.0
+    contractVersion: claim-ledger.v2
+    role: AUDIT
+    template: fact-audit.prompt.md
+    rolloutStatus: proposal
+    fallbackVersion: "1.6"
+    outputSchema: claim-ledger.v2
+    maxOutputTokens: 4000
+
+  lock-verifier:
+    selectedVersion: 2.0.0
+    contractVersion: lock-decision.v2
+    role: LOCK
+    template: lock-verifier.prompt.md
+    rolloutStatus: proposal
+    fallbackVersion: "1.6"
+    outputSchema: lock-decision.v2
+    maxOutputTokens: 1500
+

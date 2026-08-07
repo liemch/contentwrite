@@ -146,7 +146,7 @@ export function authErrorResponse(error: unknown): Response | null {
 /** Seed/bootstrap admin từ env. Chỉ tạo khi chưa có user; hoặc rename admin@local → ADMIN_EMAIL. */
 export async function ensureBootstrapAdmin(): Promise<void> {
   const email = (process.env.ADMIN_EMAIL || "admin@local").trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
+  const password = process.env.ADMIN_PASSWORD?.trim();
   if (!password) {
     throw new Error("ADMIN_PASSWORD bắt buộc để seed admin đầu tiên");
   }

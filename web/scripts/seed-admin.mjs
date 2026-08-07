@@ -31,7 +31,7 @@ async function main() {
   }
 
   const email = (process.env.ADMIN_EMAIL || "admin@local").trim().toLowerCase();
-  const password = process.env.ADMIN_PASSWORD;
+  const password = process.env.ADMIN_PASSWORD?.trim();
   if (!password) {
     console.error("Missing ADMIN_PASSWORD");
     process.exit(1);

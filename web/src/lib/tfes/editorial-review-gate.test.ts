@@ -15,6 +15,67 @@ function canonicalReview(decision: string): string {
 }
 
 describe("Editorial Review machine contract", () => {
+  it("parses typed Editorial Diagnosis v2 without inferring from prose", () => {
+    const result = inspectEditorialReview(
+      `EDITORIAL_DIAGNOSIS_JSON:
+${JSON.stringify({
+  contractVersion: "editorial-diagnosis.v2",
+  totalScore: 86,
+  insightScore: 22,
+  gates: Array.from({ length: 8 }, (_, index) => ({
+    id: `G${index + 1}`,
+    status: "PASSED",
+  })),
+  decision: "MINOR_REVISION_REQUIRED",
+  defects: [
+    {
+      defectId: "D-1",
+      type: "CRAFT_LOCAL",
+      severity: "MINOR",
+      location: { sectionId: "deep-analysis" },
+      diagnosis: "Repeated wording",
+      requiredOutcome: "Remove repetition",
+      allowedMutations: ["deep-analysis"],
+      evidenceRefs: [],
+      blocking: false,
+      unknownFutureField: true,
+    },
+  ],
+  requiredActions: ["Close D-1"],
+  unknownFutureField: "ignored",
+})}`,
+    );
+    expect(result).toMatchObject({
+      machineReadable: true,
+      machineContract: "v2",
+      totalScore: 86,
+      insightScore: 22,
+      decision: "MINOR_REVISION_REQUIRED",
+      resolvedState: WorkflowState.MINOR_REVISION_REQUIRED,
+      gateFailures: [],
+      requiredActions: ["Close D-1"],
+    });
+    expect(result.defects).toHaveLength(1);
+    expect(result.defects[0].defectId).toBe("D-1");
+  });
+
+  it("fails safe when Editorial Diagnosis v2 omits a gate", () => {
+    const result = inspectEditorialReview(
+      `EDITORIAL_DIAGNOSIS_JSON:
+${JSON.stringify({
+  contractVersion: "editorial-diagnosis.v2",
+  totalScore: 90,
+  insightScore: 23,
+  gates: [{ id: "G1", status: "PASSED" }],
+  decision: "EDITORIAL_REVIEWED",
+  defects: [],
+  requiredActions: [],
+})}`,
+    );
+    expect(result.machineReadable).toBe(false);
+    expect(result.resolvedState).toBe(WorkflowState.MINOR_REVISION_REQUIRED);
+  });
+
   it("không suy REWRITE từ phần giải thích liệt kê đủ enum", () => {
     const review = [
       "Các lựa chọn gồm EDITORIAL_REVIEWED, MINOR_REVISION_REQUIRED,",

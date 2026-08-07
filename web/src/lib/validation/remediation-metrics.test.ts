@@ -611,6 +611,7 @@ describe("WP2.7 cohort metric aggregation", () => {
     expect(metrics.aiTfesVersionEvents).toEqual({
       "v1.6": 2,
       "v2-rc1": 6,
+      "v2-rc2": 0,
       unknown: 0,
     });
   });
@@ -642,5 +643,66 @@ describe("WP2.7 cohort metric aggregation", () => {
     expect(metrics.denominators.finalScoreComparisons).toBe(0);
     expect(metrics.convergence.finalRegressionRate).toBeNull();
     expect(metrics.convergence.averageFinalScoreDelta).toBeNull();
+  });
+
+  it("aggregates prompt architecture versions and context reduction by prompt id", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "FINAL_REVIEWED",
+        transitions: [
+          {
+            action: "editorial-review",
+            createdAt: "2026-08-07T00:00:00Z",
+            details: {
+              telemetry: telemetry({
+                prompt: {
+                  promptId: "editorial-diagnosis",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 12_000,
+                  legacyContextCharacterLength: 16_000,
+                  contextReductionRatio: 0.25,
+                  inputTokenEstimate: 3_000,
+                  malformedOutput: false,
+                },
+              }),
+            },
+          },
+          {
+            action: "final-verification",
+            createdAt: "2026-08-07T00:01:00Z",
+            details: {
+              telemetry: telemetry({
+                prompt: {
+                  promptId: "lock-verifier",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 8_000,
+                  legacyContextCharacterLength: 24_000,
+                  contextReductionRatio: 0.6667,
+                  inputTokenEstimate: 2_000,
+                  malformedOutput: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.promptArchitectureVersionEvents).toEqual({
+      "1.6": 0,
+      "2.0": 2,
+      unknown: 0,
+    });
+    expect(metrics.promptContextById["editorial-diagnosis"]).toMatchObject({
+      events: 1,
+      averageContextChars: 12_000,
+      averageLegacyContextChars: 16_000,
+      averageContextReductionRatio: 0.25,
+      malformedRate: 0,
+    });
+    expect(metrics.promptContextById["lock-verifier"]).toMatchObject({
+      averageInputTokenEstimate: 2_000,
+      malformedRate: 1,
+    });
   });
 });

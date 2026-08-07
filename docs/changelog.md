@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-08-07 — AI-TFES v2 RC2 Production Validation prep
+
+### Fixed
+
+- Lock-v2 final telemetry carries prior editorial score for cohort score comparisons
+- `CONTEXT_INCOMPLETE` retries/blocks instead of opening a MINOR remediation loop
+- Bootstrap `ADMIN_PASSWORD` is trimmed before hash (env whitespace mismatch)
+
+### Docs
+
+- `docs/releases/AI-TFES-v2-RC2-validation.md` — rollout, cohorts, KPIs, rollback, scorecard
+
+---
+
+## 2026-08-07 — AI-TFES v2 RC2 Prompt Trio (WP-PV2-01)
+
+### Added
+
+- Minimal versioned Prompt Registry with v1.6 fallback
+- Typed DIAGNOSE-only `editorial-diagnosis@2.0`
+- MINIMUM EDIT `minor-remediation@2.0` with full-draft compatibility
+- Evidence/action-focused `lock-verifier@2.0`
+- Prompt version, machine contract, context character, token estimate, defect, and Lock telemetry
+- Prompt-context comparison metrics and no-live-AI contract/integration tests
+
+### Safety
+
+- `promptArchitecture.enabled` defaults OFF
+- Existing v1.6 prompts and parsers remain available
+- Unknown versions and malformed v2 outputs fail safe
+- No Section Patch Engine, additional prompt migration, model/threshold/retry/state change,
+  schema, migration, or environment change
+
+---
+
 ## 2026-08-07 — AI-TFES v2 RC1 (WP-V2-03–05)
 
 ### Added

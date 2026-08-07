@@ -52,7 +52,9 @@ import {
 import {
   countBlockingFactClaims,
   isFactRemediationExhausted,
+  isBlockingFactClaim,
   MAX_FACT_REMEDIATION_RETRIES,
+  parseFactClaims,
   summarizeFactCheck,
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
@@ -106,6 +108,18 @@ import {
   parseMinorPreserveOutput,
 } from "@/lib/tfes/minor-preserve-prompt";
 import { evaluateRegressionAutoAckBrake } from "@/lib/tfes/regression-auto-ack-brake";
+import {
+  buildPromptExecutionTelemetry,
+  resolvePromptDescriptor,
+} from "@/lib/tfes/prompt-registry";
+import {
+  buildEditorialDiagnosisContextV2,
+  buildEditorialDiagnosisPromptV2,
+  buildLockVerifierContextV2,
+  buildLockVerifierPromptV2,
+  buildMinorRemediationContextV2,
+  buildMinorRemediationPromptV2,
+} from "@/lib/tfes/prompts-v2";
 import {
   assertCleanPublishQuality,
   applyDeterministicCleanFixes,
@@ -1442,28 +1456,43 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (finPhase === "review") {
         const llmStarted = Date.now();
         const reviewMaxTokens = 2200;
+        const editorialPrompt = resolvePromptDescriptor("editorial-diagnosis");
+        const editorialLegacyContext = appendContext(
+          clipText(
+            article.researchBrief,
+            PIPELINE_CONFIG.context.reviewResearchBriefChars,
+          ),
+          clipText(article.insightGate, 1_200),
+          clipText(
+            stripPipelineMarks(article.draft12),
+            reviewDraftClipChars(article.targetWordCount),
+          ),
+          `Chủ đề: ${topic}`,
+        );
+        const editorialContext =
+          editorialPrompt.promptVersion === "2.0"
+            ? buildEditorialDiagnosisContextV2({
+                insightPlan: article.insightGate,
+                draft: stripPipelineMarks(article.draft12),
+                articleShape: shapeBlockFor(article),
+                maxDraftChars: reviewDraftClipChars(article.targetWordCount),
+              })
+            : editorialLegacyContext;
+        const editorialUserPrompt =
+          editorialPrompt.promptVersion === "2.0"
+            ? buildEditorialDiagnosisPromptV2(editorialContext)
+            : buildPipelinePrompt(
+                "finalize-review",
+                editorialContext,
+                undefined,
+                shapeBlockFor(article),
+              );
         const reviewOut = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-review",
-                appendContext(
-                  clipText(
-                    article.researchBrief,
-                    PIPELINE_CONFIG.context.reviewResearchBriefChars,
-                  ),
-                  clipText(article.insightGate, 1_200),
-                  clipText(
-                    stripPipelineMarks(article.draft12),
-                    reviewDraftClipChars(article.targetWordCount),
-                  ),
-                  `Chủ đề: ${topic}`,
-                ),
-                undefined,
-                shapeBlockFor(article),
-              ),
+              content: editorialUserPrompt,
             },
           ],
           { maxTokens: reviewMaxTokens, temperature: 0.35, reasoningEffort: "low" },
@@ -1471,7 +1500,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const inspection = inspectEditorialReview(reviewOut);
         const reviewLlmMs = Date.now() - llmStarted;
-        const gateFailures = parseEditorialGateFailures(reviewOut).map((failure) => failure.code);
+        const gateFailures = inspection.gateFailures;
+        const editorialPromptTelemetry = buildPromptExecutionTelemetry({
+          descriptor: editorialPrompt,
+          contextCharacterLength: editorialContext.length,
+          legacyContextCharacterLength: editorialLegacyContext.length,
+          defectCount: inspection.defects.length,
+          malformedOutput: !inspection.machineReadable,
+        });
         const reviewState = inspection.resolvedState;
         const isPostRevisionReview = (article.knowledgeRecord ?? "").includes(
           POST_REVISION_REVIEW_MARK,
@@ -1740,6 +1776,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   : "parser",
               convergence,
               autoAckBrake: autoAckBrakeTelemetry,
+              prompt: editorialPromptTelemetry,
             }),
           },
           artifacts: [
@@ -1988,8 +2025,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
+        const configuredMinorPrompt = resolvePromptDescriptor("minor-remediation");
+        const minorPrompt =
+          article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED
+            ? configuredMinorPrompt
+            : resolvePromptDescriptor("minor-remediation", { enabled: false });
         const minorPreservePrompt = minorPreserveInstructions({
           enabled:
+            minorPrompt.promptVersion === "1.6" &&
             PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
           revisionSeverity: article.workflowState,
           version:
@@ -2008,30 +2051,63 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             includeFact: false,
           }),
         );
+        const revisionLegacyContext = appendContext(
+          `Revision state: ${article.workflowState}`,
+          revisionFeedback,
+          clipText(article.researchBrief, 4_000),
+          clipText(article.insightGate, 2_000),
+          clipText(
+            stripPipelineMarks(article.draft12),
+            reviewDraftClipChars(article.targetWordCount),
+          ),
+          clipText(article.factCheck, 5_000),
+          `Chủ đề: ${topic}`,
+          minorPreservePrompt,
+        );
+        const currentEditorial = inspectEditorialReview(
+          extractEditorialReview(article.knowledgeRecord),
+        );
+        const blockingFactClaims = parseFactClaims(article.factCheck)
+          .filter(isBlockingFactClaim)
+          .slice(0, 8)
+          .map((claim) => ({
+            id: claim.id,
+            verdict: claim.aiVerdict,
+            action: claim.action,
+            source: claim.source,
+          }));
+        const minorV2Context = buildMinorRemediationContextV2({
+          defects: currentEditorial.defects.filter(
+            (defect) => defect.severity === "MINOR",
+          ),
+          requiredActions: currentEditorial.requiredActions,
+          fallbackFeedback: revisionFeedback,
+          draft: stripPipelineMarks(article.draft12),
+          evidenceSummary: {
+            fact: summarizeFactCheck(article.factCheck),
+            blockingClaims: blockingFactClaims,
+          },
+          maxDraftChars: reviewDraftClipChars(article.targetWordCount),
+        });
+        const revisionContext =
+          minorPrompt.promptVersion === "2.0"
+            ? minorV2Context.context
+            : revisionLegacyContext;
+        const revisionUserPrompt =
+          minorPrompt.promptVersion === "2.0"
+            ? buildMinorRemediationPromptV2(revisionContext)
+            : buildPipelinePrompt(
+                "finalize-revision-remediate",
+                revisionContext,
+                undefined,
+                shapeBlockFor(article),
+              );
         const repairedRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-revision-remediate",
-                appendContext(
-                  `Revision state: ${article.workflowState}`,
-                  revisionFeedback,
-                  clipText(article.researchBrief, 4_000),
-                  clipText(article.insightGate, 2_000),
-                  // Cùng cửa sổ với reviewer: bản sửa không được cụt đuôi so với bản được chấm.
-                  clipText(
-                    stripPipelineMarks(article.draft12),
-                    reviewDraftClipChars(article.targetWordCount),
-                  ),
-                  clipText(article.factCheck, 5_000),
-                  `Chủ đề: ${topic}`,
-                  minorPreservePrompt,
-                ),
-                undefined,
-                shapeBlockFor(article),
-              ),
+              content: revisionUserPrompt,
             },
           ],
           {
@@ -2040,7 +2116,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             reasoningEffort: "low",
           },
         );
-        const preserveOutput = minorPreservePrompt
+        const preserveMetadataExpected =
+          minorPrompt.promptVersion === "2.0" || Boolean(minorPreservePrompt);
+        const preserveOutput = preserveMetadataExpected
           ? parseMinorPreserveOutput(repairedRaw)
           : {
               draft: repairedRaw,
@@ -2052,10 +2130,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           stripPipelineMarks(preserveOutput.draft),
         );
         const remediationLlmMs = Date.now() - llmStarted;
-        const minorPreserveTelemetry = minorPreservePrompt
+        const minorPreserveTelemetry = preserveMetadataExpected
           ? {
               minorPreservePromptVersion:
-                PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
+                minorPrompt.promptVersion === "2.0"
+                  ? "minor-remediation@2.0"
+                  : PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
               changedSectionCount: preserveOutput.metadataReadable
                 ? preserveOutput.changedSections.length
                 : null,
@@ -2065,6 +2145,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               preserveMetadataReadable: preserveOutput.metadataReadable,
             }
           : null;
+        const minorPromptTelemetry = buildPromptExecutionTelemetry({
+          descriptor: minorPrompt,
+          contextCharacterLength: revisionContext.length,
+          legacyContextCharacterLength: revisionLegacyContext.length,
+          defectCount: currentEditorial.defects.length,
+          ...(minorPrompt.promptVersion === "2.0"
+            ? { remediationMedium: "full-draft-preserve" as const }
+            : {}),
+        });
         assertFullDraftQuality(repairedDraft);
         assertEngineeringGoldBar({
           domain: article.domain,
@@ -2128,6 +2217,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ...(minorPreserveTelemetry
                 ? { minorPreserve: minorPreserveTelemetry }
                 : {}),
+              prompt: minorPromptTelemetry,
             }),
           },
           artifact: {
@@ -2403,8 +2493,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
 
         const llmStarted = Date.now();
-        const finalVerifyMaxTokens = 2200;
+        const lockPrompt = resolvePromptDescriptor("lock-verifier");
+        const finalVerifyMaxTokens =
+          lockPrompt.promptVersion === "2.0" ? 1500 : 2200;
+        const finalConvergenceContext = await convergenceContextForRun(
+          articleId,
+          article.workflowRunId,
+        );
         const rescoreHint =
+          lockPrompt.promptVersion === "1.6" &&
           article.errorMessage &&
           /Final Verification output chưa đúng machine format|điểm thoái hoá|không khớp band điểm/i.test(
             article.errorMessage,
@@ -2419,34 +2516,94 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "Khi Fact Check PASSED, G1–G8 đạt, 0 open action, insight ≥22: ưu tiên FINAL_REVIEWED tổng ≥90 — không đậu ở 87–89 vì lỗi chữ nhỏ.",
               ].join("\n")
             : "";
+        const finalLegacyContext = appendContext(
+          clipText(extractEditorialReview(article.knowledgeRecord), 3_000),
+          clipText(article.factCheck, 4_000),
+          clipText(
+            stripPipelineMarks(article.draft12),
+            reviewDraftClipChars(article.targetWordCount),
+          ),
+          `Chủ đề: ${topic}`,
+          rescoreHint,
+        );
+        const editorialLockInspection = inspectEditorialReview(
+          extractEditorialReview(article.knowledgeRecord),
+        );
+        const lockContext =
+          lockPrompt.promptVersion === "2.0"
+            ? buildLockVerifierContextV2({
+                editorialResult: {
+                  score: editorialLockInspection.totalScore,
+                  insightScore: editorialLockInspection.insightScore,
+                  passed:
+                    editorialLockInspection.resolvedState ===
+                    WorkflowState.EDITORIAL_REVIEWED,
+                  gateFailures: editorialLockInspection.gateFailures,
+                  defects: editorialLockInspection.defects,
+                  requiredActions: editorialLockInspection.requiredActions,
+                },
+                factSummary: summarizeFactCheck(article.factCheck),
+                blockingClaims: parseFactClaims(article.factCheck)
+                  .filter(isBlockingFactClaim)
+                  .slice(0, 12)
+                  .map((claim) => ({
+                    id: claim.id,
+                    verdict: claim.aiVerdict,
+                    action: claim.action,
+                  })),
+                insightPlan: article.insightGate,
+                regressionSummary: {
+                  previousEditorialScore:
+                    finalConvergenceContext.previousEditorialScore,
+                  previousEditorialPassed:
+                    finalConvergenceContext.previousEditorialPassed,
+                  finalComparisonValid:
+                    finalConvergenceContext.finalComparisonValid,
+                },
+                candidateSignal: stripPipelineMarks(article.draft12),
+              })
+            : finalLegacyContext;
+        const lockUserPrompt =
+          lockPrompt.promptVersion === "2.0"
+            ? buildLockVerifierPromptV2(lockContext)
+            : buildPipelinePrompt("finalize-verify", lockContext);
         const finalReview = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-verify",
-                appendContext(
-                  clipText(extractEditorialReview(article.knowledgeRecord), 3_000),
-                  clipText(article.factCheck, 4_000),
-                  clipText(
-                    stripPipelineMarks(article.draft12),
-                    reviewDraftClipChars(article.targetWordCount),
-                  ),
-                  `Chủ đề: ${topic}`,
-                  rescoreHint,
-                ),
-              ),
+              content: lockUserPrompt,
             },
           ],
           { maxTokens: finalVerifyMaxTokens, temperature: 0.2, reasoningEffort: "low" },
         );
         const result = inspectFinalVerification(finalReview, article.factCheck);
         const finalVerifyLlmMs = Date.now() - llmStarted;
-        const finalGateFailures = parseEditorialGateFailures(finalReview).map(
-          (failure) => failure.code,
-        );
-        if (!result.machineReadable) {
+        const finalGateFailures =
+          result.machineContract === "lock-v2"
+            ? editorialLockInspection.gateFailures
+            : parseEditorialGateFailures(finalReview).map(
+                (failure) => failure.code,
+              );
+        const lockPromptTelemetry = buildPromptExecutionTelemetry({
+          descriptor: lockPrompt,
+          contextCharacterLength: lockContext.length,
+          legacyContextCharacterLength: finalLegacyContext.length,
+          lockDecision: result.lockDecision,
+          blockingResidualCount:
+            result.blockingResiduals.length +
+            result.unresolvedDefectIds.length +
+            result.openRequiredActions.length,
+          falseMinorSuppressed:
+            result.machineContract === "lock-v2" &&
+            result.publishReady &&
+            result.optionalPolishActions.length > 0,
+          malformedOutput: !result.machineReadable,
+        });
+        const lockContextIncomplete =
+          result.machineContract === "lock-v2" &&
+          result.lockDecision === "CONTEXT_INCOMPLETE";
+        if (!result.machineReadable || lockContextIncomplete) {
           const formatAttempts = await prisma.workflowTransition.count({
             where: {
               articleId,
@@ -2456,18 +2613,26 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           });
           const nextAttempt = formatAttempts + 1;
           const exhausted = nextAttempt >= MAX_FINAL_VERIFICATION_FORMAT_RETRIES;
-          const reasonHint = result.degenerateScores
-            ? "điểm thoái hoá 0/0"
-            : result.failureReasons[0] || "sai format";
+          const reasonHint = lockContextIncomplete
+            ? "CONTEXT_INCOMPLETE"
+            : result.degenerateScores
+              ? "điểm thoái hoá 0/0"
+              : result.failureReasons[0] || "sai format";
           const updated = await commitPatch({
             action: "final-verification-format-invalid",
             success: false,
             articlePatch: {
               errorMessage: exhausted
-                ? `Final Verification sai định dạng sau ${MAX_FINAL_VERIFICATION_FORMAT_RETRIES} lần — ` +
-                  result.failureReasons.join(" · ")
-                : `Final Verification output chưa đúng machine format ` +
-                  `(${reasonHint}; lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
+                ? lockContextIncomplete
+                  ? `Lock Verifier CONTEXT_INCOMPLETE sau ${MAX_FINAL_VERIFICATION_FORMAT_RETRIES} lần — ` +
+                    result.failureReasons.join(" · ")
+                  : `Final Verification sai định dạng sau ${MAX_FINAL_VERIFICATION_FORMAT_RETRIES} lần — ` +
+                    result.failureReasons.join(" · ")
+                : lockContextIncomplete
+                  ? `Lock Verifier báo CONTEXT_INCOMPLETE ` +
+                    `(${reasonHint}; lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`
+                  : `Final Verification output chưa đúng machine format ` +
+                    `(${reasonHint}; lần ${nextAttempt}/${MAX_FINAL_VERIFICATION_FORMAT_RETRIES}) — tự chạy lại 9b.`,
             },
             details: {
               ...result,
@@ -2483,13 +2648,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 gateFailCount: finalGateFailures.length,
                 gateFailures: finalGateFailures,
                 failureReasons: result.failureReasons,
-                totalScore: result.totalScore,
+                totalScore:
+                  result.machineContract === "lock-v2"
+                    ? finalConvergenceContext.previousEditorialScore
+                    : result.totalScore,
                 machineReadable: result.machineReadable,
-                machineContract: "invalid",
-                decision: null,
+                machineContract: lockContextIncomplete
+                  ? result.machineContract
+                  : "invalid",
+                decision: result.lockDecision,
                 maxTokens: finalVerifyMaxTokens,
                 llmMs: finalVerifyLlmMs,
                 errorClass: "parser",
+                prompt: lockPromptTelemetry,
               }),
             },
             artifact: {
@@ -2506,19 +2677,22 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               : "final-verify-format-retry",
           });
         }
-        const finalConvergenceContext = await convergenceContextForRun(
-          articleId,
-          article.workflowRunId,
-        );
         const finalConvergence = buildConvergenceTelemetry({
           observation: "final",
-          currentScore: result.totalScore,
+          currentScore:
+            result.machineContract === "lock-v2"
+              ? finalConvergenceContext.previousEditorialScore
+              : result.totalScore,
           previousEditorialScore:
             finalConvergenceContext.finalComparisonValid
               ? finalConvergenceContext.previousEditorialScore
               : null,
           rewriteCount: finalConvergenceContext.rewriteCount,
         });
+        const lockTelemetryScore =
+          result.machineContract === "lock-v2"
+            ? finalConvergenceContext.previousEditorialScore
+            : result.totalScore;
         const finalMinorGuard = evaluateFinalMinorGuard({
           enabled:
             PIPELINE_CONFIG.aiTfesV2.falseFinalMinorGuard.enabled,
@@ -2526,8 +2700,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           alreadyPublishReady: result.publishReady,
           finalDecision: result.decision,
           finalReview,
-          finalScore: result.totalScore,
-          finalInsightScore: result.insightScore,
+          finalScore: lockTelemetryScore,
+          finalInsightScore:
+            result.machineContract === "lock-v2"
+              ? editorialLockInspection.insightScore
+              : result.insightScore,
           finalGatesPassed: result.gatesPassed,
           factPassed: result.factPassed,
           blockingClaims: result.blockingClaims,
@@ -2547,7 +2724,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           finalMinorGuardEligible: finalMinorGuard.eligible,
           finalMinorSuppressed: finalMinorGuard.suppressed,
           finalMinorReasonClass: finalMinorGuard.reasonClass,
-          finalScore: result.totalScore,
+          finalScore: lockTelemetryScore,
           editorialScore: finalConvergenceContext.previousEditorialScore,
           factPassed: result.factPassed,
           blockingResidualCount: finalMinorGuard.blockingResidualCount,
@@ -2556,6 +2733,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         };
         const nextState = effectivePublishReady
           ? WorkflowState.FINAL_REVIEWED
+          : result.machineContract === "lock-v2"
+            ? result.lockDecision === "REWRITE_ESCALATION_REQUESTED"
+              ? WorkflowState.REWRITE_REQUIRED
+              : result.lockDecision === "FACT_PATCH_REQUIRED"
+                ? WorkflowState.MAJOR_REVISION_REQUIRED
+                : WorkflowState.MINOR_REVISION_REQUIRED
           : (result.totalScore ?? 0) < 75 ||
               (result.insightScore ?? 0) < TFES_CONTRACT.finalReview.minimumInsightScore
             ? WorkflowState.REWRITE_REQUIRED
@@ -2586,15 +2769,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               gateFailCount: finalGateFailures.length,
               gateFailures: finalGateFailures,
               failureReasons: result.failureReasons,
-              totalScore: result.totalScore,
+              totalScore: lockTelemetryScore,
               machineReadable: result.machineReadable,
-              machineContract: result.machineReadable ? "final-v1" : "invalid",
-              decision: nextState,
+              machineContract: result.machineContract,
+              decision: result.lockDecision ?? nextState,
               maxTokens: finalVerifyMaxTokens,
               llmMs: finalVerifyLlmMs,
               errorClass: effectivePublishReady ? null : "content",
               convergence: finalConvergence,
               finalMinorGuard: finalMinorGuardTelemetry,
+              prompt: lockPromptTelemetry,
             }),
           },
           artifact: {
