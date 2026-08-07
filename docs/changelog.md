@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-08-07 — Editorial Format Reliability (WP-PV2-02)
+
+Production blocker: một Editorial Review sai định dạng bị xử lý như bài chất lượng 0,
+đẩy bài sang REWRITE_REQUIRED và đốt hết revision budget (`89 → 0 → REWRITE → exhausted`).
+
+### Fixed
+
+- Malformed Editorial output không còn tạo score 0, verdict REWRITE/MINOR, hay gate fail giả
+- Format defect đi theo retry riêng (`editorial-review-format-invalid`) và không tiêu
+  revision remediation budget
+- Hết lượt format retry thì pause Human Review, giữ nguyên draft và best candidate
+- `totalScore: 0` từ template placeholder được coi là malformed thay vì REWRITE thật
+- Marked v2 block được ưu tiên hơn canonical line xuất hiện trong prose
+- Editorial v2 `maxTokens` 2200 → 3200 (JSON typed bị cắt là nguyên nhân truncation)
+
+### Added
+
+- `machine-contract.ts`: normalization layer (last valid block, fence, trailing comma,
+  newline thô trong string, numeric string, enum/gate alias, phát hiện truncation)
+- `buildEditorialFormatRepairPromptV2`: prompt chỉ sửa định dạng, cấm chấm lại
+- Telemetry: `parserVersion`, `malformedReasonCode`, `rawOutputLength`, `outputTruncated`,
+  `formatRetryCount`, `formatRetrySucceeded`, `revisionBudgetConsumed`
+- Metrics `editorialFormat`: malformed rate, retry success/exhaustion rate, human pause,
+  false content-failure prevented — legacy row không bị suy diễn thành 0
+- 27 test contract/parser/retry + trajectory regression `64 → 89 → malformed`
+
+### Docs
+
+- `docs/debug/editorial-v2-parser-production-failure.md`
+- `docs/work-packages/WP-PV2-02-editorial-format-reliability.md`
+- `docs/validation/remediation-metrics.md` — nhóm metric Editorial format
+
+---
+
 ## 2026-08-07 — AI-TFES v2 RC2 Production Validation prep
 
 ### Fixed
