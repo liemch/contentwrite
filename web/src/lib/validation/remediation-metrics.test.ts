@@ -290,4 +290,357 @@ describe("WP2.7 cohort metric aggregation", () => {
       blockingClaimDistribution: {},
     });
   });
+
+  it("aggregates convergence KPIs from legacy-compatible transition scores", () => {
+    const review = (
+      action: string,
+      score: number,
+      createdAt: string,
+      result: "pass" | "fail" = "pass",
+    ) => ({
+      action,
+      success: result === "pass",
+      createdAt,
+      details: {
+        telemetry: telemetry({
+          transitionName: action,
+          totalScore: score,
+          result,
+        }),
+      },
+    });
+
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "REWRITE_REQUIRED",
+        transitions: [
+          review("editorial-review", 85, "2026-08-07T00:00:00Z"),
+          review("final-verification", 85, "2026-08-07T00:01:00Z", "fail"),
+          {
+            action: "remediate-required-revision",
+            createdAt: "2026-08-07T00:02:00Z",
+            details: { telemetry: telemetry({ totalScore: null, result: "retry" }) },
+          },
+          review(
+            "editorial-review-after-revision",
+            63,
+            "2026-08-07T00:03:00Z",
+            "fail",
+          ),
+          {
+            action: "remediate-required-revision",
+            createdAt: "2026-08-07T00:04:00Z",
+            details: { telemetry: telemetry({ totalScore: null, result: "retry" }) },
+          },
+          review(
+            "editorial-review-after-revision",
+            56,
+            "2026-08-07T00:05:00Z",
+            "fail",
+          ),
+        ],
+      },
+      {
+        workflowState: "MINOR_REVISION_REQUIRED",
+        transitions: [
+          review("editorial-review", 80, "2026-08-07T01:00:00Z", "fail"),
+          {
+            action: "remediate-required-revision",
+            createdAt: "2026-08-07T01:01:00Z",
+            details: { telemetry: telemetry({ totalScore: null, result: "retry" }) },
+          },
+          review(
+            "editorial-review-after-revision",
+            88,
+            "2026-08-07T01:02:00Z",
+          ),
+          review("final-verification", 82, "2026-08-07T01:03:00Z", "fail"),
+        ],
+      },
+    ]);
+
+    expect(metrics.denominators).toMatchObject({
+      articles: 2,
+      editorialScoreComparisons: 3,
+      candidateScoreComparisons: 3,
+      finalScoreComparisons: 2,
+      retryScoreComparisons: 3,
+    });
+    expect(metrics.convergence).toEqual({
+      editorialScoreMonotonicityRate: Number((1 / 3).toFixed(4)),
+      averageEditorialScoreDelta: -7,
+      candidateRegressionRate: Number((2 / 3).toFixed(4)),
+      finalRegressionRate: 0.5,
+      averageFinalScoreDelta: -3,
+      retryConvergenceRate: Number((1 / 3).toFixed(4)),
+      averageRewriteCountPerArticle: 1.5,
+    });
+    expect(metrics.counts).toMatchObject({
+      editorialNonDecreasingComparisons: 1,
+      candidateRegressions: 2,
+      finalRegressions: 1,
+      retryConvergingComparisons: 1,
+      rewriteCount: 3,
+    });
+  });
+
+  it("returns null convergence rates when no score pairs are available", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "EDITORIAL_REVIEWED",
+        transitions: [
+          {
+            action: "editorial-review",
+            createdAt: "2026-08-07T00:00:00Z",
+            details: { telemetry: telemetry({ totalScore: 85 }) },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.convergence).toEqual({
+      editorialScoreMonotonicityRate: null,
+      averageEditorialScoreDelta: null,
+      candidateRegressionRate: null,
+      finalRegressionRate: null,
+      averageFinalScoreDelta: null,
+      retryConvergenceRate: null,
+      averageRewriteCountPerArticle: 0,
+    });
+  });
+
+  it("aggregates lock-aware retention metrics and excludes legacy rows", () => {
+    const lockConvergence = (
+      candidateScoreDelta: number,
+      candidateRevision: number,
+    ) => ({
+      observation: "editorial",
+      candidateRegression: true,
+      candidateRejected: true,
+      candidateScoreDelta,
+      keptCandidateRevision: 1,
+      rejectedCandidateRevision: candidateRevision,
+      epsilon: 0,
+      lockEnabled: true,
+      acceptedDespiteRegression: false,
+      restoreStatus: "restored",
+    });
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "REWRITE_REQUIRED",
+        transitions: [
+          {
+            action: "editorial-review-after-revision",
+            createdAt: "2026-08-07T00:01:00Z",
+            details: {
+              telemetry: telemetry({
+                totalScore: 63,
+                convergence: lockConvergence(-22, 2),
+              }),
+            },
+          },
+          {
+            action: "editorial-review-after-revision",
+            createdAt: "2026-08-07T00:02:00Z",
+            details: {
+              telemetry: telemetry({
+                totalScore: 56,
+                convergence: lockConvergence(-29, 4),
+              }),
+            },
+          },
+          {
+            action: "revision-remediation-exhausted",
+            createdAt: "2026-08-07T00:03:00Z",
+            details: {
+              telemetry: telemetry({
+                totalScore: null,
+                result: "exhausted",
+                convergence: {
+                  observation: "rewrite",
+                  lockEnabled: true,
+                  bestRetainedAtExhaustion: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        workflowState: "MAJOR_REVISION_REQUIRED",
+        transitions: [
+          {
+            action: "editorial-review-after-revision",
+            createdAt: "2026-08-07T01:00:00Z",
+            details: { telemetry: telemetry({ totalScore: 40 }) },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.denominators).toMatchObject({
+      lockCandidateComparisons: 2,
+      rejectedCandidateRetentionComparisons: 2,
+      rejectedScoreDeltaCount: 2,
+      exhaustionBestRetentionComparisons: 1,
+    });
+    expect(metrics.candidateLock).toEqual({
+      candidateRegressionRate: 1,
+      rejectedRegressionCount: 2,
+      retainedBestRate: 1,
+      averageRejectedScoreDelta: -25.5,
+      exhaustionWithBestRetainedRate: 1,
+    });
+  });
+
+  it("reports RC1 guard, brake, revision and version dimensions", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "PUBLISH_READY",
+        transitions: [
+          {
+            action: "remediate-required-revision",
+            createdAt: "2026-08-07T00:00:00Z",
+            details: {
+              telemetry: telemetry({
+                aiTfesVersion: "v2-rc1",
+                result: "retry",
+              }),
+            },
+          },
+          {
+            action: "final-verification",
+            success: true,
+            createdAt: "2026-08-07T00:01:00Z",
+            details: {
+              telemetry: telemetry({
+                aiTfesVersion: "v2-rc1",
+                finalMinorGuard: {
+                  finalMinorGuardEligible: true,
+                  finalMinorSuppressed: true,
+                  finalMinorReasonClass: "craft-only",
+                  guardEnabled: true,
+                },
+              }),
+            },
+          },
+          {
+            action: "human-polish",
+            createdAt: "2026-08-07T00:02:00Z",
+            details: {
+              telemetry: telemetry({ aiTfesVersion: "v2-rc1" }),
+            },
+          },
+        ],
+      },
+      {
+        workflowState: "MAJOR_REVISION_REQUIRED",
+        transitions: [
+          {
+            action: "remediate-required-revision",
+            createdAt: "2026-08-07T01:00:00Z",
+            details: {
+              telemetry: telemetry({
+                aiTfesVersion: "v2-rc1",
+                result: "retry",
+              }),
+            },
+          },
+          {
+            action: "editorial-review-after-revision",
+            createdAt: "2026-08-07T01:01:00Z",
+            details: {
+              telemetry: telemetry({
+                aiTfesVersion: "v2-rc1",
+                autoAckBrake: {
+                  brakeEnabled: true,
+                  autoAckEligible: true,
+                  autoAckSuppressedForRegression: true,
+                  humanBrakeTriggered: true,
+                },
+              }),
+            },
+          },
+          {
+            action: "human-review-confirmed",
+            createdAt: "2026-08-07T01:02:00Z",
+            details: {
+              telemetry: telemetry({ aiTfesVersion: "v2-rc1" }),
+            },
+          },
+        ],
+      },
+      {
+        workflowState: "REWRITE_REQUIRED",
+        transitions: [
+          {
+            action: "revision-remediation-exhausted",
+            createdAt: "2026-08-07T02:00:00Z",
+            details: {
+              telemetry: telemetry({
+                aiTfesVersion: "v1.6",
+                result: "exhausted",
+              }),
+            },
+          },
+          {
+            action: "manual-draft-revision",
+            createdAt: "2026-08-07T02:01:00Z",
+            details: {
+              telemetry: telemetry({ aiTfesVersion: "v1.6" }),
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.finalMinorGuard).toEqual({
+      falseFinalMinorEligibleRate: 1,
+      suppressedFinalMinorRate: 1,
+      postSuppressionPublishOrLockRate: 1,
+      laterHumanCorrectionRate: 1,
+    });
+    expect(metrics.regressionAutoAckBrake).toEqual({
+      suppressionRate: 1,
+      regressionLoopsInterruptedRate: 1,
+      humanInterventionAfterBrakeRate: 1,
+      completionAfterBrakeRate: 0,
+    });
+    expect(metrics.revisionConvergenceRate).toBe(0.5);
+    expect(metrics.manualRecoveryRate).toBe(1);
+    expect(metrics.aiTfesVersionEvents).toEqual({
+      "v1.6": 2,
+      "v2-rc1": 6,
+      unknown: 0,
+    });
+  });
+
+  it("does not compare Final against a stale Editorial score after Fact remediation rewrites", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "MINOR_REVISION_REQUIRED",
+        transitions: [
+          {
+            action: "editorial-review",
+            createdAt: "2026-08-07T00:00:00Z",
+            details: { telemetry: telemetry({ totalScore: 88 }) },
+          },
+          {
+            action: "remediate-fact-check",
+            createdAt: "2026-08-07T00:01:00Z",
+            details: { telemetry: telemetry({ totalScore: null, result: "retry" }) },
+          },
+          {
+            action: "final-verification",
+            createdAt: "2026-08-07T00:02:00Z",
+            details: { telemetry: telemetry({ totalScore: 80, result: "fail" }) },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.denominators.finalScoreComparisons).toBe(0);
+    expect(metrics.convergence.finalRegressionRate).toBeNull();
+    expect(metrics.convergence.averageFinalScoreDelta).toBeNull();
+  });
 });

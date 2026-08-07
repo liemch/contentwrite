@@ -25,6 +25,17 @@ describe("WP2.7 remediation telemetry", () => {
       errorClass: "content",
       lifetimeRemediationCount: 4,
       cycleRemediationCount: 1,
+      convergence: {
+        observation: "editorial",
+        currentScore: 83,
+        previousEditorialScore: 85,
+        scoreDelta: -2,
+        scoreDirection: "declined",
+        candidateRegression: true,
+        finalRegression: null,
+        retryConverging: false,
+        rewriteCount: 1,
+      },
     });
 
     expect(telemetry).toMatchObject({
@@ -35,9 +46,21 @@ describe("WP2.7 remediation telemetry", () => {
       hasDiscussion: true,
       hasReferences: true,
       deploymentVersion: "a".repeat(40),
+      aiTfesVersion: "v1.6",
+      aiTfesConfig: {
+        bestCandidateLock: false,
+        falseFinalMinorGuard: false,
+        minorPreservePrompt: false,
+        regressionAutoAckBrake: false,
+      },
       lifetimeRemediationCount: 4,
       cycleRemediationCount: 1,
       remediationCount: 1,
+      convergence: {
+        scoreDelta: -2,
+        candidateRegression: true,
+        rewriteCount: 1,
+      },
     });
   });
 

@@ -16,6 +16,15 @@ const MANUAL_ACTIONS = new Set([
   "human-review-confirmed",
   "save-fact-human-verdicts",
 ]);
+const EDITORIAL_ACTIONS = new Set([
+  "editorial-review",
+  "editorial-review-after-revision",
+]);
+const DRAFT_CHANGING_ACTIONS = new Set([
+  "remediate-required-revision",
+  "remediate-fact-check",
+  "manual-draft-revision",
+]);
 
 const rate = (numerator, denominator) =>
   denominator > 0 ? Number((numerator / denominator).toFixed(4)) : null;
@@ -25,6 +34,11 @@ function telemetryOf(transition) {
   return details && typeof details === "object" && details.telemetry
     ? details.telemetry
     : null;
+}
+
+function scoreOf(transition) {
+  const score = telemetryOf(transition)?.totalScore;
+  return typeof score === "number" && Number.isFinite(score) ? score : null;
 }
 
 function addDistributionValue(distribution, value) {
@@ -68,6 +82,42 @@ export function aggregateRemediationMetrics(articles) {
   let factAttemptsWithBlockingCount = 0;
   let factAttemptsWithUnsupportedCount = 0;
   let factAttemptsWithClaimsWithoutSourceCount = 0;
+  let editorialScoreComparisons = 0;
+  let editorialNonDecreasingComparisons = 0;
+  let editorialScoreDeltaSum = 0;
+  let candidateScoreComparisons = 0;
+  let candidateRegressions = 0;
+  let retryConvergingComparisons = 0;
+  let finalScoreComparisons = 0;
+  let finalRegressions = 0;
+  let finalScoreDeltaSum = 0;
+  let rewriteCount = 0;
+  let lockCandidateComparisons = 0;
+  let lockCandidateRegressions = 0;
+  let rejectedRegressionCount = 0;
+  let rejectedCandidateRetentionComparisons = 0;
+  let retainedBestCount = 0;
+  let rejectedScoreDeltaCount = 0;
+  let rejectedScoreDeltaSum = 0;
+  let exhaustionBestRetentionComparisons = 0;
+  let exhaustionWithBestRetained = 0;
+  let revisionRemediationArticles = 0;
+  let revisionConvergedArticles = 0;
+  let manualRecoveryArticles = 0;
+  let finalMinorObservations = 0;
+  let finalMinorEligible = 0;
+  let guardEnabledEligible = 0;
+  let finalMinorSuppressed = 0;
+  let suppressedFinalMinorEvents = 0;
+  let postSuppressionLocked = 0;
+  let postSuppressionHumanCorrections = 0;
+  let brakeAutoAckEligible = 0;
+  let regressionAutoAckSuppressions = 0;
+  let brakeEvents = 0;
+  let regressionLoopsInterrupted = 0;
+  let humanInterventionsAfterBrake = 0;
+  let completionsAfterBrake = 0;
+  const aiTfesVersionEvents = { "v1.6": 0, "v2-rc1": 0, unknown: 0 };
   const blockingClaimDistribution = {};
   const unsupportedClaimDistribution = {};
   const claimsWithoutSourceDistribution = {};
@@ -87,12 +137,18 @@ export function aggregateRemediationMetrics(articles) {
     const actions = transitions.map((transition) => transition.action);
     const completed = COMPLETED_STATES.has(article.workflowState);
     const remediations = actions.filter((action) => REMEDIATION_ACTIONS.has(action)).length;
+    const revisionRemediations = actions.filter(
+      (action) => action === "remediate-required-revision",
+    ).length;
     const exhausted = transitions.some((transition) => {
       if (!EXHAUSTED_ACTIONS.has(transition.action)) return false;
       if (transition.action !== "final-verification-format-invalid") return true;
       return telemetryOf(transition)?.result === "exhausted";
     });
     const manual = actions.some((action) => MANUAL_ACTIONS.has(action));
+    rewriteCount += actions.filter(
+      (action) => action === "remediate-required-revision",
+    ).length;
     const factChecks = transitions.filter((transition) => transition.action === "fact-check");
     const factRemediations = transitions.filter(
       (transition) => transition.action === "remediate-fact-check",
@@ -120,6 +176,50 @@ export function aggregateRemediationMetrics(articles) {
     }
     if (exhausted) exhaustedArticles += 1;
     if (manual) manualInterventionArticles += 1;
+    if (actions.includes("manual-draft-revision")) manualRecoveryArticles += 1;
+    if (revisionRemediations > 0) {
+      revisionRemediationArticles += 1;
+      const revisionExhausted = actions.includes("revision-remediation-exhausted");
+      if (completed && !revisionExhausted) revisionConvergedArticles += 1;
+    }
+
+    let latestEditorialScore = null;
+    let draftChangedSinceEditorial = false;
+    for (const transition of transitions) {
+      const score = scoreOf(transition);
+      if (
+        latestEditorialScore !== null &&
+        DRAFT_CHANGING_ACTIONS.has(transition.action)
+      ) {
+        draftChangedSinceEditorial = true;
+      }
+      if (EDITORIAL_ACTIONS.has(transition.action) && score !== null) {
+        if (latestEditorialScore !== null) {
+          const delta = score - latestEditorialScore;
+          editorialScoreComparisons += 1;
+          editorialScoreDeltaSum += delta;
+          if (delta >= 0) editorialNonDecreasingComparisons += 1;
+          if (transition.action === "editorial-review-after-revision") {
+            candidateScoreComparisons += 1;
+            if (delta < 0) candidateRegressions += 1;
+            if (delta >= 0) retryConvergingComparisons += 1;
+          }
+        }
+        latestEditorialScore = score;
+        draftChangedSinceEditorial = false;
+      } else if (
+        transition.action === "final-verification" &&
+        score !== null &&
+        latestEditorialScore !== null &&
+        !draftChangedSinceEditorial
+      ) {
+        const finalDelta = score - latestEditorialScore;
+        finalScoreComparisons += 1;
+        finalScoreDeltaSum += finalDelta;
+        if (finalDelta < 0) finalRegressions += 1;
+      }
+    }
+
     try {
       const feedback = JSON.parse(article.deskJson ?? "{}").validationFeedback;
       if (feedback) {
@@ -134,10 +234,98 @@ export function aggregateRemediationMetrics(articles) {
 
     const scores = [];
     let articleHasTruncationIndicator = false;
-    for (const transition of transitions) {
+    for (const [transitionIndex, transition] of transitions.entries()) {
       const telemetry = telemetryOf(transition);
       if (!telemetry) continue;
       telemetryEvents += 1;
+      if (telemetry.aiTfesVersion === "v1.6") aiTfesVersionEvents["v1.6"] += 1;
+      else if (telemetry.aiTfesVersion === "v2-rc1") {
+        aiTfesVersionEvents["v2-rc1"] += 1;
+      } else aiTfesVersionEvents.unknown += 1;
+      const finalGuard = telemetry.finalMinorGuard;
+      if (
+        finalGuard &&
+        [
+          "craft-only",
+          "blocking-residual",
+          "unknown-residual",
+          "precondition-failed",
+        ].includes(finalGuard.finalMinorReasonClass)
+      ) {
+        finalMinorObservations += 1;
+        if (finalGuard.finalMinorGuardEligible === true) {
+          finalMinorEligible += 1;
+          if (finalGuard.guardEnabled === true) guardEnabledEligible += 1;
+        }
+        if (finalGuard.finalMinorSuppressed === true) {
+          finalMinorSuppressed += 1;
+          suppressedFinalMinorEvents += 1;
+          if (transition.success === true) postSuppressionLocked += 1;
+          const laterHumanCorrection = transitions
+            .slice(transitionIndex + 1)
+            .some((later) => MANUAL_ACTIONS.has(later.action));
+          if (laterHumanCorrection) postSuppressionHumanCorrections += 1;
+        }
+      }
+      const brake = telemetry.autoAckBrake;
+      if (brake?.brakeEnabled === true && brake.autoAckEligible === true) {
+        brakeAutoAckEligible += 1;
+        if (brake.autoAckSuppressedForRegression === true) {
+          regressionAutoAckSuppressions += 1;
+        }
+        if (brake.humanBrakeTriggered === true) {
+          brakeEvents += 1;
+          const later = transitions.slice(transitionIndex + 1);
+          const nextRemediation = later.findIndex(
+            (candidate) => candidate.action === "remediate-required-revision",
+          );
+          const nextHuman = later.findIndex((candidate) =>
+            ["human-review-confirmed", "manual-draft-revision"].includes(
+              candidate.action,
+            ),
+          );
+          if (
+            nextRemediation < 0 ||
+            (nextHuman >= 0 && nextHuman < nextRemediation)
+          ) {
+            regressionLoopsInterrupted += 1;
+          }
+          if (nextHuman >= 0) humanInterventionsAfterBrake += 1;
+          if (completed) completionsAfterBrake += 1;
+        }
+      }
+      const lock = telemetry.convergence;
+      if (
+        EDITORIAL_ACTIONS.has(transition.action) &&
+        typeof lock?.lockEnabled === "boolean"
+      ) {
+        if (typeof lock.candidateRegression === "boolean") {
+          lockCandidateComparisons += 1;
+          if (lock.candidateRegression) lockCandidateRegressions += 1;
+        }
+        if (lock.candidateRejected === true) {
+          if (lock.candidateRegression === true) rejectedRegressionCount += 1;
+          if (typeof lock.candidateScoreDelta === "number") {
+            rejectedScoreDeltaCount += 1;
+            rejectedScoreDeltaSum += lock.candidateScoreDelta;
+          }
+          if (
+            lock.restoreStatus === "restored" ||
+            lock.restoreStatus === "missing-artifact"
+          ) {
+            rejectedCandidateRetentionComparisons += 1;
+            if (lock.restoreStatus === "restored") retainedBestCount += 1;
+          }
+        }
+      }
+      if (
+        transition.action === "revision-remediation-exhausted" &&
+        lock?.lockEnabled === true &&
+        typeof lock.bestRetainedAtExhaustion === "boolean"
+      ) {
+        exhaustionBestRetentionComparisons += 1;
+        if (lock.bestRetainedAtExhaustion) exhaustionWithBestRetained += 1;
+      }
       if (transition.action === "fact-check" && telemetry.fact) {
         const fact = telemetry.fact;
         if (typeof fact.malformedOutput === "boolean") {
@@ -229,13 +417,28 @@ export function aggregateRemediationMetrics(articles) {
       finalVerifyAttempts,
       telemetryEvents,
       recoveryAttempts,
-        factCheckAttempts,
-        articlesWithFactCheck,
-        articlesWithFactRemediation,
-        factAttemptsWithMalformedFlag,
-        factAttemptsWithBlockingCount,
-        factAttemptsWithUnsupportedCount,
-        factAttemptsWithClaimsWithoutSourceCount,
+      factCheckAttempts,
+      articlesWithFactCheck,
+      articlesWithFactRemediation,
+      factAttemptsWithMalformedFlag,
+      factAttemptsWithBlockingCount,
+      factAttemptsWithUnsupportedCount,
+      factAttemptsWithClaimsWithoutSourceCount,
+      editorialScoreComparisons,
+      candidateScoreComparisons,
+      finalScoreComparisons,
+      retryScoreComparisons: candidateScoreComparisons,
+      lockCandidateComparisons,
+      rejectedCandidateRetentionComparisons,
+      rejectedScoreDeltaCount,
+      exhaustionBestRetentionComparisons,
+      revisionRemediationArticles,
+      exhaustedArticles,
+      finalMinorObservations,
+      guardEnabledEligible,
+      suppressedFinalMinorEvents,
+      brakeAutoAckEligible,
+      brakeEvents,
     },
     firstPassRate: rate(firstPass, total),
     remediationPassRate: rate(remediationPassed, remediationArticles),
@@ -249,6 +452,11 @@ export function aggregateRemediationMetrics(articles) {
     draftTruncationIndicatorRate: rate(truncationIndicators, total),
     recoverySuccessRate: rate(recoverySuccesses, recoveryAttempts),
     editorManualInterventionRate: rate(manualInterventionArticles, total),
+    manualRecoveryRate: rate(manualRecoveryArticles, exhaustedArticles),
+    revisionConvergenceRate: rate(
+      revisionConvergedArticles,
+      revisionRemediationArticles,
+    ),
     factCheck: {
       averageAttemptsPerArticle:
         total > 0 ? Number((factCheckAttempts / total).toFixed(2)) : null,
@@ -269,6 +477,84 @@ export function aggregateRemediationMetrics(articles) {
         factAttemptsWithMalformedFlag,
       ),
     },
+    convergence: {
+      editorialScoreMonotonicityRate: rate(
+        editorialNonDecreasingComparisons,
+        editorialScoreComparisons,
+      ),
+      averageEditorialScoreDelta:
+        editorialScoreComparisons > 0
+          ? Number((editorialScoreDeltaSum / editorialScoreComparisons).toFixed(2))
+          : null,
+      candidateRegressionRate: rate(
+        candidateRegressions,
+        candidateScoreComparisons,
+      ),
+      finalRegressionRate: rate(finalRegressions, finalScoreComparisons),
+      averageFinalScoreDelta:
+        finalScoreComparisons > 0
+          ? Number((finalScoreDeltaSum / finalScoreComparisons).toFixed(2))
+          : null,
+      retryConvergenceRate: rate(
+        retryConvergingComparisons,
+        candidateScoreComparisons,
+      ),
+      averageRewriteCountPerArticle:
+        total > 0 ? Number((rewriteCount / total).toFixed(2)) : null,
+    },
+    candidateLock: {
+      candidateRegressionRate: rate(
+        lockCandidateRegressions,
+        lockCandidateComparisons,
+      ),
+      rejectedRegressionCount,
+      retainedBestRate: rate(
+        retainedBestCount,
+        rejectedCandidateRetentionComparisons,
+      ),
+      averageRejectedScoreDelta:
+        rejectedScoreDeltaCount > 0
+          ? Number((rejectedScoreDeltaSum / rejectedScoreDeltaCount).toFixed(2))
+          : null,
+      exhaustionWithBestRetainedRate: rate(
+        exhaustionWithBestRetained,
+        exhaustionBestRetentionComparisons,
+      ),
+    },
+    finalMinorGuard: {
+      falseFinalMinorEligibleRate: rate(
+        finalMinorEligible,
+        finalMinorObservations,
+      ),
+      suppressedFinalMinorRate: rate(
+        finalMinorSuppressed,
+        guardEnabledEligible,
+      ),
+      postSuppressionPublishOrLockRate: rate(
+        postSuppressionLocked,
+        suppressedFinalMinorEvents,
+      ),
+      laterHumanCorrectionRate: rate(
+        postSuppressionHumanCorrections,
+        suppressedFinalMinorEvents,
+      ),
+    },
+    regressionAutoAckBrake: {
+      suppressionRate: rate(
+        regressionAutoAckSuppressions,
+        brakeAutoAckEligible,
+      ),
+      regressionLoopsInterruptedRate: rate(
+        regressionLoopsInterrupted,
+        brakeEvents,
+      ),
+      humanInterventionAfterBrakeRate: rate(
+        humanInterventionsAfterBrake,
+        brakeEvents,
+      ),
+      completionAfterBrakeRate: rate(completionsAfterBrake, brakeEvents),
+    },
+    aiTfesVersionEvents,
     scoreTrend,
     editorFeedback: {
       responses: feedbackCount,
@@ -303,6 +589,25 @@ export function aggregateRemediationMetrics(articles) {
       factFirstPassArticles,
       factRemediationPassedArticles,
       malformedFactOutputs,
+      editorialNonDecreasingComparisons,
+      candidateRegressions,
+      finalRegressions,
+      retryConvergingComparisons,
+      rewriteCount,
+      lockCandidateRegressions,
+      rejectedRegressionCount,
+      retainedBestCount,
+      exhaustionWithBestRetained,
+      revisionConvergedArticles,
+      manualRecoveryArticles,
+      finalMinorEligible,
+      finalMinorSuppressed,
+      postSuppressionLocked,
+      postSuppressionHumanCorrections,
+      regressionAutoAckSuppressions,
+      regressionLoopsInterrupted,
+      humanInterventionsAfterBrake,
+      completionsAfterBrake,
     },
   };
 }

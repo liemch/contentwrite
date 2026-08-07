@@ -7,6 +7,12 @@ export type FinalVerification = {
   gatesPassed: boolean;
   factPassed: boolean;
   openActions: number | null;
+  decision:
+    | "FINAL_REVIEWED"
+    | "MINOR_REVISION_REQUIRED"
+    | "MAJOR_REVISION_REQUIRED"
+    | "REWRITE_REQUIRED"
+    | null;
   blockingClaims: number;
   machineReadable: boolean;
   failureReasons: string[];
@@ -180,6 +186,13 @@ export function inspectFinalVerification(
     gatesPassed,
     factPassed,
     openActions,
+    decision:
+      decision === "FINAL_REVIEWED" ||
+      decision === "MINOR_REVISION_REQUIRED" ||
+      decision === "MAJOR_REVISION_REQUIRED" ||
+      decision === "REWRITE_REQUIRED"
+        ? decision
+        : null,
     blockingClaims,
     machineReadable,
     failureReasons,

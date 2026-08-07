@@ -41,6 +41,30 @@ export const PIPELINE_CONFIG = {
     articleSoftRetryHint: 16,
   },
 
+  /** AI-TFES v2 RC1 behavior flags. Each controller rolls back independently. */
+  aiTfesV2: {
+    convergenceTelemetry: true,
+    /** WP-V2-02 deterministic candidate retention. */
+    bestCandidateLock: {
+      enabled: false,
+      /** Reject only when candidateScore < bestScore - epsilon. */
+      epsilon: 0,
+    },
+    /** WP-V2-03 suppresses high-quality craft-only Final MINOR outcomes. */
+    falseFinalMinorGuard: {
+      enabled: false,
+    },
+    /** WP-V2-04 adds preservation constraints to MINOR full-draft remediation. */
+    minorPreservePrompt: {
+      enabled: false,
+      version: "v2-rc1-minor-preserve-v1",
+    },
+    /** WP-V2-05 pauses post-revision auto-ack on regression/unreadable review. */
+    regressionAutoAckBrake: {
+      enabled: false,
+    },
+  },
+
   /** Token gen bản sạch / polish / expand (trần API) */
   llm: {
     cleanMaxTokensCap: 16_384,
@@ -52,3 +76,15 @@ export const PIPELINE_CONFIG = {
 } as const;
 
 export type PipelineConfig = typeof PIPELINE_CONFIG;
+
+export type AiTfesVersion = "v1.6" | "v2-rc1";
+
+export function activeAiTfesVersion(): AiTfesVersion {
+  const flags = PIPELINE_CONFIG.aiTfesV2;
+  return flags.bestCandidateLock.enabled ||
+    flags.falseFinalMinorGuard.enabled ||
+    flags.minorPreservePrompt.enabled ||
+    flags.regressionAutoAckBrake.enabled
+    ? "v2-rc1"
+    : "v1.6";
+}
