@@ -8,8 +8,11 @@ import { ApproveGate } from "@/components/approve-gate";
 import { HumanReviewGate } from "@/components/human-review-gate";
 import { ArticleImageStudio } from "@/components/article-image-studio";
 import { CleanEditPanel } from "@/components/clean-edit-panel";
+import { ManualDraftRecoveryPanel } from "@/components/manual-draft-recovery-panel";
+import { RemediationTimeline } from "@/components/remediation-timeline";
 import { FactLedgerPanel } from "@/components/fact-ledger-panel";
 import { EditorialSummaryPanel } from "@/components/editorial-summary-panel";
+import { EditorValidationFeedback } from "@/components/editor-validation-feedback";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineSteps } from "@/components/pipeline-steps";
@@ -45,6 +48,7 @@ type Article = {
   status: string;
   workflowState: string;
   workflowRunId: string;
+  workflowVersion: number;
   contentVersion: string;
   currentStep: string | null;
   errorMessage: string | null;
@@ -1030,6 +1034,21 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         />
       )}
 
+      <RemediationTimeline
+        articleId={article.id}
+        workflowVersion={article.workflowVersion}
+      />
+      <EditorValidationFeedback
+        articleId={article.id}
+        workflowState={article.workflowState}
+        workflowVersion={article.workflowVersion}
+        errorMessage={article.errorMessage}
+        deskJson={article.deskJson}
+        running={running}
+        onArticleUpdate={(next) => setArticle(next as Article)}
+        onLog={(level, message) => pushLog(level, message)}
+      />
+
       <section className="mb-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
           Nhật ký / đầu ra
@@ -1137,6 +1156,25 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có bản sạch</p>
+                </div>
+              )}
+            </>
+          ) : tab === "draft" ? (
+            <>
+              <ManualDraftRecoveryPanel
+                articleId={article.id}
+                workflowVersion={article.workflowVersion}
+                errorMessage={article.errorMessage}
+                draft12={article.draft12}
+                running={running}
+                onArticleUpdate={(next) => setArticle(next as Article)}
+                onLog={(level, message) => pushLog(level, message)}
+              />
+              {activeContent && activeContent !== "ready" ? (
+                <MarkdownView content={activeContent} />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <p className="text-sm font-medium text-[var(--ink-muted)]">Chưa có bản nháp</p>
                 </div>
               )}
             </>

@@ -1,6 +1,6 @@
 # Roadmap — ContentWrite Multi-user Readiness
 
-> Cập nhật: 2026-08-06  
+> Cập nhật: 2026-08-07.
 > Kiến trúc mục tiêu: **modular monolith** (Next.js `web/`), không microservice.
 
 ---
@@ -22,6 +22,8 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP2** | Quality Gate & Vercel Compatibility | **Done** | WP0-A tests, WP1 |
 | **WP2.5** | Revision Context & Token Reliability (F1–F3) | **Done** | WP2 |
 | **WP2.6** | Final Gate & Parser Reliability | **Done — needs production validation** | WP2.5 |
+| **WP2.7** | Production Validation & Measurement | **Implemented — cohort pending** | WP2.5, WP2.6 |
+| **WP-E0A** | Editorial Trajectory Benchmark | **On hold until WP2.7 decision** | WP2.7 GO |
 | **WP3-min** | Auto-write Reliability (decision-gated) | Proposed | Production metrics + auto-write demand |
 | **WP4** | Performance Quick Wins | Planned | WP1 |
 | **WP5** | Workflow Maintainability | Planned | WP2 |
@@ -42,7 +44,9 @@ Q3 2026
 └── WP2.6 ✅  Final gate context + parser reliability
 
 Q4 2026
-├── Validate  WP2.6 trên bài production từng remediation exhausted
+├── WP2.7      Deployment SHA + telemetry + timeline + recovery + feedback
+├── Cohort     5 clean + 3 exhausted + short/medium/long coverage
+├── Decide     GO / HOLD / CANCEL-REDESIGN cho WP-E0A
 ├── Assurance Production DB/backup/Preview + observability
 ├── Product   Guided onboarding + measure completion/quality
 ├── WP3-min   Only if auto-write demand/metrics justify
@@ -63,9 +67,9 @@ Thứ tự khuyến nghị:
 3. Chạy một product loop: guided onboarding, đo completion/time-to-publish/editor score.
 4. Chỉ làm WP3-min khi auto-write là promise cần giữ hoặc usage data chứng minh giá trị.
 
-WP2.6 giữ nguyên retry/state architecture. F7 (tách retry budget), F8 (mở lại Human Review/reset counter)
-và sửa tay `draft12` được hoãn sang Work Package sau, chỉ thực hiện nếu production validation vẫn ghi nhận
-false exhaustion.
+WP2.7 thêm sửa tay `draft12` khi exhausted nhưng cố ý giữ nguyên retry budget/counter và toàn bộ
+state architecture. F7 (tách remediation budget) và F8 (mở lại Human Review/reset counter) vẫn
+deferred cho tới khi cohort có evidence. WP-E0A không bắt đầu trước quyết định sau cohort.
 
 Lý do: cron daily hiện chỉ tiến một workflow step; full WP3 trước khi biết mức sử dụng có nguy cơ over-engineering. Xem [post-wp2-assessment.md](./audit/post-wp2-assessment.md) và [next-step-recommendation.md](./next-step-recommendation.md).
 
