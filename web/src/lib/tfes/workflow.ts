@@ -59,6 +59,7 @@ import {
   verificationStatus,
 } from "@/lib/tfes/fact-ledger";
 import {
+  MAX_EDITORIAL_REVIEW_FORMAT_RETRIES,
   MAX_FINAL_VERIFICATION_FORMAT_RETRIES,
   MAX_REVISION_REMEDIATION_RETRIES,
   isRevisionRemediationExhausted,
@@ -115,6 +116,7 @@ import {
 import {
   buildEditorialDiagnosisContextV2,
   buildEditorialDiagnosisPromptV2,
+  buildEditorialFormatRepairPromptV2,
   buildLockVerifierContextV2,
   buildLockVerifierPromptV2,
   buildMinorRemediationContextV2,
@@ -527,6 +529,68 @@ async function remediationBudgetForRun(input: {
     orderBy: { createdAt: "asc" },
   });
   return countRemediationsInCurrentCycle(transitions, input.remediationAction);
+}
+
+export const EDITORIAL_FORMAT_INVALID_ACTION = "editorial-review-format-invalid";
+
+const EDITORIAL_PARSER_PAUSE_HEADING =
+  "## Editorial Review — machine format không hợp lệ";
+
+const EDITORIAL_STRICT_FORMAT_HINT = [
+  "## LẦN CHẤM LẠI (bắt buộc — lần trước sai machine format)",
+  "Giữ nguyên cách chấm; chỉ sửa định dạng dòng máy.",
+  "Mỗi trường máy một dòng riêng, đúng tên khoá, số nguyên không kèm đơn vị:",
+  "PROVISIONAL_TOTAL_SCORE, PROVISIONAL_INSIGHT_SCORE, GATES_G1_G8, EDITORIAL_DECISION.",
+  "CẤM xuất điểm 0 làm placeholder. Không viết thêm chữ sau các dòng máy.",
+].join("\n");
+
+/**
+ * Editorial format retries are counted per recovery cycle and separately from
+ * the revision remediation budget: a formatting defect is not a content defect.
+ */
+async function editorialFormatRetryContext(
+  articleId: string,
+  workflowRunId: string,
+): Promise<{
+  attempts: number;
+  previousOutput: string | null;
+  malformedReasonCode: string | null;
+}> {
+  const transitions = await prisma.workflowTransition.findMany({
+    where: {
+      articleId,
+      workflowRunId,
+      action: {
+        in: [EDITORIAL_FORMAT_INVALID_ACTION, ...REMEDIATION_CYCLE_ANCHOR_ACTIONS],
+      },
+    },
+    select: { action: true, details: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const budget = countRemediationsInCurrentCycle(
+    transitions.map((transition) => ({
+      action: transition.action,
+      createdAt: transition.createdAt,
+    })),
+    EDITORIAL_FORMAT_INVALID_ACTION,
+  );
+  if (budget.cycleCount === 0) {
+    return { attempts: 0, previousOutput: null, malformedReasonCode: null };
+  }
+  const latest = [...transitions]
+    .reverse()
+    .find((transition) => transition.action === EDITORIAL_FORMAT_INVALID_ACTION);
+  const reason = objectValue(latest?.details)?.malformedReasonCode;
+  const artifact = await prisma.workflowArtifact.findFirst({
+    where: { articleId, workflowRunId, type: ArtifactType.REVIEW },
+    select: { content: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return {
+    attempts: budget.cycleCount,
+    previousOutput: artifact?.content?.trim() ? artifact.content : null,
+    malformedReasonCode: typeof reason === "string" ? reason : null,
+  };
 }
 
 /**
@@ -1455,8 +1519,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 8: Review — lưu tạm vào knowledgeRecord + REVIEW_DONE_MARK + chờ người
       if (finPhase === "review") {
         const llmStarted = Date.now();
-        const reviewMaxTokens = 2200;
         const editorialPrompt = resolvePromptDescriptor("editorial-diagnosis");
+        // Typed diagnosis JSON needs more room than the terse v1.6 machine lines;
+        // truncation was turning valid reviews into parser failures.
+        const reviewMaxTokens =
+          editorialPrompt.promptVersion === "2.0" ? 3200 : 2200;
+        const editorialFormatContext = await editorialFormatRetryContext(
+          articleId,
+          article.workflowRunId,
+        );
         const editorialLegacyContext = appendContext(
           clipText(
             article.researchBrief,
@@ -1480,10 +1551,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             : editorialLegacyContext;
         const editorialUserPrompt =
           editorialPrompt.promptVersion === "2.0"
-            ? buildEditorialDiagnosisPromptV2(editorialContext)
+            ? editorialFormatContext.previousOutput
+              ? buildEditorialFormatRepairPromptV2({
+                  previousOutput: editorialFormatContext.previousOutput,
+                  malformedReason:
+                    editorialFormatContext.malformedReasonCode ?? "unparseable",
+                })
+              : buildEditorialDiagnosisPromptV2(editorialContext)
             : buildPipelinePrompt(
                 "finalize-review",
-                editorialContext,
+                appendContext(
+                  editorialContext,
+                  editorialFormatContext.attempts > 0
+                    ? EDITORIAL_STRICT_FORMAT_HINT
+                    : "",
+                ),
                 undefined,
                 shapeBlockFor(article),
               );
@@ -1506,8 +1588,106 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           contextCharacterLength: editorialContext.length,
           legacyContextCharacterLength: editorialLegacyContext.length,
           defectCount: inspection.defects.length,
-          malformedOutput: !inspection.machineReadable,
+          malformedOutput: inspection.parseFailure,
+          parserVersion: inspection.parserVersion,
+          malformedReasonCode: inspection.malformedReasonCode,
+          rawOutputLength: inspection.rawOutputLength,
+          outputTruncated: inspection.outputTruncated,
+          formatRetryCount: editorialFormatContext.attempts,
+          formatRetrySucceeded:
+            editorialFormatContext.attempts > 0 && !inspection.parseFailure,
         });
+
+        /**
+         * Format defect, not a content verdict: retry the machine contract on a
+         * dedicated counter, then pause for a human. Never move the workflow to
+         * a revision state, never publish a score, never touch the draft — the
+         * best candidate stays exactly where it was.
+         */
+        if (inspection.parseFailure) {
+          const nextAttempt = editorialFormatContext.attempts + 1;
+          const exhausted = nextAttempt >= MAX_EDITORIAL_REVIEW_FORMAT_RETRIES;
+          const reasonCode = inspection.malformedReasonCode ?? "no-machine-contract";
+          const malformedReview = reviewOut
+            .replaceAll(POST_REVISION_REVIEW_MARK, "")
+            .trim();
+          const parserFailureReasons = [
+            `Editorial machine output không parse được (${reasonCode})`,
+            ...(inspection.outputTruncated
+              ? [`Output nghi bị cắt (${inspection.outputTruncated})`]
+              : []),
+          ];
+          const updated = await commitPatch({
+            action: exhausted
+              ? "editorial-review-format-exhausted"
+              : "editorial-review-format-invalid",
+            success: false,
+            articlePatch: {
+              ...(exhausted
+                ? {
+                    knowledgeRecord: withHumanReviewPendingMark(
+                      `${EDITORIAL_PARSER_PAUSE_HEADING}\n` +
+                        `Parser: ${inspection.parserVersion} · lý do: ${reasonCode}.\n` +
+                        "Điểm và quyết định trong output dưới đây KHÔNG hợp lệ và không được dùng làm kết quả chấm.\n\n" +
+                        malformedReview,
+                    ).replaceAll(POST_REVISION_REVIEW_MARK, ""),
+                  }
+                : {}),
+              errorMessage: exhausted
+                ? `Editorial Review sai machine format sau ${MAX_EDITORIAL_REVIEW_FORMAT_RETRIES} lần ` +
+                  `(${reasonCode}) — cần người xem lại; bản nháp tốt nhất được giữ nguyên.`
+                : `Editorial Review output chưa đúng machine format ` +
+                  `(${reasonCode}; lần ${nextAttempt}/${MAX_EDITORIAL_REVIEW_FORMAT_RETRIES}) — tự chấm lại bước 8.`,
+            },
+            details: {
+              parseFailure: true,
+              malformedReasonCode: reasonCode,
+              parserVersion: inspection.parserVersion,
+              machineContract: inspection.machineContract,
+              rawOutputLength: inspection.rawOutputLength,
+              outputTruncated: inspection.outputTruncated,
+              rawTotalScore: inspection.rawTotalScore,
+              rawInsightScore: inspection.rawInsightScore,
+              formatAttempt: nextAttempt,
+              formatRetryExhausted: exhausted,
+              revisionBudgetConsumed: false,
+              telemetry: buildRemediationTelemetry({
+                articleId,
+                workflowState: article.workflowState,
+                transitionName: exhausted
+                  ? "editorial-review-format-exhausted"
+                  : "editorial-review-format-invalid",
+                draft: stripPipelineMarks(article.draft12),
+                result: exhausted ? "exhausted" : "retry",
+                attempt: nextAttempt,
+                retryCount: nextAttempt,
+                failureReasons: parserFailureReasons,
+                totalScore: null,
+                machineReadable: false,
+                machineContract: inspection.machineContract,
+                decision: null,
+                maxTokens: reviewMaxTokens,
+                llmMs: reviewLlmMs,
+                errorClass: "parser",
+                revisionBudgetConsumed: false,
+                prompt: editorialPromptTelemetry,
+              }),
+            },
+            // No draft source link: a malformed review must never be mapped to
+            // a candidate revision by Best Candidate Lock.
+            artifact: {
+              type: ArtifactType.REVIEW,
+              content: malformedReview,
+            },
+          });
+          return withTimings(updated, {
+            llmMs: reviewLlmMs,
+            finalizePhase: exhausted
+              ? "editorial-review-format-exhausted"
+              : "editorial-review-format-retry",
+          });
+        }
+
         const reviewState = inspection.resolvedState;
         const isPostRevisionReview = (article.knowledgeRecord ?? "").includes(
           POST_REVISION_REVIEW_MARK,
@@ -1764,6 +1944,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               decision: inspection.decision,
               maxTokens: reviewMaxTokens,
               llmMs: reviewLlmMs,
+              revisionBudgetConsumed: isPostRevisionReview,
               errorClass:
                 lockEvaluation.candidateRejected ||
                 suppressAutoAck ||

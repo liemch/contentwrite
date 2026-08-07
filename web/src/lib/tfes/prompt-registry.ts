@@ -1,3 +1,4 @@
+import { extractMarkedJson } from "@/lib/tfes/machine-contract";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
 export type PromptRole = "DIAGNOSE" | "PATCH" | "LOCK";
@@ -34,6 +35,14 @@ export type PromptExecutionTelemetry = {
   blockingResidualCount?: number | null;
   falseMinorSuppressed?: boolean;
   malformedOutput?: boolean;
+  /** Parser module that produced the machine result, for defect triage. */
+  parserVersion?: string | null;
+  malformedReasonCode?: string | null;
+  rawOutputLength?: number | null;
+  outputTruncated?: "known" | "suspected" | null;
+  /** Format-only retries already spent on this prompt in the workflow run. */
+  formatRetryCount?: number | null;
+  formatRetrySucceeded?: boolean | null;
 };
 
 const V1: Record<PromptArchitectureId, Omit<PromptDescriptor, "promptId" | "fallbackReason">> = {
@@ -115,6 +124,12 @@ export function buildPromptExecutionTelemetry(input: {
   blockingResidualCount?: number | null;
   falseMinorSuppressed?: boolean;
   malformedOutput?: boolean;
+  parserVersion?: string | null;
+  malformedReasonCode?: string | null;
+  rawOutputLength?: number | null;
+  outputTruncated?: "known" | "suspected" | null;
+  formatRetryCount?: number | null;
+  formatRetrySucceeded?: boolean | null;
 }): PromptExecutionTelemetry {
   const contextChars = Math.max(0, Math.round(input.contextCharacterLength));
   const legacyChars =
@@ -154,6 +169,24 @@ export function buildPromptExecutionTelemetry(input: {
     ...(input.malformedOutput !== undefined
       ? { malformedOutput: input.malformedOutput }
       : {}),
+    ...(input.parserVersion !== undefined
+      ? { parserVersion: input.parserVersion }
+      : {}),
+    ...(input.malformedReasonCode !== undefined
+      ? { malformedReasonCode: input.malformedReasonCode }
+      : {}),
+    ...(input.rawOutputLength !== undefined
+      ? { rawOutputLength: Math.max(0, Math.round(input.rawOutputLength ?? 0)) }
+      : {}),
+    ...(input.outputTruncated !== undefined
+      ? { outputTruncated: input.outputTruncated }
+      : {}),
+    ...(input.formatRetryCount !== undefined
+      ? { formatRetryCount: input.formatRetryCount }
+      : {}),
+    ...(input.formatRetrySucceeded !== undefined
+      ? { formatRetrySucceeded: input.formatRetrySucceeded }
+      : {}),
   };
 }
 
@@ -162,42 +195,6 @@ export function parseMarkedPromptJson(
   raw: string | null | undefined,
   marker: string,
 ): Record<string, unknown> | null {
-  const body = raw ?? "";
-  const markerIndex = body.indexOf(marker);
-  if (markerIndex < 0) return null;
-  const after = body.slice(markerIndex + marker.length).trimStart();
-  const candidate = after.startsWith("```")
-    ? after.replace(/^```(?:json)?\s*/i, "").split(/```/)[0]?.trim() ?? ""
-    : after;
-  const start = candidate.indexOf("{");
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = start; index < candidate.length; index += 1) {
-    const char = candidate[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === "{") depth += 1;
-    if (char === "}") depth -= 1;
-    if (depth !== 0) continue;
-    try {
-      const parsed: unknown = JSON.parse(candidate.slice(start, index + 1));
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  return extractMarkedJson(raw, marker).json;
 }
 

@@ -71,6 +71,8 @@ export type RemediationTelemetry = {
   llmMs: number | null;
   errorClass: RemediationErrorClass;
   result: RemediationResult;
+  /** False on format-only failures so parser defects never look like content cost. */
+  revisionBudgetConsumed?: boolean;
   deploymentVersion: string;
   aiTfesVersion: AiTfesVersion;
   aiTfesConfig: {
@@ -112,6 +114,7 @@ export type RemediationTelemetryInput = {
   maxTokens?: number | null;
   llmMs?: number | null;
   errorClass?: RemediationErrorClass;
+  revisionBudgetConsumed?: boolean;
   fact?: FactCheckSummary;
   convergence?: ConvergenceTelemetry;
   finalMinorGuard?: FinalMinorGuardTelemetry;
@@ -181,6 +184,9 @@ export function buildRemediationTelemetry(
     llmMs: safeInteger(input.llmMs),
     errorClass: input.errorClass ?? null,
     result: input.result,
+    ...(input.revisionBudgetConsumed !== undefined
+      ? { revisionBudgetConsumed: input.revisionBudgetConsumed }
+      : {}),
     deploymentVersion: deployment.commitSha,
     aiTfesVersion: activeAiTfesVersion(),
     aiTfesConfig: {

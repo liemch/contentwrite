@@ -705,4 +705,123 @@ describe("WP2.7 cohort metric aggregation", () => {
       malformedRate: 1,
     });
   });
+
+  it("reports Editorial format reliability without charging content failures", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "EDITORIAL_REVIEWED",
+        transitions: [
+          {
+            action: "editorial-review-format-invalid",
+            createdAt: "2026-08-07T00:00:00Z",
+            details: {
+              telemetry: telemetry({
+                transitionName: "editorial-review-format-invalid",
+                result: "retry",
+                errorClass: "parser",
+                totalScore: null,
+                machineReadable: false,
+                revisionBudgetConsumed: false,
+                prompt: {
+                  promptId: "editorial-diagnosis",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 10_000,
+                  inputTokenEstimate: 2_500,
+                  malformedOutput: true,
+                  malformedReasonCode: "json-truncated",
+                },
+              }),
+            },
+          },
+          {
+            action: "editorial-review",
+            createdAt: "2026-08-07T00:01:00Z",
+            details: {
+              telemetry: telemetry({
+                totalScore: 89,
+                machineReadable: true,
+                prompt: {
+                  promptId: "editorial-diagnosis",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 10_000,
+                  inputTokenEstimate: 2_500,
+                  malformedOutput: false,
+                  formatRetryCount: 1,
+                  formatRetrySucceeded: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        workflowState: "DRAFTED",
+        transitions: [
+          {
+            action: "editorial-review-format-invalid",
+            createdAt: "2026-08-07T01:00:00Z",
+            details: {
+              telemetry: telemetry({
+                result: "retry",
+                errorClass: "parser",
+                totalScore: null,
+                machineReadable: false,
+                prompt: {
+                  promptId: "editorial-diagnosis",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 10_000,
+                  inputTokenEstimate: 2_500,
+                  malformedOutput: true,
+                },
+              }),
+            },
+          },
+          {
+            action: "editorial-review-format-exhausted",
+            createdAt: "2026-08-07T01:01:00Z",
+            details: {
+              telemetry: telemetry({
+                result: "exhausted",
+                errorClass: "parser",
+                totalScore: null,
+                machineReadable: false,
+                prompt: {
+                  promptId: "editorial-diagnosis",
+                  promptArchitectureVersion: "2.0",
+                  contextCharacterLength: 10_000,
+                  inputTokenEstimate: 2_500,
+                  malformedOutput: true,
+                },
+              }),
+            },
+          },
+        ],
+      },
+      {
+        // Legacy row without prompt telemetry stays out of the denominator.
+        workflowState: "PUBLISHED",
+        transitions: [
+          {
+            action: "editorial-review",
+            createdAt: "2026-08-07T02:00:00Z",
+            details: { telemetry: telemetry({ totalScore: 90 }) },
+          },
+        ],
+      },
+    ]);
+
+    expect(metrics.denominators.editorialAttemptsWithMalformedFlag).toBe(4);
+    expect(metrics.denominators.editorialFormatRetriesStarted).toBe(2);
+    expect(metrics.denominators.editorialFormatFailureEvents).toBe(3);
+    expect(metrics.editorialFormat).toEqual({
+      malformedOutputRate: 0.75,
+      formatRetrySuccessRate: 0.5,
+      formatRetryExhaustionRate: Number((1 / 3).toFixed(4)),
+      parserFailureHumanPauses: 1,
+      falseContentFailuresPrevented: 3,
+    });
+    // Parser pauses must not read as content exhaustion.
+    expect(metrics.counts.exhaustedArticles).toBe(0);
+    expect(metrics.exhaustionRate).toBe(0);
+  });
 });

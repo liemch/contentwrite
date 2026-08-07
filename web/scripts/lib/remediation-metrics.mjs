@@ -20,6 +20,13 @@ const EDITORIAL_ACTIONS = new Set([
   "editorial-review",
   "editorial-review-after-revision",
 ]);
+const EDITORIAL_FORMAT_INVALID_ACTION = "editorial-review-format-invalid";
+const EDITORIAL_FORMAT_EXHAUSTED_ACTION = "editorial-review-format-exhausted";
+const EDITORIAL_ATTEMPT_ACTIONS = new Set([
+  ...EDITORIAL_ACTIONS,
+  EDITORIAL_FORMAT_INVALID_ACTION,
+  EDITORIAL_FORMAT_EXHAUSTED_ACTION,
+]);
 const DRAFT_CHANGING_ACTIONS = new Set([
   "remediate-required-revision",
   "remediate-fact-check",
@@ -135,6 +142,13 @@ export function aggregateRemediationMetrics(articles) {
   let suppressedFinalMinorEvents = 0;
   let postSuppressionLocked = 0;
   let postSuppressionHumanCorrections = 0;
+  let editorialAttemptsWithMalformedFlag = 0;
+  let editorialMalformedAttempts = 0;
+  let editorialFormatRetriesStarted = 0;
+  let editorialFormatRetriesRecovered = 0;
+  let editorialFormatExhaustedEvents = 0;
+  let editorialParserHumanPauses = 0;
+  let falseContentFailuresPrevented = 0;
   let brakeAutoAckEligible = 0;
   let regressionAutoAckSuppressions = 0;
   let brakeEvents = 0;
@@ -418,6 +432,34 @@ export function aggregateRemediationMetrics(articles) {
           factAttemptsWithClaimsWithoutSourceCount += 1;
         }
       }
+      // Legacy rows carry no prompt telemetry and must stay out of the
+      // denominator instead of being read as a clean parse.
+      if (
+        EDITORIAL_ATTEMPT_ACTIONS.has(transition.action) &&
+        typeof telemetry.prompt?.malformedOutput === "boolean"
+      ) {
+        editorialAttemptsWithMalformedFlag += 1;
+        if (telemetry.prompt.malformedOutput) editorialMalformedAttempts += 1;
+      }
+      if (transition.action === EDITORIAL_FORMAT_INVALID_ACTION) {
+        editorialFormatRetriesStarted += 1;
+        falseContentFailuresPrevented += 1;
+        const nextAttempt = transitions
+          .slice(transitionIndex + 1)
+          .find((later) => EDITORIAL_ATTEMPT_ACTIONS.has(later.action));
+        if (
+          nextAttempt &&
+          EDITORIAL_ACTIONS.has(nextAttempt.action) &&
+          telemetryOf(nextAttempt)?.machineReadable === true
+        ) {
+          editorialFormatRetriesRecovered += 1;
+        }
+      }
+      if (transition.action === EDITORIAL_FORMAT_EXHAUSTED_ACTION) {
+        editorialFormatExhaustedEvents += 1;
+        editorialParserHumanPauses += 1;
+        falseContentFailuresPrevented += 1;
+      }
       for (const gate of telemetry.gateFailures ?? []) {
         if (gate in gateFailDistribution) gateFailDistribution[gate] += 1;
       }
@@ -505,6 +547,10 @@ export function aggregateRemediationMetrics(articles) {
       suppressedFinalMinorEvents,
       brakeAutoAckEligible,
       brakeEvents,
+      editorialAttemptsWithMalformedFlag,
+      editorialFormatRetriesStarted,
+      editorialFormatFailureEvents:
+        editorialFormatRetriesStarted + editorialFormatExhaustedEvents,
     },
     firstPassRate: rate(firstPass, total),
     remediationPassRate: rate(remediationPassed, remediationArticles),
@@ -605,6 +651,22 @@ export function aggregateRemediationMetrics(articles) {
         suppressedFinalMinorEvents,
       ),
     },
+    editorialFormat: {
+      malformedOutputRate: rate(
+        editorialMalformedAttempts,
+        editorialAttemptsWithMalformedFlag,
+      ),
+      formatRetrySuccessRate: rate(
+        editorialFormatRetriesRecovered,
+        editorialFormatRetriesStarted,
+      ),
+      formatRetryExhaustionRate: rate(
+        editorialFormatExhaustedEvents,
+        editorialFormatRetriesStarted + editorialFormatExhaustedEvents,
+      ),
+      parserFailureHumanPauses: editorialParserHumanPauses,
+      falseContentFailuresPrevented,
+    },
     regressionAutoAckBrake: {
       suppressionRate: rate(
         regressionAutoAckSuppressions,
@@ -676,6 +738,11 @@ export function aggregateRemediationMetrics(articles) {
       regressionLoopsInterrupted,
       humanInterventionsAfterBrake,
       completionsAfterBrake,
+      editorialMalformedAttempts,
+      editorialFormatRetriesRecovered,
+      editorialFormatExhaustedEvents,
+      editorialParserHumanPauses,
+      falseContentFailuresPrevented,
     },
   };
 }
