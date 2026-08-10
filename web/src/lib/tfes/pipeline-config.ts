@@ -6,17 +6,24 @@
 export const PIPELINE_CONFIG = {
   version: 1,
 
-  /** Số từ bản sạch */
+  /**
+   * Độ dài bản sạch. Đơn vị của MỌI số ở đây là TỪ tiếng Việt thật
+   * (“cơ sở dữ liệu” = 1 từ), không phải tiếng/âm tiết tách khoảng trắng.
+   */
   words: {
-    defaultTarget: 1200,
-    minTarget: 400,
-    maxTarget: 2500,
+    defaultTarget: 900,
+    minTarget: 50,
+    maxTarget: 1600,
+    /** Tách khoảng trắng cho ra tiếng; quy đổi sang từ qua hệ số này. */
+    syllablesPerWord: 1.6,
     /** Sàn máy chấm = target × ratio */
-    cleanMinRatio: 0.7,
+    cleanMinRatio: 0.85,
     /** Dưới mức này → expand pass */
-    cleanAimRatio: 0.85,
-    cleanMaxRatio: 1.6,
-    cleanMaxBuffer: 300,
+    cleanAimRatio: 0.95,
+    cleanMaxRatio: 1.35,
+    cleanMaxBuffer: 150,
+    /** Số vòng expand tối đa khi bản sạch chưa chạm aim */
+    maxExpandPasses: 2,
   },
 
   /** Ngân sách context ký tự cho bước chấm (8) và Revision Remediation */
@@ -24,8 +31,8 @@ export const PIPELINE_CONFIG = {
     /** Sàn ký tự nháp cấp cho reviewer — phải đủ để đọc References/Takeaways/Discussion */
     reviewDraftMinChars: 16_000,
     reviewDraftMaxChars: 32_000,
-    /** Nháp 12 phần dài hơn bản sạch — ước lượng ký tự/từ tiếng Việt kèm buffer */
-    reviewDraftCharsPerWord: 9,
+    /** Ký tự cho MỘT từ tiếng Việt thật (~1.6 tiếng × ~6 ký tự) + buffer nháp 12 phần */
+    reviewDraftCharsPerWord: 15,
     reviewResearchBriefChars: 3_000,
     /** Required Revisions mới nhất từ 9b — đứng đầu prompt remediation */
     revisionFinalVerificationChars: 3_000,
@@ -33,7 +40,7 @@ export const PIPELINE_CONFIG = {
     /** Reader Simulation — bản sạch clip (thấp hơn review vì đã là bản đăng) */
     readerSimDraftMinChars: 12_000,
     readerSimDraftMaxChars: 24_000,
-    readerSimDraftCharsPerWord: 8,
+    readerSimDraftCharsPerWord: 13,
   },
 
   /** Retry / vòng lặp */
@@ -108,9 +115,12 @@ export const PIPELINE_CONFIG = {
   llm: {
     cleanMaxTokensCap: 16_384,
     cleanMaxTokensFloor: 8_000,
-    /** ~token per Vietnamese word + reasoning buffer */
-    cleanTokensPerWord: 5,
-    cleanTokensExtra: 2_000,
+    /**
+     * Token API cho MỘT TỪ tiếng Việt thật: ~1.6 tiếng × ~2.5 token/tiếng ≈ 4,
+     * nhân đôi vì reasoning của gpt-oss ăn chung max_tokens.
+     */
+    cleanTokensPerWord: 8,
+    cleanTokensExtra: 3_000,
   },
 } as const;
 

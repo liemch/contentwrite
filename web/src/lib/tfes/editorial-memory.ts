@@ -89,10 +89,21 @@ export async function getRelatedAngles(input: {
             domain: true,
             createdById: true,
             workflowState: true,
+            insightGate: true,
+            knowledgeRecord: true,
           },
         })
       : Promise.resolve([]),
   ]);
+
+  const seriesKr =
+    seriesArticles.length > 0
+      ? await prisma.knowledgeRecord.findMany({
+          where: { articleId: { in: seriesArticles.map((s) => s.id) } },
+          select: { articleId: true, coreMessage: true },
+        })
+      : [];
+  const seriesKrById = new Map(seriesKr.map((k) => [k.articleId, k.coreMessage]));
 
   let filteredRecords = records;
   if (ownerScope) {
@@ -136,11 +147,18 @@ export async function getRelatedAngles(input: {
     const title = (s.title || s.topic || "").trim();
     if (!title) continue;
     if (angles.some((x) => normalize(x.title) === normalize(title))) continue;
+    const core = extractClaimedAngle({
+      topic: s.topic,
+      title,
+      coreMessage: seriesKrById.get(s.id),
+      insightGate: s.insightGate,
+      knowledgeRecord: s.knowledgeRecord,
+    });
     angles.unshift({
       title: `[Series] ${title}`,
       score: null,
       domain: s.domain,
-      core: "cùng series — tránh trùng góc",
+      core: core || "cùng series — tránh trùng góc",
       articleId: s.id,
     });
   }
@@ -225,55 +243,223 @@ export async function getDeskMetrics(whereArticles: {
   };
 }
 
+export type SeriesSiblingClaim = {
+  articleId: string;
+  seriesOrder: number | null;
+  topic: string;
+  title: string;
+  /** Luận điểm / thesis đã chiếm — tín hiệu chính để tránh trùng */
+  core: string;
+  status: string;
+};
+
+export type SeriesAntiOverlap = {
+  seriesId: string;
+  seriesTitle: string;
+  seriesDescription: string | null;
+  domain: string;
+  siblings: SeriesSiblingClaim[];
+  /** Block nhúng prompt Research / Insight / Draft */
+  block: string;
+};
+
+/** Lấy thesis/core từ insightGate hoặc knowledgeRecord text. */
+export function extractClaimedAngle(input: {
+  topic?: string | null;
+  title?: string | null;
+  coreMessage?: string | null;
+  insightGate?: string | null;
+  knowledgeRecord?: string | null;
+}): string {
+  const fromCore = (input.coreMessage ?? "").replace(/\s+/g, " ").trim();
+  if (fromCore.length >= 24) return fromCore.slice(0, 220);
+
+  const gate = input.insightGate ?? "";
+  const thesisJson = gate.match(/"thesis"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+  if (thesisJson?.[1]) {
+    return thesisJson[1].replace(/\\"/g, '"').replace(/\s+/g, " ").trim().slice(0, 220);
+  }
+  const thesisMd =
+    gate.match(/(?:^|\n)\s*(?:\*\*)?(?:thesis|core message|luận điểm|góc)\s*(?:\*\*)?\s*[:：]\s*(.+)/i) ??
+    [];
+  if (thesisMd[1]?.trim()) return thesisMd[1].trim().replace(/\s+/g, " ").slice(0, 220);
+
+  const kr = input.knowledgeRecord ?? "";
+  const krCore =
+    kr.match(/(?:^|\n)\s*(?:\*\*)?(?:core message|luận điểm|thesis)\s*(?:\*\*)?\s*[:：]\s*(.+)/i) ??
+    [];
+  if (krCore[1]?.trim()) return krCore[1].trim().replace(/\s+/g, " ").slice(0, 220);
+
+  return (input.topic || input.title || "").replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+/** Điểm trùng góc candidate vs sibling (0–1). */
+export function seriesAngleOverlapScore(
+  candidate: string,
+  sibling: SeriesSiblingClaim,
+): number {
+  const against = [sibling.core, sibling.topic, sibling.title]
+    .filter(Boolean)
+    .join(" · ");
+  return Math.max(
+    overlapScore(candidate, sibling.core),
+    overlapScore(candidate, sibling.topic),
+    overlapScore(candidate, against) * 0.85,
+  );
+}
+
+/** Sibling trùng nhất — null nếu không ai vượt ngưỡng. */
+export function findSeriesAngleCollision(
+  candidate: string,
+  siblings: SeriesSiblingClaim[],
+  threshold = 0.42,
+): { sibling: SeriesSiblingClaim; score: number } | null {
+  let best: { sibling: SeriesSiblingClaim; score: number } | null = null;
+  for (const sibling of siblings) {
+    const score = seriesAngleOverlapScore(candidate, sibling);
+    if (score < threshold) continue;
+    if (!best || score > best.score) best = { sibling, score };
+  }
+  return best;
+}
+
+function formatSeriesAntiOverlapBlock(input: {
+  seriesTitle: string;
+  seriesDescription: string | null;
+  siblings: SeriesSiblingClaim[];
+}): string {
+  const desc = (input.seriesDescription ?? "").trim();
+  const claimed =
+    input.siblings.length === 0
+      ? "- (chưa có bài anh/em — bài đầu tiên trong series)"
+      : input.siblings
+          .map((s) => {
+            const order = s.seriesOrder != null ? `#${s.seriesOrder}` : "·";
+            const topic = s.topic || s.title || "Untitled";
+            const core = s.core ? ` — đã chiếm: ${s.core}` : "";
+            return `- ${order} ${topic}${core} [${s.status}]`;
+          })
+          .join("\n");
+
+  return `## SERIES_ANTI_OVERLAP (bắt buộc)
+Series: **${input.seriesTitle}**${desc ? ` — ${desc.slice(0, 280)}` : ""}
+Góc / luận điểm ĐÃ CHIẾM trong series (CẤM viết lại cùng insight với wording khác):
+${claimed}
+RULES:
+- Cùng chủ đề series được phép; TRÙNG thesis / core message / hook mở bài với sibling thì CẤM.
+- Mỗi bài một góc hẹp khác (trade-off, điều kiện, failure mode, hoặc đối tượng khác).
+- angle + thesis phải khác rõ các dòng “đã chiếm” ở trên — không paraphrase.
+- Nếu topic gần sibling: siết điều kiện / phản ví dụ / biên áp dụng để tách insight.`;
+}
+
+/** Nạp series + sibling claims cho anti-overlap. */
+export async function loadSeriesAntiOverlap(input: {
+  seriesId: string;
+  excludeArticleId?: string | null;
+  accessScope?: { mode: "admin" } | { mode: "owner"; userId: string };
+}): Promise<SeriesAntiOverlap | null> {
+  const series = await prisma.series.findUnique({
+    where: { id: input.seriesId },
+    select: { id: true, title: true, description: true, domain: true },
+  });
+  if (!series) return null;
+
+  const rows = await prisma.article.findMany({
+    where: {
+      seriesId: input.seriesId,
+      ...(input.excludeArticleId ? { id: { not: input.excludeArticleId } } : {}),
+    },
+    orderBy: [{ seriesOrder: "asc" }, { createdAt: "asc" }],
+    take: 24,
+    select: {
+      id: true,
+      title: true,
+      topic: true,
+      seriesOrder: true,
+      status: true,
+      insightGate: true,
+      knowledgeRecord: true,
+      createdById: true,
+      workflowState: true,
+    },
+  });
+
+  const krRows = await prisma.knowledgeRecord.findMany({
+    where: { articleId: { in: rows.map((r) => r.id) } },
+    select: { articleId: true, coreMessage: true, title: true },
+  });
+  const krByArticle = new Map(krRows.map((k) => [k.articleId, k]));
+
+  const ownerScope =
+    input.accessScope?.mode === "owner" ? input.accessScope.userId : null;
+  const siblings: SeriesSiblingClaim[] = [];
+  for (const row of rows) {
+    if (
+      ownerScope &&
+      row.createdById !== ownerScope &&
+      row.workflowState !== WorkflowState.PUBLISHED
+    ) {
+      continue;
+    }
+    const kr = krByArticle.get(row.id);
+    const topic = (row.topic || "").trim();
+    const title = (row.title || kr?.title || topic || "Untitled").trim();
+    siblings.push({
+      articleId: row.id,
+      seriesOrder: row.seriesOrder,
+      topic: topic || title,
+      title,
+      core: extractClaimedAngle({
+        topic,
+        title,
+        coreMessage: kr?.coreMessage,
+        insightGate: row.insightGate,
+        knowledgeRecord: row.knowledgeRecord,
+      }),
+      status: row.status,
+    });
+  }
+
+  return {
+    seriesId: series.id,
+    seriesTitle: series.title,
+    seriesDescription: series.description,
+    domain: series.domain,
+    siblings,
+    block: formatSeriesAntiOverlapBlock({
+      seriesTitle: series.title,
+      seriesDescription: series.description,
+      siblings,
+    }),
+  };
+}
+
 /** Format memory block cho LLM research (richer). */
 export async function buildEditorialMemoryBlock(
   domain: string,
   opts?: {
     seriesId?: string | null;
+    excludeArticleId?: string | null;
     accessScope?: { mode: "admin" } | { mode: "owner"; userId: string };
   },
 ): Promise<string> {
-  const angles = await getRelatedAngles({
-    domain,
-    limit: 10,
-    seriesId: opts?.seriesId,
-    accessScope: opts?.accessScope,
-  });
-  const seriesLines: string[] = [];
+  const [angles, seriesAnti] = await Promise.all([
+    getRelatedAngles({
+      domain,
+      limit: 10,
+      seriesId: opts?.seriesId,
+      accessScope: opts?.accessScope,
+    }),
+    opts?.seriesId
+      ? loadSeriesAntiOverlap({
+          seriesId: opts.seriesId,
+          excludeArticleId: opts.excludeArticleId,
+          accessScope: opts.accessScope,
+        })
+      : Promise.resolve(null),
+  ]);
 
-  if (opts?.seriesId) {
-    const siblings = await prisma.article.findMany({
-      where: { seriesId: opts.seriesId },
-      orderBy: [{ seriesOrder: "asc" }, { createdAt: "asc" }],
-      select: {
-        id: true,
-        title: true,
-        topic: true,
-        seriesOrder: true,
-        status: true,
-        knowledgeRecord: true,
-        createdById: true,
-        workflowState: true,
-      },
-      take: 20,
-    });
-    const ownerScope =
-      opts.accessScope?.mode === "owner" ? opts.accessScope.userId : null;
-    for (const s of siblings) {
-      if (
-        ownerScope &&
-        s.createdById !== ownerScope &&
-        s.workflowState !== WorkflowState.PUBLISHED
-      ) {
-        continue;
-      }
-      const title = (s.title || s.topic || "Untitled").trim();
-      const order = s.seriesOrder != null ? `#${s.seriesOrder}` : "·";
-      seriesLines.push(`- ${order} ${title} [${s.status}]`);
-    }
-  }
-
-  if (angles.length === 0 && seriesLines.length === 0) {
+  if (angles.length === 0 && !seriesAnti) {
     return "kho đang trống — chạy Seeding Mode";
   }
 
@@ -283,19 +469,14 @@ export async function buildEditorialMemoryBlock(
     return `- ${a.title} (${score})${core}`;
   });
 
-  const seriesBlock =
-    seriesLines.length > 0
-      ? `\n## Series siblings (CẤM trùng góc / mở bài giống trong series)
-${seriesLines.join("\n")}
-`
-      : "";
+  const seriesBlock = seriesAnti?.block ? `\n${seriesAnti.block}\n` : "";
 
   return `## Editorial Memory (đã có — CẤM trùng góc / mở bài giống)
-${lines.join("\n")}
+${lines.length ? lines.join("\n") : "- (chưa có góc domain gần)"}
 ${seriesBlock}
 Khi chọn góc mới: khác luận điểm cốt lõi; xoay shape/mở bài; không viết lại cùng insight với wording khác.${
-    seriesLines.length
-      ? " Trong series: mỗi bài một góc hẹp khác; nối mạch nhưng không lặp luận điểm."
+    seriesAnti
+      ? " Ưu tiên SERIES_ANTI_OVERLAP hơn memory domain nếu xung đột."
       : ""
   }`;
 }

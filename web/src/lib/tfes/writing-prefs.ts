@@ -1,6 +1,8 @@
 /** Cấu hình viết theo bài + mặc định Settings */
 
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+import { resolvePublishFormat } from "@/lib/tfes/publish-formats";
+import { wordsToSyllables } from "@/lib/tfes/word-count";
 
 /** Flag máy vẫn nhận diện trong chuỗi tự do (quality gate). */
 export const AVOID_FORMAT_FLAGS = ["table", "mermaid", "numbered_outline"] as const;
@@ -104,12 +106,15 @@ export function hasAvoid(prefs: WritingPrefs, flag: AvoidFormatFlag): boolean {
 }
 
 /** Block nhúng vào prompt Write / Publish */
-export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
+export function formatWritingPrefsPrompt(
+  prefs: WritingPrefs,
+  publishFormat?: string | null,
+): string {
   const avoidLines: string[] = [];
   const text = prefs.avoidFormatsText.trim();
 
   if (!text) {
-    avoidLines.push("- Không ràng buộc format đặc biệt ngoài BAR VIẾT");
+    avoidLines.push("- Không ràng buộc format đặc biệt ngoài BAR VIẾT / PUBLISH_FORMAT");
   } else {
     avoidLines.push(`- Tránh format (yêu cầu biên tập — bắt buộc): ${text}`);
     if (hasAvoid(prefs, "table")) {
@@ -125,14 +130,20 @@ export function formatWritingPrefsPrompt(prefs: WritingPrefs): string {
     }
   }
 
-  const min = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMinRatio);
+  const format = resolvePublishFormat(publishFormat);
+  const min = Math.max(
+    format.wordFloor,
+    Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMinRatio),
+  );
   const aim = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanAimRatio);
   const max = Math.round(prefs.targetWordCount * PIPELINE_CONFIG.words.cleanMaxRatio);
 
   return `### WRITING PREFS (bắt buộc tuân thủ)
-- Độ dài = số TỪ tiếng Việt (tách khoảng trắng), KHÔNG phải số ký tự/chữ cái
-- Target bản sạch: ~${prefs.targetWordCount} từ (aim ≥${aim}; máy chấm sàn ≥${Math.max(450, min)}; trần ~${max})
-- Viết ĐỦ gần target — mở rộng ví dụ / trade-off / phản biện / mini-case; CẤM dừng sớm hay rút synopsis
+- Đơn vị độ dài = TỪ tiếng Việt thật, KHÔNG phải tiếng/âm tiết: “cơ sở dữ liệu” = 1 từ (4 tiếng)
+- Target bản sạch: ~${prefs.targetWordCount} từ ≈ **${wordsToSyllables(prefs.targetWordCount)} tiếng** khi tách khoảng trắng — hãy tự canh theo số TIẾNG này
+- Aim ≥${aim} từ (≈${wordsToSyllables(aim)} tiếng); máy chấm sàn ≥${min} từ; trần ~${max} từ; format \`${format.id}\`
+- Máy CHỈ đếm văn xuôi: tiêu đề, ảnh HERO, code block, References/Knowledge Record và URL đều KHÔNG tính
+- Viết ĐỦ gần target theo PUBLISH_FORMAT — CẤM dừng sớm hay rút synopsis
 ${avoidLines.join("\n")}`;
 }
 

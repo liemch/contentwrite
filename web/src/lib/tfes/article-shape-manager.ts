@@ -2,6 +2,10 @@ import type { ArticleShapeProfile } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { ARTICLE_SHAPES, type ArticleShape, type ArticleShapeId } from "@/lib/tfes/article-shapes";
 import { resolvePublishFormat } from "@/lib/tfes/publish-formats";
+import {
+  defaultDomainsCsvForShape,
+  isShapeRecommendedForDomain,
+} from "@/lib/tfes/shape-selection";
 
 export type ShapeProfileView = {
   id: string;
@@ -18,11 +22,18 @@ export type ShapeProfileView = {
 };
 
 function defaultProfile(shape: ArticleShape): ShapeProfileView {
-  const lockedFormat = shape.id === "failure-postmortem"
-    ? "blog,postmortem"
-    : ["field-note", "adr", "internal-brief", "thread-qa"].includes(shape.id)
-      ? shape.id
-      : "blog";
+  const lockedFormat =
+    shape.id === "failure-postmortem"
+      ? "blog,postmortem"
+      : shape.id === "facebook-post"
+        ? "facebook"
+        : shape.id === "linkedin-post"
+          ? "linkedin"
+          : shape.id === "newsletter"
+            ? "newsletter"
+            : ["field-note", "adr", "internal-brief", "thread-qa"].includes(shape.id)
+              ? shape.id
+              : "blog";
   const kindMap: Partial<Record<ArticleShapeId, string>> = {
     "paradox-deepdive": "paradox,trade-off",
     "failure-postmortem": "failure,incident",
@@ -33,6 +44,15 @@ function defaultProfile(shape: ArticleShape): ShapeProfileView {
     adr: "decision,architecture",
     "internal-brief": "decision,proposal",
     "thread-qa": "question,reframe",
+    "facebook-post": "social,hook",
+    "linkedin-post": "social,career",
+    newsletter: "digest,roundup",
+    "before-after": "case,narrative,trade-off",
+    "myth-bust": "reframe,question,paradox",
+    "constraint-first": "decision,trade-off,architecture",
+    "timeline-reframe": "case,failure,reframe",
+    "playbook-conditional": "practice,decision",
+    "cost-of-inaction": "decision,trade-off,question",
   };
   return {
     id: shape.id,
@@ -44,7 +64,7 @@ function defaultProfile(shape: ArticleShape): ShapeProfileView {
     weight: 10,
     cooldownArticles: 4,
     compatibleFormats: lockedFormat,
-    domains: "*",
+    domains: defaultDomainsCsvForShape(shape.id),
     insightKinds: kindMap[shape.id] ?? "*",
   };
 }
@@ -71,10 +91,12 @@ function fromRow(row: ArticleShapeProfile): ShapeProfileView {
 }
 
 export async function ensureDefaultShapeProfiles(): Promise<void> {
-  const count = await prisma.articleShapeProfile.count();
-  if (count > 0) return;
+  const existing = await prisma.articleShapeProfile.findMany({ select: { id: true } });
+  const existingIds = new Set(existing.map((row) => row.id));
+  const missing = Object.values(ARTICLE_SHAPES).filter((shape) => !existingIds.has(shape.id));
+  if (missing.length === 0) return;
   await prisma.articleShapeProfile.createMany({
-    data: Object.values(ARTICLE_SHAPES).map((shape) => {
+    data: missing.map((shape) => {
       const profile = defaultProfile(shape);
       return {
         id: profile.id,
@@ -113,9 +135,14 @@ function insightKinds(text: string): Set<string> {
   if (/nghịch lý|paradox|nhưng chỉ khi|điều kiện ẩn/i.test(text)) kinds.add("paradox");
   if (/trade-?off|đánh đổi|hai phe|so sánh|versus|\bvs\b/i.test(text)) kinds.add("trade-off");
   if (/sự cố|incident|failure|thất bại|root cause/i.test(text)) kinds.add("failure");
-  if (/case|tình huống|câu chuyện/i.test(text)) kinds.add("case");
-  if (/câu hỏi|hỏi sai|reframe|đảo trực giác/i.test(text)) kinds.add("question");
-  if (/quyết định|decision|architecture|kiến trúc/i.test(text)) kinds.add("decision");
+  if (/case|tình huống|câu chuyện|trước.*sau|timeline/i.test(text)) kinds.add("case");
+  if (/câu hỏi|hỏi sai|reframe|đảo trực giác|niềm tin|myth/i.test(text)) kinds.add("question");
+  if (/quyết định|decision|architecture|kiến trúc|ràng buộc|constraint|trì hoãn/i.test(text)) {
+    kinds.add("decision");
+  }
+  if (/playbook|thực hành|anti-?pattern|field note/i.test(text)) kinds.add("practice");
+  if (/narrative|kể chuyện/i.test(text)) kinds.add("narrative");
+  if (/reframe/i.test(text)) kinds.add("reframe");
   if (kinds.size === 0) kinds.add("practice");
   return kinds;
 }
@@ -144,9 +171,13 @@ export async function selectArticleShape(input: {
 }> {
   const profiles = (await listShapeProfiles()).filter((profile) => profile.active);
   const format = resolvePublishFormat(input.publishFormat);
-  const locked = format.lockShape
-    ? profiles.find((profile) => profile.id === format.lockShape)
-    : null;
+  const locked =
+    format.lockShape
+      ? profiles.find((profile) => profile.id === format.lockShape) ??
+        (ARTICLE_SHAPES[format.lockShape]
+          ? defaultProfile(ARTICLE_SHAPES[format.lockShape])
+          : null)
+      : null;
   const candidates = locked
     ? [locked]
     : profiles.filter(
@@ -168,11 +199,13 @@ export async function selectArticleShape(input: {
     const inCooldown = cooldownWindow.some((article) => article.articleShapeId === profile.id);
     const usage = recent.filter((article) => article.articleShapeId === profile.id).length;
     const openingReuse = recent.slice(0, 8).filter((article) => article.openingPattern === profile.definition.opening).length;
+    const domainRecommended = isShapeRecommendedForDomain(profile.id, input.domain);
     return {
       profile,
       score:
         profile.weight +
-        (kindFit ? 30 : 0) -
+        (kindFit ? 30 : 0) +
+        (domainRecommended ? 40 : -25) -
         (inCooldown ? 100 : 0) -
         usage * 5 -
         openingReuse * 8 +

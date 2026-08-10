@@ -13,7 +13,7 @@ status: SYNTHESIZED
 generated_at: <ISO-8601>
 ```
 
-- **Domain:** <engineering | ai-ml | product | security | soft-skills>
+- **Domain:** <engineering | ai-ml | product | security | soft-skills | fun | new-tech | lifestyle>
 - **Ngày:** <YYYY-MM-DD>
 - **Cửa sổ nghiên cứu:** <theo freshness của domain>
 - **Search provider:** <tên provider; không bắt buộc Tavily>

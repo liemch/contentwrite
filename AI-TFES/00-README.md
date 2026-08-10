@@ -48,7 +48,10 @@ AI-TFES/
 │   ├── soft-skills.md
 │   ├── product.md
 │   ├── ai-ml.md
-│   └── security.md
+│   ├── security.md
+│   ├── fun.md
+│   ├── new-tech.md
+│   └── lifestyle.md
 └── 05-Templates/
     ├── Research-Brief.md
     ├── Article.md

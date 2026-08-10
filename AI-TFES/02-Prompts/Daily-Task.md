@@ -6,8 +6,8 @@
 
 Hôm nay hãy tạo **01 bài viết** theo đúng AI-TFES workflow.
 
-**Hồ sơ miền:** `<engineering | soft-skills>`
-**Ngôn ngữ / độ dài:** tiếng Việt / 1.200–1.800 từ
+**Hồ sơ miền:** `<engineering | soft-skills | product | ai-ml | security | fun | new-tech | lifestyle>`
+**Ngôn ngữ / độ dài:** tiếng Việt / ~750–1.100 TỪ thật (≈1.200–1.800 tiếng tách khoảng trắng)
 **Cửa sổ nghiên cứu:** 14 ngày gần nhất (tin tức); không giới hạn với Best Practice/Architecture/Leadership.
 
 **Trạng thái hiện tại (Editorial Memory):**

@@ -507,7 +507,7 @@ export function buildResearchPacketContextV2(input: {
   return appendContext(
     `TOPIC:\n${clipText(input.topic, 500)}`,
     input.editorialMemory?.trim()
-      ? `DEDUPLICATION_HINTS:\n${clipText(input.editorialMemory, 2_000)}`
+      ? `DEDUPLICATION_HINTS:\n${clipText(input.editorialMemory, 3_200)}`
       : "",
     input.previousGateFail?.trim()
       ? `PREVIOUS_GATE_FAIL:\n${clipText(input.previousGateFail, 2_500)}`
@@ -550,6 +550,8 @@ ${RESEARCH_PACKET_MARKER}
 }
 
 JSON keys must be English exactly. Do not emit a second Markdown brief; the runtime materializes it.
+Emit COMPACT JSON on as few lines as possible: no pretty-printing, no indentation, no blank lines.
+Keep excerpts under 240 characters so the object always closes before the token budget ends.
 Include ≥3 findings when coverageStatus=SUFFICIENT, with counter-evidence in contradictions when present.
 If independent evidence is insufficient, set coverageStatus=EVIDENCE_INSUFFICIENT and list gaps in limitations.
 Do not fill missing evidence from memory.
@@ -573,6 +575,72 @@ required keys. Numbers stay JSON numbers. No Markdown brief. No prose outside th
 
 === PREVIOUS OUTPUT ===
 ${clipText(input.previousOutput, 8_000)}`;
+}
+
+/** Marker có mặt nhưng JSON không parse được → lý do; null = không cần repair. */
+export function researchPacketParseFailure(raw: string): string | null {
+  const extracted = extractMarkedJson(raw, RESEARCH_PACKET_MARKER);
+  if (extracted.json) return null;
+  if (extracted.reason === "marker-missing") return null;
+  return extracted.reason;
+}
+
+/**
+ * Cứu hộ khi JSON hỏng: rút URL/title/tier bằng regex để vẫn ra Markdown đọc được,
+ * thay vì đổ nguyên khối JSON ra màn hình biên tập.
+ */
+function salvageResearchMarkdown(raw: string): string {
+  const sources = new Map<string, { title: string; tier: string }>();
+  const objectRe =
+    /\{[^{}]*"url"\s*:\s*"(https?:\/\/[^"]+)"[^{}]*\}/g;
+  for (const match of raw.matchAll(objectRe)) {
+    const block = match[0];
+    const url = match[1];
+    const title = block.match(/"title"\s*:\s*"([^"]*)"/)?.[1] ?? url;
+    const tier = block.match(/"tier"\s*:\s*(\d+)/)?.[1] ?? "3";
+    if (!sources.has(url)) sources.set(url, { title, tier: `Tier ${tier}` });
+  }
+  for (const match of raw.matchAll(/"(?:url|sourceUrl)"\s*:\s*"(https?:\/\/[^"]+)"/g)) {
+    const url = match[1];
+    if (!sources.has(url)) sources.set(url, { title: url, tier: "Tier 3" });
+  }
+
+  const listValues = (key: string): string[] => {
+    const start = raw.indexOf(`"${key}"`);
+    if (start < 0) return [];
+    const open = raw.indexOf("[", start);
+    if (open < 0) return [];
+    const close = raw.indexOf("]", open);
+    const slice = raw.slice(open, close < 0 ? undefined : close);
+    return [...slice.matchAll(/"((?:[^"\\]|\\.){8,})"/g)]
+      .map((item) => item[1].replace(/\\"/g, '"').trim())
+      .filter(Boolean);
+  };
+
+  const findings = listValues("findings");
+  const contradictions = listValues("contradictions");
+  const limitations = listValues("limitations");
+
+  const lines: string[] = ["# Research Brief", "", "## Sources"];
+  for (const [url, meta] of sources) {
+    lines.push(`- ${meta.title} — ${url} — ${meta.tier} — Accessed (từ packet lỗi định dạng)`);
+  }
+  lines.push("", "## Different Perspectives / Cross-validation");
+  if (contradictions.length === 0) {
+    lines.push("- Counter-evidence / phản biện: (see search records)");
+  } else {
+    for (const item of contradictions) lines.push(`- ${item}`);
+  }
+  lines.push("", "## Findings / Trade-offs");
+  for (const item of findings) lines.push(`- ${item}`);
+  lines.push("", "## Insights");
+  for (const item of findings.slice(0, 3)) lines.push(`- ${item}`);
+  lines.push("", "## Limitations");
+  for (const item of limitations) lines.push(`- ${item}`);
+  lines.push(
+    "- Packet JSON lỗi định dạng (bị cắt hoặc sai cú pháp) — brief này được cứu hộ tự động, nên kiểm lại nguồn trước khi viết.",
+  );
+  return lines.join("\n");
 }
 
 /**
@@ -645,13 +713,11 @@ export function materializeResearchBrief(raw: string): string {
     return lines.join("\n");
   }
 
-  const hasMarkdownBody =
-    /https?:\/\//i.test(trimmed) &&
-    (/#{1,3}\s|Research Brief|Different Perspectives|Trade-off|Insight/i.test(
-      trimmed,
-    ) ||
-      trimmed.length > 800);
-  return hasMarkdownBody ? trimmed : trimmed;
+  // Marker có nhưng JSON hỏng → cứu hộ ra Markdown, không đổ raw JSON cho biên tập viên đọc.
+  if (trimmed.includes(RESEARCH_PACKET_MARKER)) {
+    return salvageResearchMarkdown(trimmed);
+  }
+  return trimmed;
 }
 
 export function researchPacketCoverageInsufficient(raw: string): boolean {
@@ -935,9 +1001,13 @@ export function buildInsightLockContextV2(input: {
   researchBrief: string;
   decisionBlock?: string;
   shapeBlock?: string;
+  seriesAntiOverlap?: string | null;
 }): string {
   return appendContext(
     `TOPIC:\n${clipText(input.topic, 400)}`,
+    input.seriesAntiOverlap?.trim()
+      ? `SERIES_CONTRACT:\n${clipText(input.seriesAntiOverlap, 2_500)}`
+      : "",
     `RESEARCH_PACKET:\n${clipText(input.researchBrief, 5_000)}`,
     input.decisionBlock?.trim()
       ? `EDITORIAL_DECISION:\n${clipText(input.decisionBlock, 2_000)}`
@@ -956,6 +1026,17 @@ ROLE: PLAN
 
 Lock one evidence-backed thesis, audience, shape, and outline in a single step.
 This replaces separate Insight Gate + Editorial Decision + Planning ticks.
+
+TOPIC FIDELITY
+- TOPIC in context is the locked subject contract.
+- You may sharpen/reframe the *angle* inside that subject (hidden trade-off, conditional insight).
+- Do NOT switch to a different subject, adjacent industry piece, or meta seed_topics instruction.
+- category/angle/thesis must remain recognizably about TOPIC.
+
+SERIES ANTI-OVERLAP (when SERIES_CONTRACT is present)
+- thesis + angle MUST differ from every “đã chiếm” sibling claim.
+- Same series theme is OK; paraphrasing a sibling thesis is FAIL — pick a narrower conditional angle.
+- If TOPIC overlaps a sibling topic, differentiate via constraint / audience / failure mode / boundary.
 
 TASK
 1. Test the strongest thesis (So-what / Non-obvious / Counterargument) — PASS/FAIL each.
@@ -1068,11 +1149,15 @@ export function buildDraftGenerationContextV2(input: {
   prefsBlock?: string;
   shapeBlock?: string;
   voiceReference?: string | null;
+  seriesAntiOverlap?: string | null;
   phase: "a" | "b";
 }): string {
   return appendContext(
     `TOPIC:\n${clipText(input.topic, 400)}`,
     `PHASE:\n${input.phase === "a" ? "WRITE_HALF_A" : "WRITE_HALF_B"}`,
+    input.seriesAntiOverlap?.trim()
+      ? `SERIES_CONTRACT:\n${clipText(input.seriesAntiOverlap, 1_800)}`
+      : "",
     input.prefsBlock?.trim() ? `WRITING_POLICY:\n${input.prefsBlock}` : "",
     input.shapeBlock?.trim() ? `ARTICLE_SHAPE:\n${input.shapeBlock}` : "",
     input.voiceReference?.trim()
@@ -1100,6 +1185,8 @@ PHASE rules:
 
 REQUIREMENTS
 - One coherent Vietnamese article following ARTICLE_SHAPE and Planning.
+- Stay on TOPIC: title + body subject must match TOPIC (angle may sharpen; subject must not drift).
+- If SERIES_CONTRACT present: do not reuse sibling thesis/hook/core; differentiate opening and examples.
 - Bind factual claims to Research URLs; mark opinion/prediction explicitly.
 - Include conditional trade-offs, counter-position, practical boundary, grounded examples.
 - ≥1 mini-case with concrete actor/constraint/consequence (not "Công ty ABC").
@@ -1219,10 +1306,12 @@ export function buildCleanTransformContextV2(input: {
 }
 
 const CLEAN_OUTPUT_RULES = `The article body must be complete Vietnamese reader-facing Markdown
-beginning with "# Title". Keep one italic subtitle line and the HERO_IMAGE placeholder when
-present. Apart from an explicitly required compatibility marker, emit no wrapper, Knowledge
+beginning with "# Title". Follow PUBLISH_FORMAT / CLEAN_STRUCTURE in the ARTICLE_SHAPE block:
+keep italic subtitle and HERO_IMAGE only when that format requires them (blog/postmortem);
+omit hero for facebook/linkedin/adr/brief/field-note/newsletter unless already present and useful.
+Apart from an explicitly required compatibility marker, emit no wrapper, Knowledge
 Record, TFES markers, scores, status, or Hero Brief. Preserve factual meaning and use only
-URLs/evidence present in context.`;
+URLs/evidence present in context. Do not force blog voice onto social or structured formats.`;
 
 export function buildPublishRendererPromptV2(context: string): string {
   return `PROMPT_ID: publish-renderer
@@ -1230,11 +1319,11 @@ VERSION: 2.0
 CONTRACT_VERSION: publish-renderer.v2
 ROLE: GENERATE
 
-Transform the accepted Article.md draft into a coherent reader-facing blog/news article.
+Transform the accepted Article.md draft into a coherent reader-facing piece matching
+PUBLISH_FORMAT (blog, postmortem, field-note, adr, brief, thread, facebook, linkedin, or newsletter).
 Remove internal skeleton headings (Metadata, Executive Summary, Introduction, Context,
 Problem Statement, Deep Analysis, Practical Recommendations, Key Takeaways). Use readable
-headings that follow ARTICLE_SHAPE, one thesis, smooth transitions, concrete examples, one
-application boundary, and verified References.
+structure that follows ARTICLE_SHAPE + CLEAN_STRUCTURE, one thesis, and verified References when appropriate.
 
 The first line before the article must be exactly:
 === BẢN SẠCH ĐỂ ĐĂNG ===

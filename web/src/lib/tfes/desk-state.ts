@@ -24,6 +24,8 @@ export type DeskState = {
   editedAt?: string;
   factAckAt?: string;
   validationFeedback?: EditorValidationFeedback;
+  /** auto | manual | locked — cách chọn ARTICLE_SHAPE */
+  shapeSelectionMode?: "auto" | "manual" | "locked";
 };
 
 export function parseDeskJson(raw: string | null | undefined): DeskState {

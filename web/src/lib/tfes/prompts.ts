@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolveDomainId } from "@/lib/tfes/domains";
 import { getTfesOverrideCached, readTfesFileFromDisk } from "@/lib/tfes/tfes-docs";
-import { resolveAndValidateDomainProfile } from "@/lib/tfes/domain-profile";
+import { resolveAndValidateDomainProfile, clipDomainProfileForRole } from "@/lib/tfes/domain-profile";
 
 const TFES_ROOT = join(process.cwd(), "content", "ai-tfes");
 
@@ -95,8 +95,7 @@ Xuất tiếng Việt (trừ prompt ảnh hero tiếng Anh). Evidence-first; kh�
 export function getSystemPromptLite(domain: string): string {
   const id = resolveDomainId(domain);
   const domainProfile = resolveAndValidateDomainProfile(id, readTfesFile).content;
-  // Chỉ lấy phần đầu hồ sơ (audience, tông, tier) — đủ cho Decision
-  const clipped = domainProfile.slice(0, 3_000).trim();
+  const clipped = clipDomainProfileForRole(domainProfile, 3_000);
 
   return `Bạn là biên tập viên AI-TFES. Chỉ làm ĐÚNG nhiệm vụ trong user message — không làm thêm bước khác.
 Tiếng Việt. Evidence-first; không bịa nguồn/số liệu. Trả lời ngắn, đúng format yêu cầu.
@@ -127,7 +126,7 @@ export function getSystemPromptForRole(
   if (role === "GENERATE") return getSystemPrompt(domain);
   const id = resolveDomainId(domain);
   const domainProfile = resolveAndValidateDomainProfile(id, readTfesFile).content;
-  const clipped = domainProfile.slice(0, 2_400).trim();
+  const clipped = clipDomainProfileForRole(domainProfile, 2_400);
   const roleLine: Record<Exclude<SystemPromptRole, "GENERATE">, string> = {
     RESEARCH:
       "ROLE=RESEARCH. Produce evidence packets only. Never plan, draft, score, or invent sources.",
@@ -180,6 +179,7 @@ export function buildDailyTaskPrompt(input: {
     "kho đang trống — chạy Seeding Mode";
 
   return template
+    .replace(/`<[^`]*engineering[^`]*>`/g, resolveDomainId(input.domain))
     .replace("`<engineering | soft-skills>`", resolveDomainId(input.domain))
     .replace(
       "<dán vào đây, hoặc ghi \"kho đang trống — chạy Seeding Mode\">",
@@ -202,7 +202,8 @@ export function buildResearchPrompt(
     ? `
 ### Góc trước BỊ CỔNG INSIGHT LOẠI (< L2) — bắt buộc đào lại
 Lần Research trước chưa đủ sâu. Đọc phản hồi Gate dưới đây rồi:
-- Đổi / làm sắc góc (điều kiện ẩn, trade-off bị giấu, reframe) — KHÔNG viết lại cùng một tóm tắt
+- Đổi / làm sắc góc (điều kiện ẩn, trade-off bị giấu, reframe) trong cùng TOPIC — KHÔNG đổi sang chủ đề khác
+- KHÔNG viết lại cùng một tóm tắt
 - Ưu tiên nguồn phản biện / mâu thuẫn giữa nguồn
 - Candidate insight phải hướng tới L2/L3
 
@@ -302,20 +303,22 @@ Tránh / CẤM trên bản sạch:
 
 /** Story arc — chi tiết nhịp lấy từ ARTICLE_SHAPE (mỗi bài một biến thể) */
 const STORY_ARC_CLEAN = `### Story arc bản đăng
-Tuân thủ block **ARTICLE_SHAPE** trong prompt (nhịp + mở/kết + discussion).
-KHÔNG ép mọi bài cùng khuôn “Cảnh → Tension → Cơ chế → Mini-case → Guardrail → hỏi thảo luận”.
-Vẫn bắt buộc: một luận điểm xuyên suốt · ≥1 tình huống cụ thể · điều kiện/phản biện · giọng blog kỹ thuật.`;
+Tuân thủ block **ARTICLE_SHAPE** + **PUBLISH_FORMAT / PUBLISH_VOICE / CLEAN_STRUCTURE** trong prompt.
+KHÔNG ép mọi bài cùng khuôn blog “Cảnh → Tension → Cơ chế → Mini-case → Guardrail”.
+Vẫn bắt buộc: một luận điểm xuyên suốt · đúng family format · không heading biên tập.`;
 
 /** Quy tắc polish “đáng đọc” — bổ sung NARRATIVE */
 const READER_POLISH_RULES = `### Polish đáng đọc (bắt buộc)
-- Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title (phụ đề nghe như câu lead báo, không brochure)
-- Viết lại đoạn mở nếu còn giọng giáo trình / “ngày càng phức tạp… được nhắc đến như…” / khuôn “Trong một sprint… đội … công ty fintech”
-- Biến mục "Khuyến nghị thực tiễn" kiểu checklist thành 1–2 đoạn hành động gắn điều kiện, có chủ ngữ (đội / lead / bạn) — trừ khi ARTICLE_SHAPE là field-note (được phép hành động hẹp rõ ràng, vẫn không listicle Hook/Framework)
-- Nếu ≥4 con số % cụ thể mà CONTEXT Research không có → bớt số, giữ luận điểm điều kiện
-- Thêm/giữ tình huống cụ thể theo shape (postmortem / case / mini-case…) — không ép mọi bài cùng một kiểu case
+- Bỏ mọi dòng nhãn \`Subtitle\` / \`Subtitle:\` / \`Title:\` — phụ đề chỉ còn 1 dòng *in nghiêng* dưới # Title **nếu CLEAN_STRUCTURE yêu cầu**
+- Viết lại đoạn mở nếu lệch PUBLISH_VOICE (blog khô / brief kể chuyện dài / Facebook essay…)
+- Biến checklist marketing thành đoạn hành động có điều kiện — trừ khi format brief cho phép bullet rủi ro ngắn
+- Giữ / siết theo ARTICLE_SHAPE + PUBLISH_FORMAT — đừng kéo về blog generic
 - Sửa ký tự lỗi encoding nếu còn
-- Đọc lại to: nếu nghe như tài liệu nội bộ hơn blog → viết lại đoạn đó ngắn và sống hơn
-- Nếu bài giống “khuôn nhà máy” (mọi ## đều cùng nhịp với bài generic) → viết lại heading + mở cho khớp ARTICLE_SHAPE`;
+- HERO_IMAGE: chỉ giữ nếu format requireHero; format social/ADR/brief → bỏ HERO nếu model vẫn chèn`;
+
+const FORMAT_VOICE_REMINDER = `### Giọng & khung xuất bản
+Tuân thủ **PUBLISH_FORMAT / PUBLISH_VOICE / CLEAN_STRUCTURE** trong block shape (nếu có).
+Không mặc định ép blog/tin tức khi format là Facebook, LinkedIn, Newsletter, ADR, brief, field-note, thread.`;
 
 function templateBlock(title: string, relativePath: string): string {
   return `### Template: ${title}\n\n${readTfesFile(relativePath)}`;
@@ -573,29 +576,29 @@ Xuất theo thứ tự:
 2. **"6) === BẢN SẠCH ĐỂ ĐĂNG ==="** rồi bài đăng bên dưới:
 ${prefs}
 ${shape}
-### BẢN SẠCH = BÀI ĐỌC LIỀN (theo ARTICLE_SHAPE — mỗi bài một khung)
+### BẢN SẠCH = BÀI ĐỌC LIỀN (theo PUBLISH_FORMAT + ARTICLE_SHAPE)
 - CẤM heading biên tập: Introduction, Context, Problem Statement, Deep Analysis, Real-world Examples, Practical Recommendations, Executive Summary, Key Takeaways, Metadata
-- Cấu trúc tối thiểu: \`# Title\` → một dòng *phụ đề in nghiêng* (KHÔNG viết chữ Subtitle) → \`![mô tả ngắn](HERO_IMAGE)\` → thân theo nhịp shape → kết theo shape → References
-- \`##\` chỉ tiêu đề ĐỌC ĐƯỢC — đa dạng wording; đừng lặp cụm “Ba rủi ro…” / “Khi nào nên dừng” ở mọi bài
+- Cấu trúc theo **CLEAN_STRUCTURE** trong block format (blog: Title → phụ đề → HERO; social/ADR/brief: theo policy — không ép HERO)
+- \`##\` chỉ tiêu đề ĐỌC ĐƯỢC — đa dạng wording
 - Một luận điểm xuyên suốt; CẤM mọi jargon pipeline ("Insight L2", "Insight Gate", "≥ L2",
   GOLD_BAR, machine score lines); không Knowledge Record trong body
 - Title tiếng Việt, KHÔNG (L2)/(L3)/L2; CẤM dòng "Subtitle" / "alt" trần
 - Số % chỉ khi có trong Research/Fact; References chỉ URL từ Research; độ dài theo WRITING PREFS
 - Discussion / khuyến nghị 3 cấp: chỉ khi shape yêu cầu — tránh “công thức nhà máy”
-3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — tạm thời, sẽ được viết lại từ bản polish:
+3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — chỉ khi format requireHero; nếu không: ghi \`HERO: skipped (format)\`
    - Concept · **Prompt (English):** "...." · Caption + Alt
    - Prompt phải mirror **luận điểm / metaphor của bài** (không generic “servers / circuit board / glowing code” nếu bài không nói hạ tầng đó)
 4. Dòng cuối: \`STATUS: Publish Ready — chờ người duyệt\`
 
 Bắt buộc marker: === BẢN SẠCH ĐỂ ĐĂNG ===
 CẤM dòng gạch ngang markdown \`---\` / \`***\` giữa các đoạn trong bản sạch (dùng ## hoặc đoạn nối).
-Bản sạch = bài blog/tin tức kỹ thuật — Story arc theo ARTICLE_SHAPE + giọng blog bên dưới.
+Bản sạch phải khớp PUBLISH_FORMAT — Story arc theo ARTICLE_SHAPE + PUBLISH_VOICE.
 
 ${NARRATIVE_FLOW_RULES}
 
 ${STORY_ARC_CLEAN}
 
-${BLOG_NEWS_VOICE}
+${FORMAT_VOICE_REMINDER}
 
 ${publishTpl}`,
 
@@ -624,7 +627,7 @@ ${prefs}
 ${shape}
 ${NARRATIVE_FLOW_RULES}
 
-${BLOG_NEWS_VOICE}
+${FORMAT_VOICE_REMINDER}
 
 ${STORY_ARC_CLEAN}
 
@@ -644,35 +647,34 @@ Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Khô
 
 ${prefs}
 ${shape}
-${BLOG_NEWS_VOICE}
+${FORMAT_VOICE_REMINDER}
 ${READER_POLISH_RULES}`,
 
     "finalize-expand": `## Nhiệm vụ: MỞ RỘNG BẢN SẠCH CHO ĐỦ SỐ TỪ
 Bài trong CONTEXT đang THIẾU độ dài so với WRITING PREFS.
 Đếm từ = tách khoảng trắng (tiếng Việt), KHÔNG đếm ký tự.
 
-Xuất lại TOÀN BỘ bài markdown hoàn chỉnh (\`# Title\` → phụ đề nghiêng → HERO → thân → kết → References nếu có).
-- GIỮ luận điểm, title, **ARTICLE_SHAPE**; KHÔNG bịa số liệu / URL mới
-- Viết THÊM vào thân theo nhịp shape (case / tranh luận / tín hiệu hiện trường…) — để đạt gần target từ trong PREFS
+Xuất lại TOÀN BỘ bài markdown hoàn chỉnh theo CLEAN_STRUCTURE của format.
+- GIỮ luận điểm, title, **ARTICLE_SHAPE** + **PUBLISH_FORMAT**; KHÔNG bịa số liệu / URL mới
+- Viết THÊM vào thân theo nhịp shape — để đạt gần target từ trong PREFS
 - CẤM rút gọn; CẤM synopsis; CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
-- Giọng blog/tin tức kỹ thuật; không handbook
+- Giọng theo PUBLISH_VOICE — không ép blog nếu format khác
 
 ${prefs}
 ${shape}
 ${NARRATIVE_FLOW_RULES}
-${BLOG_NEWS_VOICE}
+${FORMAT_VOICE_REMINDER}
 ${STORY_ARC_CLEAN}`,
 
     "finalize-repair": `## Nhiệm vụ: SỬA BẢN SẠCH THEO LỖI QUALITY GATE
 Bài trong CONTEXT đã gần xong nhưng MÁY CHẤM FAIL. Sửa ĐÚNG lỗi được nêu — xuất lại TOÀN BỘ bài markdown.
 
-- GIỮ luận điểm, title, mạch, ARTICLE_SHAPE; KHÔNG bịa số liệu / URL mới
+- GIỮ luận điểm, title, mạch, ARTICLE_SHAPE + PUBLISH_FORMAT; KHÔNG bịa số liệu / URL mới
 - Làm đúng các mục “ƯU TIÊN” trong CONTEXT (nếu có) trước khi chỉnh chỗ khác
-- Đoạn mở khô → viết lại 1–3 câu đầu (cảnh / nghịch lý); CẤM “Trong môi trường/bối cảnh/những năm”, “Không thể phủ nhận”, “Ngày nay,”
-- Handbook/brochure → giọng blog/tin tức có chủ ngữ người/đội
-- Heading biên tập / listicle → heading tin tức, viết liền mạch
+- Sửa theo PUBLISH_VOICE / CLEAN_STRUCTURE — không kéo về blog nếu format social/ADR/brief
+- Heading biên tập / listicle → heading đọc được, viết liền mạch
 - Table / Mermaid / --- / Subtitle / alt / encoding → xóa hoặc đổi đúng chỉ thị
-- Quá nhiều % → ≤5 số; thiếu mini-case / phản biện → bổ sung
+- Quá nhiều % → ≤5 số; thiếu mini-case / phản biện → bổ sung **chỉ khi format yêu cầu**
 - Quá ngắn → viết thêm thân; quá dài → rút gọn lặp
 - CẤM Knowledge Record / HERO IMAGE BRIEF / STATUS
 - Độ dài theo WRITING PREFS — không rút synopsis
@@ -680,7 +682,7 @@ Bài trong CONTEXT đã gần xong nhưng MÁY CHẤM FAIL. Sửa ĐÚNG lỗi �
 ${prefs}
 ${shape}
 ${NARRATIVE_FLOW_RULES}
-${BLOG_NEWS_VOICE}
+${FORMAT_VOICE_REMINDER}
 ${STORY_ARC_CLEAN}`,
 
     "finalize-hero": `## Nhiệm vụ: HERO IMAGE BRIEF từ bản sạch đã chốt

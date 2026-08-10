@@ -1,6 +1,6 @@
 # Domain Profile — Schema chuẩn v1.6 (checklist)
 
-> Mọi Domain Profile mới (kể cả 5 domain hiện có) phải khai đủ các trường dưới đây, theo đúng thứ tự, để agent web parse nhất quán. `engineering.md` là hồ sơ gốc — domain khác chỉ khai phần **khác biệt**; nếu một trường không khác, domain đó kế thừa nguyên văn từ `engineering.md`.
+> Mọi Domain Profile mới (kể cả 8 domain hiện có) phải khai đủ các trường dưới đây, theo đúng thứ tự, để agent web parse nhất quán. `engineering.md` là hồ sơ gốc — domain khác chỉ khai phần **khác biệt**; nếu một trường không khác, domain đó kế thừa nguyên văn từ `engineering.md`.
 
 ## Trường bắt buộc
 

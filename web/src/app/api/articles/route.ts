@@ -5,6 +5,8 @@ import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
 import { resolveDomainId } from "@/lib/tfes/domains";
 import { isPublishFormatId, resolvePublishFormat } from "@/lib/tfes/publish-formats";
+import { coerceManualShapeForFormat } from "@/lib/tfes/shape-selection";
+import { mergeDeskJson } from "@/lib/tfes/desk-state";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 import { WorkflowState } from "@/generated/prisma/client";
 import { deriveLegacyProjection } from "@/lib/tfes/state-machine";
@@ -61,6 +63,7 @@ export async function POST(request: NextRequest) {
       targetWordCount?: number;
       avoidFormats?: string;
       publishFormat?: string;
+      articleShapeId?: string | null;
       seriesId?: string | null;
       seriesOrder?: number | null;
     };
@@ -69,6 +72,20 @@ export async function POST(request: NextRequest) {
     const publishFormat = resolvePublishFormat(
       isPublishFormatId(body.publishFormat) ? body.publishFormat : "blog",
     );
+
+    let shapePick: ReturnType<typeof coerceManualShapeForFormat>;
+    try {
+      shapePick = coerceManualShapeForFormat({
+        publishFormat: publishFormat.id,
+        domain,
+        articleShapeId: body.articleShapeId,
+        // Blog manual: chỉ cho khung gợi ý theo domain — tránh lệch tông.
+        strictDomainFit: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Khung bài không hợp lệ";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
 
     await hydrateTfesOverrides();
     const config = await getAutoWriteConfig();
@@ -132,6 +149,8 @@ export async function POST(request: NextRequest) {
         workflowState: WorkflowState.IDEA,
         status: legacy.status,
         currentStep: legacy.currentStep,
+        ...(shapePick.assignment ?? {}),
+        deskJson: mergeDeskJson(null, { shapeSelectionMode: shapePick.mode }),
       },
     });
 

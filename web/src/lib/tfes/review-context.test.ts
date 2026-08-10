@@ -110,22 +110,22 @@ describe("F2 · ngân sách token của Revision Remediation", () => {
     }
   });
 
-  it("dùng đúng công thức 5 token/từ + buffer, có sàn và trần", () => {
+  it("dùng đúng công thức token/từ + buffer, có sàn và trần", () => {
     const { llm } = PIPELINE_CONFIG;
-    expect(cleanGenMaxTokens(PIPELINE_CONFIG.words.defaultTarget)).toBe(
-      llm.cleanMaxTokensFloor,
-    );
-    expect(cleanGenMaxTokens(2_000)).toBe(
-      2_000 * llm.cleanTokensPerWord + llm.cleanTokensExtra,
+    expect(cleanGenMaxTokens(MIN_TARGET_WORD_COUNT)).toBe(llm.cleanMaxTokensFloor);
+    expect(cleanGenMaxTokens(1_200)).toBe(
+      1_200 * llm.cleanTokensPerWord + llm.cleanTokensExtra,
     );
     expect(cleanGenMaxTokens(MAX_TARGET_WORD_COUNT)).toBeLessThanOrEqual(
       llm.cleanMaxTokensCap,
     );
   });
 
-  it("target rỗng vẫn rơi về sàn, không về 0", () => {
-    expect(cleanGenMaxTokens(null)).toBe(PIPELINE_CONFIG.llm.cleanMaxTokensFloor);
-    expect(cleanGenMaxTokens(undefined)).toBe(PIPELINE_CONFIG.llm.cleanMaxTokensFloor);
+  it("target rỗng rơi về ngân sách của target mặc định, không về 0", () => {
+    const fallback = cleanGenMaxTokens(PIPELINE_CONFIG.words.defaultTarget);
+    expect(fallback).toBeGreaterThanOrEqual(PIPELINE_CONFIG.llm.cleanMaxTokensFloor);
+    expect(cleanGenMaxTokens(null)).toBe(fallback);
+    expect(cleanGenMaxTokens(undefined)).toBe(fallback);
   });
 });
 

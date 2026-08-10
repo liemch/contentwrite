@@ -13,7 +13,16 @@ export type ArticleShapeId =
   | "field-note"
   | "adr"
   | "internal-brief"
-  | "thread-qa";
+  | "thread-qa"
+  | "facebook-post"
+  | "linkedin-post"
+  | "newsletter"
+  | "before-after"
+  | "myth-bust"
+  | "constraint-first"
+  | "timeline-reframe"
+  | "playbook-conditional"
+  | "cost-of-inaction";
 
 export type ArticleShape = {
   id: ArticleShapeId;
@@ -250,16 +259,237 @@ export const ARTICLE_SHAPES: Record<ArticleShapeId, ArticleShape> = {
     discussion: "required",
     draftHint: "Giống question-led nhưng nhịp ## = hỏi/đáp rõ hơn.",
   },
+  "facebook-post": {
+    id: "facebook-post",
+    labelVi: "Facebook post",
+    fit: "Đăng feed ngắn — 1 ý, hook mạnh, CTA nhẹ",
+    beats: [
+      "Hook 1–2 câu (quan sát / nghịch lý / câu hỏi)",
+      "Ý chính một câu",
+      "Ví dụ đời thường hoặc nghề (ngắn)",
+      "Twist hoặc điều kiện (nếu cần, 1 câu)",
+      "CTA / câu hỏi kết",
+    ],
+    headingHints: [
+      "Điều mọi người đang làm",
+      "Chỗ lệch",
+      "Mang đi được gì",
+    ],
+    opening: "Mở hook ngay — không preamble, không định nghĩa.",
+    ending: "CTA nhẹ hoặc câu hỏi — một dòng.",
+    recommendations: "Không mục khuyến nghị riêng; lồng trong thân.",
+    discussion: "skip",
+    draftHint: "Nháp ngắn: Problem = hook; Deep Analysis tối giản; Examples = 1 vignette.",
+  },
+  "linkedin-post": {
+    id: "linkedin-post",
+    labelVi: "LinkedIn post",
+    fit: "Insight nghề mid-form cho feed chuyên nghiệp",
+    beats: [
+      "Quan sát nghề / bài học hẹp",
+      "Insight có điều kiện",
+      "Ví dụ hoặc hậu quả",
+      "Khi nào không áp dụng (1–2 câu)",
+      "Câu hỏi thảo luận",
+    ],
+    headingHints: [
+      "Điều hay bị bỏ qua",
+      "Cơ chế ngắn",
+      "Điều kiện",
+      "Hỏi đội",
+    ],
+    opening: "Mở bằng quan sát nghề cụ thể — không humblebrag.",
+    ending: "Câu hỏi thảo luận hoặc takeaway 1 dòng.",
+    recommendations: "Lồng điều kiện trong thân; không checklist 3 tầng.",
+    discussion: "optional",
+    draftHint: "Giọng chuyên nghiệp ngắn; Deep Analysis gọn; Discussion 1 câu.",
+  },
+  newsletter: {
+    id: "newsletter",
+    labelVi: "Newsletter / email",
+    fit: "Bản tin email — lead + 2–3 mục + CTA",
+    beats: [
+      "Lead / preview (vì sao mở mail hôm nay)",
+      "Mục 1 — ý chính",
+      "Mục 2 — góc phụ hoặc case ngắn",
+      "Mục 3 (tuỳ) — tín hiệu / khi nào bỏ qua",
+      "CTA đọc thêm / thảo luận",
+    ],
+    headingHints: [
+      "Trong số này",
+      "Điểm cần nhớ",
+      "Góc bị bỏ quên",
+      "Làm gì tiếp",
+    ],
+    opening: "Lead ngắn như preview text — nêu lợi ích đọc tiếp.",
+    ending: "CTA rõ (đọc sâu / reply / thử).",
+    recommendations: "Mỗi mục 1 hành động hẹp nếu có; không handbook.",
+    discussion: "skip",
+    draftHint: "Executive Summary = lead; Deep Analysis chia mục; Recommendations = CTA.",
+  },
+  "before-after": {
+    id: "before-after",
+    labelVi: "Trước → Sau",
+    fit: "Có trạng thái trước/sau rõ; bài học nằm ở chỗ đổi",
+    beats: [
+      "Trước: cách làm / niềm tin cũ (cụ thể)",
+      "Điểm gãy — vì sao không còn chịu nổi",
+      "Sau: cách mới + điều kiện kích hoạt",
+      "Chi phí đổi / thứ phải bỏ",
+      "Khi nào giữ cách cũ vẫn đúng",
+      "Một tín hiệu nhận biết đang ở “trước” hay “sau”",
+    ],
+    headingHints: [
+      "Trước khi đổi",
+      "Chỗ không chịu nổi nữa",
+      "Sau khi đổi",
+      "Khi nào chưa nên đổi",
+    ],
+    opening: "Mở bằng cảnh “trước” đủ cụ thể để độc giả nhận ra mình.",
+    ending: "Kết bằng tín hiệu nhận biết — không khẩu hiệu chuyển đổi.",
+    recommendations: "So what = điều kiện chuyển; không list “5 bước đổi mới”.",
+    discussion: "optional",
+    draftHint: "Examples = trước/sau; Deep Analysis = điểm gãy + chi phí đổi.",
+  },
+  "myth-bust": {
+    id: "myth-bust",
+    labelVi: "Phá niềm tin sai",
+    fit: "Một niềm tin phổ biến nghe xuôi nhưng lệch điều kiện",
+    beats: [
+      "Niềm tin phổ biến (nghe rất hợp lý)",
+      "Vì sao hấp dẫn / ai hưởng lợi khi tin",
+      "Lỗ hổng / phản chứng hẹp",
+      "Điều kiện thật (khi nào niềm tin vẫn đúng)",
+      "Thay bằng câu hỏi / heuristic đúng hơn",
+      "Hệ quả nếu vẫn tin mù",
+    ],
+    headingHints: [
+      "Điều hay được nói như chân lý",
+      "Chỗ điều kiện bị giấu",
+      "Khi nào vẫn đúng",
+      "Câu hỏi thay thế",
+    ],
+    opening: "Mở bằng chính câu tin phổ biến — rồi lật nhẹ.",
+    ending: "Kết bằng heuristic thay thế, không “mọi người đều sai”.",
+    recommendations: "Một câu mang đi được thay vì checklist phá tin.",
+    discussion: "optional",
+    draftHint: "Problem = myth; Deep Analysis = lỗ hổng + điều kiện còn đúng.",
+  },
+  "constraint-first": {
+    id: "constraint-first",
+    labelVi: "Ràng buộc trước",
+    fit: "Quyết định bị siết bởi SLO/budget/compliance/đội ngũ — không phải “best practice”",
+    beats: [
+      "Ràng buộc cứng đang siết (đo được)",
+      "Các phương án bị loại vì ràng buộc",
+      "Phương án sống sót — trade-off còn lại",
+      "Chỗ dễ tự dối (bỏ ràng buộc trên slide)",
+      "Khi nào ràng buộc đổi → phải mở lại quyết định",
+      "Tín hiệu early-warning",
+    ],
+    headingHints: [
+      "Ràng buộc thật",
+      "Phương án bị loại",
+      "Lựa chọn còn lại",
+      "Khi nào mở lại",
+    ],
+    opening: "Mở bằng ràng buộc số/điều kiện — không mở bằng định nghĩa công nghệ.",
+    ending: "Kết bằng tín hiệu phải revisit.",
+    recommendations: "Gắn owner + ngưỡng; không framework chung.",
+    discussion: "skip",
+    draftHint: "Problem = constraint; Deep Analysis = loại phương án; Recommendations = revisit trigger.",
+  },
+  "timeline-reframe": {
+    id: "timeline-reframe",
+    labelVi: "Timeline → reframe",
+    fit: "Chuỗi sự kiện làm lộ insight khác với tường thuật ban đầu",
+    beats: [
+      "Timeline ngắn (3–5 mốc)",
+      "Câu chuyện đội kể lúc đó",
+      "Mốc bị bỏ qua / đọc sai",
+      "Reframe: chuyện thật là gì",
+      "Bài học hẹp cho lần sau",
+      "Khi nào timeline này không generalizable",
+    ],
+    headingHints: [
+      "Chuyện theo thời gian",
+      "Câu chuyện lúc đó",
+      "Mốc bị đọc sai",
+      "Câu chuyện đúng hơn",
+    ],
+    opening: "Mở bằng mốc thời gian cụ thể — độc giả muốn biết chuyện gì xảy ra.",
+    ending: "Kết bằng bài học hẹp + giới hạn suy rộng.",
+    recommendations: "Lồng trong reframe; không checklist tổ chức.",
+    discussion: "optional",
+    draftHint: "Introduction = timeline; Deep Analysis = reframe; Examples = mốc bị bỏ qua.",
+  },
+  "playbook-conditional": {
+    id: "playbook-conditional",
+    labelVi: "Playbook có điều kiện",
+    fit: "Cần hướng dẫn làm việc nhưng phải gắn “khi nào dùng / không dùng”",
+    beats: [
+      "Tình huống kích hoạt playbook",
+      "Bước 1–3 gắn ngữ cảnh (đoạn, không listicle marketing)",
+      "Tín hiệu đang làm đúng",
+      "Anti-pattern / sai lệch thường gặp",
+      "Khi nào dừng playbook này",
+      "Một câu chốt mang đi",
+    ],
+    headingHints: [
+      "Khi nào mở playbook",
+      "Việc làm có điều kiện",
+      "Dấu hiệu lệch",
+      "Khi nào đóng playbook",
+    ],
+    opening: "Mở thẳng tình huống kích hoạt — không “đây là best practice”.",
+    ending: "Một câu chốt + điều kiện dừng.",
+    recommendations: "Toàn bài = playbook có điều kiện; được phép bước ngắn, cấm Hook/Framework.",
+    discussion: "skip",
+    draftHint: "Recommendations dày; Deep Analysis = anti-pattern + tín hiệu.",
+  },
+  "cost-of-inaction": {
+    id: "cost-of-inaction",
+    labelVi: "Giá của việc không làm",
+    fit: "Đội trì hoãn quyết định; cần làm rõ chi phí im lặng",
+    beats: [
+      "Quyết định đang bị trì — vì sợ gì",
+      "Chi phí im lặng (thời gian / nợ / cơ hội)",
+      "Lợi ích trì hoãn thật (khi nào chờ đúng)",
+      "Ngưỡng phải chốt",
+      "Phương án tối thiểu để giảm rủi ro chờ",
+      "Câu hỏi để đội sở hữu quyết định",
+    ],
+    headingHints: [
+      "Việc đang bị để đó",
+      "Chi phí im lặng",
+      "Khi nào chờ vẫn đúng",
+      "Ngưỡng phải chốt",
+    ],
+    opening: "Mở bằng quyết định treo và cái giá đang chạy ngầm.",
+    ending: "Kết bằng câu hỏi sở hữu — không dọa nạt.",
+    recommendations: "Một ngưỡng chốt + phương án tối thiểu.",
+    discussion: "required",
+    draftHint: "Problem = trì hoãn; Deep Analysis = chi phí vs lợi ích chờ; Discussion quan trọng.",
+  },
 };
 
-const SHAPE_ORDER: ArticleShapeId[] = [
+/** Shape blog được phép xoay tự động (không gồm format-locked). */
+export const BLOG_ROTATING_SHAPE_IDS: ArticleShapeId[] = [
   "paradox-deepdive",
   "failure-postmortem",
   "debate-two-sides",
   "narrative-case",
   "question-led",
   "field-note",
+  "before-after",
+  "myth-bust",
+  "constraint-first",
+  "timeline-reframe",
+  "playbook-conditional",
+  "cost-of-inaction",
 ];
+
+const SHAPE_ORDER: ArticleShapeId[] = BLOG_ROTATING_SHAPE_IDS;
 
 /** Hash ổn định → index shape (chỉ các shape blog xoay vòng). */
 export function pickArticleShapeId(seed: string): ArticleShapeId {
@@ -270,6 +500,14 @@ export function pickArticleShapeId(seed: string): ArticleShapeId {
   }
   const idx = Math.abs(h) % SHAPE_ORDER.length;
   return SHAPE_ORDER[idx]!;
+}
+
+export function isArticleShapeId(raw: string | null | undefined): raw is ArticleShapeId {
+  return Boolean(raw && raw in ARTICLE_SHAPES);
+}
+
+export function listArticleShapes(): ArticleShape[] {
+  return Object.values(ARTICLE_SHAPES);
 }
 
 export function getArticleShape(seed: string): ArticleShape {
