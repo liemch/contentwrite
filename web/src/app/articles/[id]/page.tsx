@@ -19,6 +19,8 @@ import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { resolvePublishFormat, resolveShapeForArticle } from "@/lib/tfes/publish-formats";
+import { resolveShapeSelection } from "@/lib/tfes/shape-selection";
+import { parseDeskJson } from "@/lib/tfes/desk-state";
 import { prepareReaderContent } from "@/lib/publish-content";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
@@ -28,6 +30,8 @@ import {
   MAX_FINAL_VERIFICATION_SOFT_RETRIES,
 } from "@/lib/tfes/retry-policy";
 import { stripPipelineMarks } from "@/lib/tfes/parser";
+import { materializeResearchBrief } from "@/lib/tfes/prompts-v2";
+import { countProseWords } from "@/lib/tfes/word-count";
 import {
   isCleanBodyQualityFail,
   isCleanPublishQualityFail,
@@ -736,6 +740,8 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   if (!article) return <LoadingSkeleton />;
 
+  const cleanWordCount = countProseWords(article.cleanPublish);
+
   const contentMap: Record<string, string | null> = {
     clean: article.cleanPublish
       ? prepareReaderContent(stripPipelineMarks(article.cleanPublish), {
@@ -745,7 +751,10 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       : null,
     research: article.researchBrief?.includes("<!--TFES_SEARCH_BLOB-->")
       ? "Đã có kết quả Tavily (blob). Chạy bước Research lần 2 để GLM/Llama viết Research Brief."
-      : article.researchBrief,
+      : article.researchBrief
+        ? // Bài cũ có thể còn lưu nguyên packet JSON — render thành brief đọc được.
+          materializeResearchBrief(article.researchBrief)
+        : null,
     insight: article.insightGate,
     draft: article.draft12
       ? prepareReaderContent(stripPipelineMarks(article.draft12), {
@@ -808,6 +817,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
               articleShapeId: article.articleShapeId,
               articleShapeSnapshot: article.articleShapeSnapshot,
             });
+            const desk = parseDeskJson(article.deskJson);
+            const selection = resolveShapeSelection({
+              publishFormat: article.publishFormat,
+              domain: article.domain,
+              articleShapeId: article.articleShapeId,
+              requestedMode: desk.shapeSelectionMode,
+            });
             return (
               <>
                 <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 font-medium text-[var(--accent)]">
@@ -815,9 +831,22 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                 </span>
                 <span
                   className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
-                  title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}`}
+                  title={`ARTICLE_SHAPE: ${shape.id} — ${shape.fit}\n${selection.hint}`}
                 >
-                  Khung: {shape.labelVi}{article.articleShapeVersion ? ` · v${article.articleShapeVersion}` : ""}
+                  Khung: {shape.labelVi}
+                  {article.articleShapeVersion ? ` · v${article.articleShapeVersion}` : ""}
+                </span>
+                <span
+                  className={
+                    selection.mode === "locked"
+                      ? "rounded-full bg-[#fef3c7] px-2.5 py-1 font-semibold text-[#92400e]"
+                      : selection.mode === "manual"
+                        ? "rounded-full bg-[#dcfce7] px-2.5 py-1 font-semibold text-[#166534]"
+                        : "rounded-full bg-[#e0e7ff] px-2.5 py-1 font-semibold text-[#3730a3]"
+                  }
+                  title={selection.hint}
+                >
+                  {selection.badge}
                 </span>
               </>
             );
@@ -831,8 +860,13 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             </Link>
           )}
           {article.targetWordCount ? (
-            <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]">
-              ~{article.targetWordCount} từ (bản sạch)
+            <span
+              className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-medium text-[var(--ink-muted)]"
+              title="Đếm từ tiếng Việt thật của văn xuôi — không tính tiêu đề, ảnh, code, References"
+            >
+              {cleanWordCount > 0
+                ? `${cleanWordCount}/~${article.targetWordCount} từ (bản sạch)`
+                : `~${article.targetWordCount} từ (bản sạch)`}
             </span>
           ) : null}
           <span

@@ -43,7 +43,7 @@ Mô hình chất lượng: giao **bản nháp mạnh** (insight ≥ L2 + đã ki
 
 ## 3. DOMAIN PROFILE
 
-Trước khi làm việc, dùng hồ sơ miền đang active (`engineering` | `ai-ml` | `product` | `security` | `soft-skills`): audience, tông, tier nguồn, ví dụ, seed, sensitivity, freshness.
+Trước khi làm việc, dùng hồ sơ miền đang active (`engineering` | `ai-ml` | `product` | `security` | `soft-skills` | `fun` | `new-tech` | `lifestyle`): audience, tông, tier nguồn, ví dụ, seed, sensitivity, freshness.
 
 Production: backend phải merge domain con với `engineering.md` thành **Resolved Domain Profile** trước khi gọi LLM. Chế độ tương thích: nếu chưa merge được, phải đưa đồng thời `engineering.md` và domain con vào context; không cho phép suy đoán trường bị thiếu.
 
@@ -133,7 +133,7 @@ Dùng đúng heading `Article.md` làm checklist. **Cách đếm "12 phần" đ�
 
 `Metadata` là phần khai báo (Domain/Category/Reading time/Level), **không** tính vào 12 phần nội dung.
 
-- Độ dài nháp ~1.200–1.800 từ (hoặc theo prefs).
+- Độ dài nháp ~750–1.100 TỪ thật ≈ 1.200–1.800 tiếng (hoặc theo prefs). “Từ” ở đây là từ tiếng Việt: “cơ sở dữ liệu” = 1 từ, 4 tiếng.
 - Deep Analysis là trọng tâm: nhiều góc, trade-off có điều kiện.
 - Recommendations: chọn các scope thực sự phù hợp (Cá nhân/Team/Tổ chức/Hệ thống/Sản phẩm); không tạo nội dung giả để lấp đủ mục. Mỗi khuyến nghị phải có làm gì / khi nào / **khi nào KHÔNG** / rủi ro.
 - CẤM listicle marketing (`1. Hook` / Decision Framework…).

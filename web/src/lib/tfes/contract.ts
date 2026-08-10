@@ -32,6 +32,9 @@ export const TFES_CONTRACT = {
     product: 60,
     security: 30,
     "soft-skills": 180,
+    fun: 60,
+    "new-tech": 30,
+    lifestyle: 120,
   },
   correction: {
     initialVersion: "1.0.0",

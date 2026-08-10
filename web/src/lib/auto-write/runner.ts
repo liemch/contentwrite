@@ -430,7 +430,7 @@ export async function tickAutoWrite(options: { force?: boolean } = {}): Promise<
         workflowState: WorkflowState.IDEA,
         status: legacy.status,
         currentStep: legacy.currentStep,
-        targetWordCount: config.defaultTargetWordCount ?? 1200,
+        targetWordCount: config.defaultTargetWordCount ?? DEFAULT_TARGET_WORD_COUNT,
         avoidFormats: normalizeAvoidFormatsText(
           config.defaultAvoidFormats ?? "table",
         ) || "table",

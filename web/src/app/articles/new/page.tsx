@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select } from "@/components/ui/input";
@@ -17,6 +17,11 @@ import {
 import { MemoryHints } from "@/components/memory-hints";
 import { domainSelectOptions } from "@/lib/tfes/domains";
 import { PUBLISH_FORMATS, PUBLISH_FORMAT_IDS, type PublishFormatId } from "@/lib/tfes/publish-formats";
+import {
+  resolveShapeSelection,
+  shapesCompatibleWithFormat,
+} from "@/lib/tfes/shape-selection";
+import { wordsToSyllables } from "@/lib/tfes/word-count";
 
 type SeriesOption = { id: string; title: string; domain: string };
 
@@ -25,6 +30,7 @@ export default function NewArticlePage() {
   const [topic, setTopic] = useState("");
   const [domain, setDomain] = useState("engineering");
   const [publishFormat, setPublishFormat] = useState<PublishFormatId>("blog");
+  const [articleShapeId, setArticleShapeId] = useState<string>("auto");
   const [seriesId, setSeriesId] = useState("");
   const [seriesList, setSeriesList] = useState<SeriesOption[]>([]);
   const [targetWordCount, setTargetWordCount] = useState<number>(DEFAULT_TARGET_WORD_COUNT);
@@ -34,6 +40,33 @@ export default function NewArticlePage() {
   const [quota, setQuota] = useState<{ limit: number; used: number; remaining: number } | null>(
     null,
   );
+
+  const shapeMeta = useMemo(
+    () =>
+      resolveShapeSelection({
+        publishFormat,
+        domain,
+        articleShapeId: articleShapeId === "auto" ? null : articleShapeId,
+        requestedMode: articleShapeId === "auto" ? "auto" : "manual",
+      }),
+    [publishFormat, domain, articleShapeId],
+  );
+  const shapeChoices = useMemo(
+    () => shapesCompatibleWithFormat(publishFormat, domain),
+    [publishFormat, domain],
+  );
+  const recommendedShapes = useMemo(
+    () => shapeChoices.filter((item) => item.recommended),
+    [shapeChoices],
+  );
+
+  // Đổi domain → nếu đang chọn khung lệch, reset về auto.
+  useEffect(() => {
+    if (articleShapeId === "auto") return;
+    if (shapeMeta.lockedByFormat) return;
+    const stillOk = recommendedShapes.some((item) => item.id === articleShapeId);
+    if (!stillOk) setArticleShapeId("auto");
+  }, [domain, publishFormat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch("/api/settings/auto-write")
@@ -79,6 +112,7 @@ export default function NewArticlePage() {
         topic,
         domain,
         publishFormat,
+        articleShapeId: articleShapeId === "auto" ? "auto" : articleShapeId,
         seriesId: seriesId || null,
         targetWordCount,
         avoidFormats: normalizeAvoidFormatsText(avoidFormats),
@@ -113,7 +147,7 @@ export default function NewArticlePage() {
   return (
     <AppShell
       title="Tạo bài mới"
-      subtitle="Khởi tạo chu trình AI-TFES. Chọn format + series trước khi research."
+      subtitle="Khởi tạo chu trình AI-TFES. Chọn format + khung + series trước khi research."
       backHref="/dashboard"
       backLabel="Biên tập"
     >
@@ -136,14 +170,21 @@ export default function NewArticlePage() {
         <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">
           <div>
             <Label htmlFor="domain">Domain profile</Label>
-            <Select id="domain" value={domain} onChange={(e) => setDomain(e.target.value)}>
+            <Select
+              id="domain"
+              value={domain}
+              onChange={(e) => {
+                setDomain(e.target.value);
+                setSeriesId("");
+              }}
+            >
               {domainSelectOptions().map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
             </Select>
-            <FieldHint>Quyết định tông giọng, tier nguồn và nhóm chủ đề.</FieldHint>
+            <FieldHint>Quyết định tông giọng, tier nguồn — và gợi ý khung bài phù hợp.</FieldHint>
           </div>
 
           <div>
@@ -155,6 +196,12 @@ export default function NewArticlePage() {
                 const next = e.target.value as PublishFormatId;
                 setPublishFormat(next);
                 setTargetWordCount(PUBLISH_FORMATS[next].wordHint);
+                const nextMeta = resolveShapeSelection({
+                  publishFormat: next,
+                  domain,
+                  requestedMode: "auto",
+                });
+                setArticleShapeId(nextMeta.lockedByFormat ? nextMeta.shape!.id : "auto");
               }}
             >
               {PUBLISH_FORMAT_IDS.map((id) => (
@@ -164,6 +211,63 @@ export default function NewArticlePage() {
               ))}
             </Select>
             <FieldHint>{formatMeta.desc}. Gợi ý ~{formatMeta.wordHint} từ.</FieldHint>
+          </div>
+
+          <div>
+            <Label htmlFor="shape">Khung bài (gợi ý theo domain)</Label>
+            <Select
+              id="shape"
+              value={shapeMeta.lockedByFormat ? shapeMeta.shape!.id : articleShapeId}
+              disabled={shapeMeta.lockedByFormat}
+              onChange={(e) => setArticleShapeId(e.target.value)}
+            >
+              {!shapeMeta.lockedByFormat && (
+                <option value="auto">— Tự chọn trong khung gợi ý domain —</option>
+              )}
+              <optgroup label={`Gợi ý cho ${domain}`}>
+                {recommendedShapes.map((shape) => (
+                  <option key={shape.id} value={shape.id}>
+                    {shape.labelVi}
+                  </option>
+                ))}
+              </optgroup>
+            </Select>
+            <FieldHint>{shapeMeta.hint}</FieldHint>
+            {!shapeMeta.lockedByFormat && recommendedShapes.length > 0 && (
+              <ul className="mt-3 space-y-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
+                {recommendedShapes.slice(0, 6).map((shape) => (
+                  <li key={shape.id}>
+                    <button
+                      type="button"
+                      className={`w-full rounded-lg px-2.5 py-1.5 text-left text-xs transition ${
+                        articleShapeId === shape.id
+                          ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent)]"
+                          : "text-[var(--ink-muted)] hover:bg-[var(--surface-muted)]"
+                      }`}
+                      onClick={() => setArticleShapeId(shape.id)}
+                    >
+                      <span className="font-medium text-[var(--ink)]">{shape.labelVi}</span>
+                      <span className="mt-0.5 block text-[11px] text-[var(--ink-faint)]">
+                        {shape.reason}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+                <li>
+                  <button
+                    type="button"
+                    className={`w-full rounded-lg px-2.5 py-1.5 text-left text-xs ${
+                      articleShapeId === "auto"
+                        ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent)]"
+                        : "text-[var(--ink-muted)] hover:bg-[var(--surface-muted)]"
+                    }`}
+                    onClick={() => setArticleShapeId("auto")}
+                  >
+                    Tự chọn lúc Insight (trong pool gợi ý trên)
+                  </button>
+                </li>
+              </ul>
+            )}
           </div>
 
           <div>
@@ -206,7 +310,7 @@ export default function NewArticlePage() {
           <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)]/40 p-4 space-y-4">
             <p className="text-sm font-semibold text-[var(--ink)]">Cấu hình bài viết</p>
             <div>
-              <Label htmlFor="words">Số từ gợi ý (bản sạch)</Label>
+              <Label htmlFor="words">Số từ gợi ý (bản sạch, từ tiếng Việt thật)</Label>
               <Input
                 id="words"
                 type="number"
@@ -222,7 +326,9 @@ export default function NewArticlePage() {
                 }}
               />
               <FieldHint>
-                Prefill theo format; tối đa {MAX_TARGET_WORD_COUNT}. Đổi được trước khi chạy.
+                Đếm theo TỪ (“cơ sở dữ liệu” = 1 từ), tức khoảng{" "}
+                {wordsToSyllables(targetWordCount)} tiếng tách khoảng trắng. Không tính tiêu đề,
+                ảnh, code và References. Prefill theo format; tối đa {MAX_TARGET_WORD_COUNT}.
               </FieldHint>
             </div>
             <div>
@@ -260,7 +366,7 @@ export default function NewArticlePage() {
               {[
                 "Research + nguồn",
                 "Insight Gate ≥ L2",
-                "Viết theo format đã chọn",
+                "Viết theo format + khung đã chọn",
                 "Bản sạch đọc liền để đăng",
               ].map((step, i) => (
                 <li key={step} className="flex items-center gap-3 text-sm text-[var(--ink-muted)]">
@@ -273,8 +379,9 @@ export default function NewArticlePage() {
             </ol>
           </div>
           <div className="surface-soft p-5 text-sm leading-relaxed text-[var(--ink-muted)]">
-            Cùng pipeline TFES — đầu ra khác nhau: blog, field note, ADR, postmortem, brief, thread.
-            Series giúp kho trí thức có chiều sâu; Digest tuần tận dụng bài điểm cao.
+            Đổi domain → danh sách khung gợi ý đổi theo (engineering ≠ lifestyle). Chọn tay chỉ
+            trong pool gợi ý; auto cũng ưu tiên pool đó lúc Insight. Format khóa (Facebook/ADR…)
+            vẫn bắt buộc khung riêng.
           </div>
         </aside>
       </div>

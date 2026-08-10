@@ -1,6 +1,6 @@
 # Domain Profile — Schema chuẩn v1.6 (checklist)
 
-> Mọi Domain Profile mới (kể cả 5 domain hiện có) phải khai đủ các trường dưới đây, theo đúng thứ tự, để agent web parse nhất quán. `engineering.md` là hồ sơ gốc — domain khác chỉ khai phần **khác biệt**; nếu một trường không khác, domain đó kế thừa nguyên văn từ `engineering.md`.
+> Mọi Domain Profile mới (kể cả 8 domain hiện có) phải khai đủ các trường dưới đây, theo đúng thứ tự, để agent web parse nhất quán. `engineering.md` là hồ sơ gốc — domain khác chỉ khai phần **khác biệt**; nếu một trường không khác, domain đó kế thừa nguyên văn từ `engineering.md`.
 
 ## Trường bắt buộc
 
@@ -29,15 +29,18 @@ Mỗi mẫu gồm 3 dòng:
 
 Khuyến nghị ≥2 mẫu/domain để có đủ đa dạng giọng khi Writing tham chiếu.
 
-## Tình trạng 5 domain hiện có (audit nhanh)
+## Tình trạng 8 domain hiện có (audit nhanh)
 
 | Domain | Có đủ trường bắt buộc? | Ghi chú |
 |---|---|---|
 | `engineering.md` | ✅ | Hồ sơ gốc, đầy đủ, 3 gold_samples |
 | `soft-skills.md` | ✅ | Có thêm `pseudoscience_blocklist` + `learning_track_seed`, 2 gold_samples |
-| `ai-ml.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
-| `product.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
-| `security.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
+| `ai-ml.md` | ✅ | 2 gold_samples |
+| `product.md` | ✅ | 2 gold_samples |
+| `security.md` | ✅ | 2 gold_samples |
+| `fun.md` | ✅ | Giải trí / nhẹ; 2 gold_samples |
+| `new-tech.md` | ✅ | Công nghệ mới / early adoption; 2 gold_samples |
+| `lifestyle.md` | ✅ | Đời sống + `pseudoscience_blocklist`; 2 gold_samples |
 
 
 ## Runtime contract v1.6

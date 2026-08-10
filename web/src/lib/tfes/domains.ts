@@ -6,6 +6,9 @@ export const DOMAIN_IDS = [
   "product",
   "ai-ml",
   "security",
+  "fun",
+  "new-tech",
+  "lifestyle",
 ] as const;
 
 export type DomainId = (typeof DOMAIN_IDS)[number];
@@ -96,6 +99,48 @@ Góc: threat model, control, trade-off DX vs risk — không fear-mongering / ch
       "OWASP cloud identity vulnerability trade-offs last 3 months 2026",
     ],
     seedLabel: "security (AppSec, supply chain, identity, secure SDLC)",
+  },
+  fun: {
+    id: "fun",
+    label: "fun — giải trí / nhẹ",
+    short: "Fun",
+    profileFile: "04-Domain-Profiles/fun.md",
+    readerRoles: `Roles (fun): **Độc giả phổ thông** · **Creator** · **Người làm nội dung**
+Góc: vui, cụ thể, có twist — không clickbait rỗng, không bịa trend.`,
+    trendQueries: [
+      "internet culture memes creator trends Vietnam 2026",
+      "pop culture gaming streaming entertainment trends Asia 2026",
+      "light tech lifestyle humor essays last 3 months 2026",
+    ],
+    seedLabel: "fun (giải trí, meme văn hóa, gaming/stream, twist nhẹ)",
+  },
+  "new-tech": {
+    id: "new-tech",
+    label: "new-tech — công nghệ mới",
+    short: "Công nghệ mới",
+    profileFile: "04-Domain-Profiles/new-tech.md",
+    readerRoles: `Roles (new-tech): **Early adopter** · **Product Engineer** · **Tech curious**
+Góc: cái mới thật sự đổi gì, trade-off, khi nào chưa đáng — không launch hype.`,
+    trendQueries: [
+      "emerging technology launches last 3 months 2026",
+      "new developer tools platforms hardware AI gadgets trends 2026",
+      "breakthrough tech adoption trade-offs consumer enterprise 2026",
+    ],
+    seedLabel: "new-tech (công nghệ mới, launch, early adoption, trade-off)",
+  },
+  lifestyle: {
+    id: "lifestyle",
+    label: "lifestyle — đời sống",
+    short: "Đời sống",
+    profileFile: "04-Domain-Profiles/lifestyle.md",
+    readerRoles: `Roles (lifestyle): **Người đi làm** · **Freelancer** · **Độc giả đô thị VN**
+Góc: thói quen, sức khỏe tinh thần nhẹ, sống & làm việc — evidence-based, không self-help sáo.`,
+    trendQueries: [
+      "work life balance digital wellbeing habits Vietnam 2026",
+      "urban lifestyle productivity health routines trends 2026",
+      "remote work living habits consumer lifestyle Asia 2026",
+    ],
+    seedLabel: "lifestyle (đời sống, thói quen, wellbeing, sống & làm việc)",
   },
 };
 

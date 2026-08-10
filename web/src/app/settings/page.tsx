@@ -10,10 +10,12 @@ import { Button } from "@/components/ui/button";
 import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { AutoWriteSettings } from "@/lib/auto-write/schedule";
 import {
+  DEFAULT_TARGET_WORD_COUNT,
   MAX_TARGET_WORD_COUNT,
   MIN_TARGET_WORD_COUNT,
   normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
+import { wordsToSyllables } from "@/lib/tfes/word-count";
 import { DOMAIN_IDS, domainSelectOptions, type DomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
@@ -280,7 +282,7 @@ export default function SettingsPage() {
           : [config.seedTopicsSoftSkills.trim(), blob].filter(Boolean).join("\n");
       setConfig({ ...config, seedTopicsSoftSkills: next });
     } else {
-      // product / ai-ml / security — ghi vào Custom topics (chưa có cột seed riêng)
+      // domain khác (product/ai-ml/security/fun/new-tech/lifestyle) — Custom topics
       const next =
         mode === "replace"
           ? blob
@@ -581,16 +583,18 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div>
-                <Label htmlFor="defaultTargetWordCount">Số từ gợi ý (bản sạch)</Label>
+                <Label htmlFor="defaultTargetWordCount">
+                  Số từ gợi ý (bản sạch, từ tiếng Việt thật)
+                </Label>
                 <Input
                   id="defaultTargetWordCount"
                   type="number"
                   min={MIN_TARGET_WORD_COUNT}
                   max={MAX_TARGET_WORD_COUNT}
                   step={50}
-                  value={config.defaultTargetWordCount ?? 1200}
+                  value={config.defaultTargetWordCount ?? DEFAULT_TARGET_WORD_COUNT}
                   onChange={(e) => {
-                    const n = Number(e.target.value) || 1200;
+                    const n = Number(e.target.value) || DEFAULT_TARGET_WORD_COUNT;
                     setConfig({
                       ...config,
                       defaultTargetWordCount: Math.max(
@@ -600,7 +604,12 @@ export default function SettingsPage() {
                     });
                   }}
                 />
-                <FieldHint>Tối đa {MAX_TARGET_WORD_COUNT} từ (đếm khoảng trắng).</FieldHint>
+                <FieldHint>
+                  Đếm theo TỪ (“cơ sở dữ liệu” = 1 từ), tức khoảng{" "}
+                  {wordsToSyllables(config.defaultTargetWordCount ?? DEFAULT_TARGET_WORD_COUNT)}{" "}
+                  tiếng. Không tính tiêu đề, ảnh, code, References. Tối đa{" "}
+                  {MAX_TARGET_WORD_COUNT} từ.
+                </FieldHint>
               </div>
               <div>
                 <Label htmlFor="defaultAvoidFormats">Tránh format (mặc định)</Label>
@@ -636,7 +645,7 @@ export default function SettingsPage() {
                 </label>
                 <FieldHint>
                   Bật = lấy seed trong Domain Profile ({DOMAIN_IDS.join(", ")}) + seed Cài đặt bên
-                  dưới (engineering / soft-skills). product / ai-ml / security: seed trong file
+                  dưới (engineering / soft-skills). Domain khác: seed trong file profile + Custom topics
                   profile + Custom topics. Tắt = chỉ seed Cài đặt + custom.
                 </FieldHint>
               </div>
@@ -747,7 +756,7 @@ export default function SettingsPage() {
                 rows={4}
                 value={config.customTopics}
                 onChange={(e) => setConfig({ ...config, customTopics: e.target.value })}
-                placeholder={"Chủ đề dùng chung mọi domain (kể cả product / ai-ml / security)\n..."}
+                placeholder={"Chủ đề dùng chung mọi domain (kể cả fun / new-tech / lifestyle…)\n..."}
               />
               <FieldHint>Ghép thêm vào pool bất kể domain đang chạy (rotate cũng dùng).</FieldHint>
             </div>

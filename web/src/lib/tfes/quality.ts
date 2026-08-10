@@ -8,11 +8,15 @@ import {
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+import { resolvePublishFormat } from "@/lib/tfes/publish-formats";
+import { countProseWords, wordsToSyllables } from "@/lib/tfes/word-count";
 
+/**
+ * Độ dài dùng cho mọi gate = TỪ tiếng Việt thật của phần văn xuôi.
+ * Không đếm References / hero / code / ký tự markdown, và không nhầm tiếng với từ.
+ */
 export function countWords(text: string | null | undefined): number {
-  const t = (text ?? "").trim();
-  if (!t) return 0;
-  return t.split(/\s+/).filter(Boolean).length;
+  return countProseWords(text);
 }
 
 export function hasHttpLink(text: string | null | undefined): boolean {
@@ -358,6 +362,14 @@ export function buildCleanRepairDirectives(
       "ƯU TIÊN — GỘP “khi nào không nên”: chỉ còn MỘT khối/đoạn; xóa các lần lặp.",
     );
   }
+  if (/SHAPE_FIDELITY|SHAPE_ADR|SHAPE_BRIEF|SHAPE_POSTMORTEM|SHAPE_QA|SHAPE_DEBATE|SHAPE_FB|SHAPE_LI|SHAPE_NEWSLETTER|SHAPE_BEFORE|SHAPE_MYTH|SHAPE_CONSTRAINT|SHAPE_TIMELINE|SHAPE_PLAYBOOK|SHAPE_INACTION|SHAPE_FIELD|SHAPE_DISCUSSION/i.test(h)) {
+    lines.push(
+      "ƯU TIÊN — KHUNG BÀI (ARTICLE_SHAPE):",
+      "- Đọc lại block ARTICLE_SHAPE / CLEAN_STRUCTURE trong CONTEXT.",
+      "- Viết lại thân cho khớp nhịp khung (ADR/brief/postmortem/social/trước-sau…), không kéo về essay blog generic.",
+      "- Giữ luận điểm; chỉ đổi cấu trúc/heading/CTA cho đúng shape.",
+    );
+  }
   if (/Subtitle/i.test(h) || BARE_SUBTITLE_LABEL.test(body)) {
     lines.push("ƯU TIÊN — Xóa mọi nhãn Subtitle; chỉ giữ 1 dòng *phụ đề nghiêng* dưới # Title.");
   }
@@ -408,14 +420,14 @@ function countWhenNotBlocks(text: string): number {
 
 export function assertWritePhaseQuality(draft: string, phase: "a" | "b"): void {
   const words = countWords(draft);
-  if (phase === "a" && words < 450) {
+  if (phase === "a" && words < 280) {
     throw new Error(
-      `Nháp nửa đầu quá ngắn (${words} từ, cần ≥450). Chạy lại bước Viết — model phải viết sâu hơn theo BAR VIẾT.`,
+      `Nháp nửa đầu quá ngắn (${words} từ thật, cần ≥280). Chạy lại bước Viết — model phải viết sâu hơn theo BAR VIẾT.`,
     );
   }
-  if (phase === "b" && words < 350) {
+  if (phase === "b" && words < 220) {
     throw new Error(
-      `Nháp nửa sau quá ngắn (${words} từ, cần ≥350). Chạy lại bước Viết.`,
+      `Nháp nửa sau quá ngắn (${words} từ thật, cần ≥220). Chạy lại bước Viết.`,
     );
   }
   if (FAKE_COMPANY.test(draft)) {
@@ -437,9 +449,9 @@ export function assertWritePhaseQuality(draft: string, phase: "a" | "b"): void {
 
 export function assertFullDraftQuality(draft: string): void {
   const words = countWords(draft);
-  if (words < 900) {
+  if (words < 560) {
     throw new Error(
-      `Bản 12 phần quá ngắn (${words} từ, AI-TFES yêu cầu ~1.200–1.800). Chạy lại Viết hoặc Reset.`,
+      `Bản 12 phần quá ngắn (${words} từ thật, AI-TFES yêu cầu ~750–1.100). Chạy lại Viết hoặc Reset.`,
     );
   }
   if (!WHEN_NOT.test(draft)) {
@@ -462,9 +474,12 @@ export function assertFullDraftQuality(draft: string): void {
   }
 }
 
-/** Sàn / trần từ bản sạch theo WRITING PREFS (target mặc định 1200).
- * Đếm TỪ = tách khoảng trắng (tiếng Việt), KHÔNG đếm ký tự. */
-export function cleanWordBounds(prefs?: WritingPrefs | null): {
+/** Sàn / trần độ dài bản sạch theo WRITING PREFS + publish format.
+ * Đơn vị: TỪ tiếng Việt thật của phần văn xuôi (xem word-count.ts). */
+export function cleanWordBounds(
+  prefs?: WritingPrefs | null,
+  publishFormat?: string | null,
+): {
   target: number;
   minWords: number;
   /** Ngưỡng “gần target” — dưới mức này sẽ expand thêm trước khi chấm */
@@ -472,8 +487,14 @@ export function cleanWordBounds(prefs?: WritingPrefs | null): {
   maxWords: number;
 } {
   const { words } = PIPELINE_CONFIG;
-  const target = prefs?.targetWordCount ?? words.defaultTarget;
-  const minWords = Math.max(450, Math.round(target * words.cleanMinRatio));
+  const format = resolvePublishFormat(publishFormat);
+  const target = prefs?.targetWordCount ?? format.wordHint ?? words.defaultTarget;
+  // Social: độ dài do hook quyết định, ép sát target dễ thành post lê thê.
+  const ratio =
+    format.family === "social"
+      ? Math.min(words.cleanMinRatio, 0.7)
+      : words.cleanMinRatio;
+  const minWords = Math.max(format.wordFloor, Math.round(target * ratio));
   const aimWords = Math.max(minWords, Math.round(target * words.cleanAimRatio));
   const maxWords = Math.round(target * words.cleanMaxRatio) + words.cleanMaxBuffer;
   return { target, minWords, aimWords, maxWords };
@@ -493,28 +514,30 @@ export function cleanGenMaxTokens(targetWordCount?: number | null): number {
 export function assertCleanPublishQuality(
   clean: string,
   prefs?: WritingPrefs | null,
+  publishFormat?: string | null,
 ): void {
+  const format = resolvePublishFormat(publishFormat);
   const words = countWords(clean);
-  const { target, minWords, maxWords } = cleanWordBounds(prefs);
+  const { target, minWords, maxWords } = cleanWordBounds(prefs, publishFormat);
 
   if (words < minWords) {
     throw new Error(
-      `Bản sạch quá ngắn (${words} từ đếm khoảng trắng, cần ≥${minWords} theo target ~${target} từ — không phải ký tự). Viết thêm thân bài cho đủ.`,
+      `Bản sạch quá ngắn (${words} từ thật ≈ ${wordsToSyllables(words)} tiếng, cần ≥${minWords} từ theo target ~${target} từ — format ${format.id}). Viết thêm thân bài cho đủ.`,
     );
   }
   if (words > maxWords) {
     throw new Error(
-      `Bản sạch quá dài (${words} từ, target ~${target}, trần ~${maxWords}). Rút gọn bản đăng.`,
+      `Bản sạch quá dài (${words} từ thật, target ~${target}, trần ~${maxWords}). Rút gọn bản đăng.`,
     );
   }
   if (EDITORIAL_HEADING_RE.test(clean)) {
     throw new Error(
-      "Bản sạch còn heading biên tập (Introduction/Context/Deep Analysis…). Viết lại dạng tin đọc liền.",
+      "Bản sạch còn heading biên tập (Introduction/Context/Deep Analysis…). Viết lại dạng đọc liền theo PUBLISH_FORMAT.",
     );
   }
   if (LISTICLE_OUTLINE.test(clean)) {
     throw new Error(
-      "Bản sạch còn outline listicle — viết lại bài đọc liền (không checklist).",
+      "Bản sạch còn outline listicle — viết lại theo format (không checklist Hook/Framework).",
     );
   }
   if (prefs && hasAvoid(prefs, "table") && hasMarkdownTable(clean)) {
@@ -529,11 +552,11 @@ export function assertCleanPublishQuality(
     );
   }
   if (BARE_ALT_LINE.test(clean)) {
-    throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE).');
+    throw new Error('Bản sạch còn dòng “alt” sót — dùng ![mô tả ngắn](HERO_IMAGE) hoặc xóa.');
   }
   if (BARE_SUBTITLE_LABEL.test(clean)) {
     throw new Error(
-      'Bản sạch còn nhãn “Subtitle” — chỉ giữ phụ đề in nghiêng dưới # Title, không viết chữ Subtitle.',
+      'Bản sạch còn nhãn “Subtitle” — chỉ giữ phụ đề in nghiêng dưới # Title (nếu format cần), không viết chữ Subtitle.',
     );
   }
   if (/\uFFFD|�/.test(clean)) {
@@ -542,13 +565,12 @@ export function assertCleanPublishQuality(
   if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/m.test(clean)) {
     throw new Error("Bản sạch còn dòng gạch ngang (---) giữa nội dung — bỏ thematic break, nối đoạn.");
   }
-  if (HANDBOOK_VOICE.test(clean)) {
+  if (format.requireBlogOpenerGates && HANDBOOK_VOICE.test(clean)) {
     throw new Error(
-      "Bản sạch còn giọng handbook/brochure — viết lại như blog/tin tức (cảnh mở + người/đội, không “ngày càng phức tạp… được nhắc đến như”).",
+      "Bản sạch còn giọng handbook/brochure — viết lại theo PUBLISH_VOICE (cảnh mở + người/đội, không “ngày càng phức tạp… được nhắc đến như”).",
     );
   }
-  // Chỉ soi ~600 ký tự đầu body (sau title/phụ đề) — prefix “Bản sạch” để soft-retry nhận diện
-  if (hasDryOpener(clean)) {
+  if (format.requireBlogOpenerGates && hasDryOpener(clean)) {
     throw new Error(
       "Bản sạch: đoạn mở còn khô/giáo trình hoặc khuôn “sprint / đội X / công ty fintech” — đổi sang nghịch lý hoặc failure cụ thể từ Research (xem gold_samples).",
     );
@@ -558,12 +580,12 @@ export function assertCleanPublishQuality(
       "Bản sạch có quá nhiều ngưỡng % cụ thể (≥6) — dễ bịa; giữ ≤5 số có trong Research hoặc viết định tính.",
     );
   }
-  if (!CONCRETE_SCENE.test(clean)) {
+  if (format.requireConcreteScene && !CONCRETE_SCENE.test(clean)) {
     throw new Error(
       "Bản sạch thiếu tình huống cụ thể (pipeline/stage/retry/snapshot…) — thêm ≥1 mini-case trước khi Publish Ready.",
     );
   }
-  if (!READER_HONESTY_RE.test(clean)) {
+  if (format.requireHonestyBoundary && !READER_HONESTY_RE.test(clean)) {
     throw new Error(
       'Bản sạch thiếu điều kiện/phản biện (vd. “không nên”, “chỉ khi”, “không phù hợp”).',
     );
@@ -581,19 +603,21 @@ export function editorialSelfCheck(input: {
   cleanPublish?: string | null;
   factCheck?: string | null;
   writingPrefs?: WritingPrefs | null;
+  publishFormat?: string | null;
 }): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const draft = input.draft12 ?? "";
   const clean = input.cleanPublish ?? "";
   const prefs = input.writingPrefs;
+  const format = resolvePublishFormat(input.publishFormat);
   const body = `${draft}\n${clean}`;
   const words = Math.max(countWords(draft), countWords(clean));
-  const target = prefs?.targetWordCount ?? 1200;
+  const target = prefs?.targetWordCount ?? format.wordHint;
 
-  if (words < 800) {
+  if (words < Math.round(target * 0.55)) {
     issues.push({
       code: "LENGTH",
-      message: `Độ dài chưa đủ (~${words} từ; mục tiêu ≥${Math.round(target * 0.75)}).`,
+      message: `Độ dài chưa đủ (~${words} từ; mục tiêu ≥${Math.round(target * 0.55)} theo format ${format.id}).`,
     });
   }
 
@@ -606,7 +630,11 @@ export function editorialSelfCheck(input: {
     issues.push({ code: "INSIGHT_LEVEL", message: "Insight Gate có vẻ < L2." });
   }
 
-  if (!WHEN_NOT.test(draft) && !READER_HONESTY_RE.test(clean || draft)) {
+  if (
+    format.requireHonestyBoundary &&
+    !WHEN_NOT.test(draft) &&
+    !READER_HONESTY_RE.test(clean || draft)
+  ) {
     issues.push({
       code: "WHEN_NOT",
       message: "Thiếu “khi nào KHÔNG nên” / điều kiện không áp dụng.",
@@ -689,14 +717,14 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (clean.trim() && HANDBOOK_VOICE.test(clean)) {
+  if (format.requireBlogOpenerGates && clean.trim() && HANDBOOK_VOICE.test(clean)) {
     issues.push({
       code: "HANDBOOK",
-      message: "Bản sạch còn giọng handbook/brochure — viết lại như blog/tin tức kỹ thuật.",
+      message: "Bản sạch còn giọng handbook/brochure — viết lại theo PUBLISH_VOICE.",
     });
   }
 
-  if (clean.trim() && hasDryOpener(clean)) {
+  if (format.requireBlogOpenerGates && clean.trim() && hasDryOpener(clean)) {
     issues.push({
       code: "DRY_OPEN",
       message: "Bản sạch: đoạn mở khô/giáo trình — cần cảnh hoặc nghịch lý như blog.",
@@ -710,7 +738,7 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (clean.trim() && !CONCRETE_SCENE.test(clean)) {
+  if (format.requireConcreteScene && clean.trim() && !CONCRETE_SCENE.test(clean)) {
     issues.push({
       code: "NO_SCENE",
       message: "Bản sạch thiếu mini-case / tình huống kỹ thuật cụ thể.",
@@ -722,9 +750,9 @@ export function editorialSelfCheck(input: {
   }
 
   const cleanWords = countWords(clean);
-  const { minWords } = cleanWordBounds(prefs);
+  const { minWords } = cleanWordBounds(prefs, input.publishFormat);
   // Soft gate nhẹ hơn assert (½ sàn) — tránh self-check loop khi polish gần đạt
-  if (cleanWords > 0 && cleanWords < Math.max(350, Math.round(minWords * 0.55))) {
+  if (cleanWords > 0 && cleanWords < Math.max(Math.round(format.wordFloor * 0.6), Math.round(minWords * 0.55))) {
     issues.push({
       code: "CLEAN_SHORT",
       message: `Bản sạch quá ngắn (${cleanWords} từ; target ~${target}, sàn ~${minWords}).`,

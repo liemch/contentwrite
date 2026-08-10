@@ -14,14 +14,14 @@ Engineer / Tech Lead / Engineering Manager — ở khía cạnh con người: gi
 ## tone
 Trung lập · đồng cảm · tự sự vừa phải · khuyến khích trao đổi. Tránh lên lớp, sáo rỗng, hứa hẹn kiểu self-help.
 
-## source_tiers  (KHÁC hẳn engineering)
+## source_tiers
 - **Tier 1:** Nghiên cứu bình duyệt (tâm lý học, khoa học hành vi, quản trị), meta-analysis, sách nền tảng có căn cứ.
 - **Tier 2:** Harvard Business Review, MIT Sloan, APA, nghiên cứu tổ chức lớn.
 - **Tier 3:** Chuyên gia có nền tảng học thuật, xác minh được.
 - **Tier 4:** Kinh nghiệm cộng đồng — chỉ minh họa, không kết luận.
 - **Tier 5:** Self-help vô căn cứ / nội dung AI — không dùng.
 
-## pseudoscience_blocklist  (BẮT BUỘC)
+## pseudoscience_blocklist
 Không trình bày như sự thật: MBTI như công cụ đo lường tin cậy, "learning styles", neuromyth (não trái/phải), các mẹo self-help không bằng chứng. Nếu nhắc tới, phải nêu rõ trạng thái bằng chứng.
 
 ## example_strategy
@@ -37,7 +37,7 @@ Practical Value 20 · Evidence Rigor 20 · People/Team Impact 20 · Evergreen 15
 
 > **Dùng ở Bước 5 (Editorial Decision)** để ưu tiên góc/chủ đề khi có nhiều lựa chọn — KHÔNG dùng thay cho rubric chấm bài ở `Review.md` (Operating Prompt mục 9). `Evidence Rigor` ở đây bổ trợ cho `pseudoscience_blocklist`, không thay thế Fact Check ở Bước 9.
 
-## sensitivity  (BẮT BUỘC)
+## sensitivity
 Tôn trọng đa dạng & bối cảnh văn hóa nơi làm việc Việt Nam. Không chẩn đoán tâm lý cá nhân. Không phán xét đạo đức. Trình bày như lựa chọn có điều kiện, không phải chân lý ứng xử.
 
 ## seed_topics

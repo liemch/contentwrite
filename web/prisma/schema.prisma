@@ -136,7 +136,7 @@ model Article {
   approvedAt      DateTime?
   publishedAt     DateTime?
 
-  /// Gợi ý độ dài bản sạch (từ) — null = dùng default Settings
+  /// Gợi ý độ dài bản sạch — TỪ tiếng Việt thật (xem word-count.ts); null = default Settings
   targetWordCount Int?
   /// CSV flags: table, mermaid, numbered_outline
   avoidFormats    String?
@@ -266,7 +266,7 @@ model AutoWriteConfig {
   intervalHours    Int       @default(24)
   preferredHour    Int       @default(9)
   timezone         String    @default("Asia/Ho_Chi_Minh")
-  /// engineering | soft-skills | product | ai-ml | security | rotate
+  /// engineering | soft-skills | product | ai-ml | security | fun | new-tech | lifestyle | rotate
   domain           String    @default("engineering")
   useSeedTopics    Boolean   @default(true)
   customTopics     String?   @db.Text
@@ -274,7 +274,7 @@ model AutoWriteConfig {
   seedTopicsEngineering String? @db.Text
   seedTopicsSoftSkills  String? @db.Text
   maxPendingReview Int       @default(3)
-  /// Mặc định số từ bản sạch khi tạo bài / auto-write
+  /// Mặc định độ dài bản sạch khi tạo bài / auto-write — TỪ tiếng Việt thật
   defaultTargetWordCount Int  @default(1200)
   /// Mặc định tránh format (CSV): table, mermaid, numbered_outline
   defaultAvoidFormats String? @default("table")

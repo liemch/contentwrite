@@ -20,7 +20,13 @@ function sections(markdown: string): Map<string, string> {
   const matches = [...markdown.matchAll(/^##\s+([^\n]+)\s*$/gm)];
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index];
-    const key = match[1]?.trim().toLowerCase();
+    // Allow annotated headers like "## source_tiers (KHÁC …)" → key "source_tiers".
+    const key = match[1]
+      ?.trim()
+      .toLowerCase()
+      .replace(/\s*\(.*\)\s*$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (!key || match.index == null) continue;
     const start = match.index + match[0].length;
     const end = matches[index + 1]?.index ?? markdown.length;
@@ -64,4 +70,35 @@ export function resolveAndValidateDomainProfile(
     ...[...merged].map(([key, value]) => `## ${key}\n${value}`),
   ].join("\n\n");
   return { content, version: merged.get("profile_version")?.split(/\s+/)[0] ?? "1.6" };
+}
+
+/** Prefer identity/audience/tone/source/sensitivity/blocklist over long gold/seed tails. */
+export function clipDomainProfileForRole(
+  profileMarkdown: string,
+  maxChars: number,
+): string {
+  const preferred = [
+    "identity",
+    "audience",
+    "tone",
+    "source_tiers",
+    "sensitivity",
+    "pseudoscience_blocklist",
+    "categories",
+    "scoring_weights",
+    "example_strategy",
+    "freshness",
+  ];
+  const map = sections(profileMarkdown);
+  const chunks: string[] = [];
+  for (const key of preferred) {
+    const value = map.get(key)?.trim();
+    if (!value) continue;
+    chunks.push(`## ${key}\n${value}`);
+  }
+  const assembled = chunks.join("\n\n").trim();
+  if (assembled.length >= Math.min(400, maxChars)) {
+    return assembled.slice(0, maxChars).trim();
+  }
+  return profileMarkdown.slice(0, maxChars).trim();
 }

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorResponse, requireUser } from "@/lib/auth";
 import { isAdmin } from "@/lib/access";
-import { getDeskMetrics, getRelatedAngles } from "@/lib/tfes/editorial-memory";
+import {
+  getDeskMetrics,
+  getRelatedAngles,
+  loadSeriesAntiOverlap,
+} from "@/lib/tfes/editorial-memory";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,16 +23,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ metrics });
     }
 
-    const angles = await getRelatedAngles({
-      domain,
-      topic,
-      seriesId,
-      limit: 6,
-      accessScope: isAdmin(user)
-        ? { mode: "admin" }
-        : { mode: "owner", userId: user.userId },
+    const accessScope = isAdmin(user)
+      ? ({ mode: "admin" } as const)
+      : ({ mode: "owner", userId: user.userId } as const);
+
+    const [angles, seriesAnti] = await Promise.all([
+      getRelatedAngles({
+        domain,
+        topic,
+        seriesId,
+        limit: 6,
+        accessScope,
+      }),
+      seriesId
+        ? loadSeriesAntiOverlap({ seriesId, accessScope })
+        : Promise.resolve(null),
+    ]);
+    return NextResponse.json({
+      angles,
+      series: seriesAnti
+        ? {
+            title: seriesAnti.seriesTitle,
+            description: seriesAnti.seriesDescription,
+            siblings: seriesAnti.siblings,
+          }
+        : null,
     });
-    return NextResponse.json({ angles });
   } catch (error) {
     const authRes = authErrorResponse(error);
     if (authRes) return authRes;

@@ -158,6 +158,8 @@ import {
   parseInsightPlanLockV2,
   readerAuditPolishTargets,
   researchPacketCoverageInsufficient,
+  researchPacketParseFailure,
+  buildResearchFormatRepairPromptV2,
 } from "@/lib/tfes/prompts-v2";
 import {
   assertCleanPublishQuality,
@@ -176,6 +178,7 @@ import {
   isWritePhaseQualityFail,
   rewriteStockOpenerDeterministic,
 } from "@/lib/tfes/quality";
+import { wordsToSyllables } from "@/lib/tfes/word-count";
 import { assertEngineeringGoldBar, inspectEngineeringGoldBar } from "@/lib/tfes/engineering-gold-bar";
 import {
   buildDailyTaskPrompt,
@@ -201,7 +204,9 @@ import {
 } from "@/lib/tfes/writing-prefs";
 import { readerRolesForDomain, resolveDomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
-import { formatPublishShapePrompt } from "@/lib/tfes/publish-formats";
+import { formatPublishShapePrompt, resolveShapeForArticle } from "@/lib/tfes/publish-formats";
+import { assertShapeFidelity } from "@/lib/tfes/shape-fidelity";
+import { mergeDeskJson, parseDeskJson } from "@/lib/tfes/desk-state";
 import { hydrateTfesOverrides } from "@/lib/tfes/tfes-docs";
 
 /** Câu placeholder từng bị nhầm thành topic khi tạo bài không nhập chủ đề */
@@ -256,6 +261,7 @@ async function getEditorialMemory(
   domain: string,
   seriesId?: string | null,
   createdById?: string | null,
+  excludeArticleId?: string | null,
 ): Promise<string> {
   const { buildEditorialMemoryBlock } = await import("@/lib/tfes/editorial-memory");
   let accessScope: { mode: "admin" } | { mode: "owner"; userId: string } = { mode: "admin" };
@@ -268,7 +274,31 @@ async function getEditorialMemory(
       accessScope = { mode: "owner", userId: createdById };
     }
   }
-  return buildEditorialMemoryBlock(domain, { seriesId, accessScope });
+  return buildEditorialMemoryBlock(domain, { seriesId, excludeArticleId, accessScope });
+}
+
+async function getSeriesAntiOverlapForArticle(article: {
+  id: string;
+  seriesId?: string | null;
+  createdById?: string | null;
+}) {
+  if (!article.seriesId) return null;
+  const { loadSeriesAntiOverlap } = await import("@/lib/tfes/editorial-memory");
+  let accessScope: { mode: "admin" } | { mode: "owner"; userId: string } = { mode: "admin" };
+  if (article.createdById) {
+    const creator = await prisma.user.findUnique({
+      where: { id: article.createdById },
+      select: { role: true },
+    });
+    if (creator?.role !== UserRole.ADMIN) {
+      accessScope = { mode: "owner", userId: article.createdById };
+    }
+  }
+  return loadSeriesAntiOverlap({
+    seriesId: article.seriesId,
+    excludeArticleId: article.id,
+    accessScope,
+  });
 }
 
 type StepTimings = {
@@ -374,12 +404,21 @@ async function ensureCleanPublishQuality(input: {
   domain: string | null | undefined;
   articleId: string;
   publishFormat?: string | null;
+  articleShapeId?: string | null;
+  articleShapeSnapshot?: string | null;
   researchBrief?: string | null;
   factCheck?: string | null;
   qualityHint?: string | null;
 }): Promise<string> {
+  const shape = resolveShapeForArticle({
+    articleId: input.articleId,
+    publishFormat: input.publishFormat,
+    articleShapeId: input.articleShapeId,
+    articleShapeSnapshot: input.articleShapeSnapshot,
+  });
   const assertCleanAndGold = (candidate: string) => {
-    assertCleanPublishQuality(candidate, input.prefs);
+    assertCleanPublishQuality(candidate, input.prefs, input.publishFormat);
+    assertShapeFidelity(candidate, shape, input.publishFormat);
     assertEngineeringGoldBar({
       domain: input.domain,
       body: candidate,
@@ -409,7 +448,7 @@ async function ensureCleanPublishQuality(input: {
           : String(afterDeterministic);
       const activeHint = hint2 || hint;
 
-      const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+      const prefsBlock = formatWritingPrefsPrompt(input.prefs, input.publishFormat);
       const directives = buildCleanRepairDirectives(activeHint, clean);
       const repairPrompt = resolvePromptDescriptor("publish-quality-repair");
       const repairShape = shapeBlockFor({
@@ -546,8 +585,8 @@ async function ensureCleanPublishQuality(input: {
 }
 
 /**
- * Nếu bản sạch thiếu số TỪ so với aim (~85% target) — một pass expand (không xoá bài).
- * Đếm từ = khoảng trắng, không phải ký tự.
+ * Bản sạch chưa chạm aim → expand tối đa `maxExpandPasses` vòng (không xoá bài).
+ * Đơn vị: TỪ tiếng Việt thật của văn xuôi (word-count.ts).
  */
 async function expandCleanIfShort(input: {
   clean: string;
@@ -558,12 +597,32 @@ async function expandCleanIfShort(input: {
   publishFormat?: string | null;
   researchBrief?: string | null;
 }): Promise<string> {
-  const { target, aimWords, minWords } = cleanWordBounds(input.prefs);
+  const { aimWords } = cleanWordBounds(input.prefs, input.publishFormat);
+  let clean = input.clean;
+  for (let pass = 0; pass < PIPELINE_CONFIG.words.maxExpandPasses; pass += 1) {
+    if (countWords(clean) >= aimWords) break;
+    const next = await expandCleanOnce({ ...input, clean });
+    if (next === clean) break;
+    clean = next;
+  }
+  return clean;
+}
+
+async function expandCleanOnce(input: {
+  clean: string;
+  prefs: WritingPrefs;
+  topic: string;
+  domain: string | null | undefined;
+  articleId: string;
+  publishFormat?: string | null;
+  researchBrief?: string | null;
+}): Promise<string> {
+  const { target, aimWords, minWords } = cleanWordBounds(input.prefs, input.publishFormat);
   const words = countWords(input.clean);
   if (words >= aimWords) return input.clean;
 
   const need = Math.max(aimWords - words, minWords - words);
-  const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+  const prefsBlock = formatWritingPrefsPrompt(input.prefs, input.publishFormat);
   const expandPrompt = resolvePromptDescriptor("publish-expansion");
   const expandShape = shapeBlockFor({
     id: input.articleId,
@@ -573,7 +632,7 @@ async function expandCleanIfShort(input: {
     topic: input.topic,
     source: input.clean,
     researchBrief: input.researchBrief,
-    instruction: `Hiện có ~${words} từ. Target ~${target}; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân.`,
+    instruction: `Hiện có ~${words} từ thật (≈${wordsToSyllables(words)} tiếng). Target ~${target} từ ≈ ${wordsToSyllables(target)} tiếng; cần ≥${aimWords} từ (sàn ${minWords}). Viết thêm ≥${need} từ ≈ ${wordsToSyllables(need)} tiếng vào thân.`,
     prefsBlock,
     shapeBlock: expandShape,
   });
@@ -591,7 +650,7 @@ async function expandCleanIfShort(input: {
                   clipText(input.clean, 18_000),
                   clipText(input.researchBrief, 2_000),
                   `Chủ đề: ${input.topic}`,
-                  `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
+                  `Hiện có ~${words} từ thật (≈${wordsToSyllables(words)} tiếng). Target ~${target} từ ≈ ${wordsToSyllables(target)} tiếng; cần ≥${aimWords} từ (sàn ${minWords}). Viết thêm ≥${need} từ ≈ ${wordsToSyllables(need)} tiếng vào thân — xuất lại TOÀN BÀI dài hơn.`,
                 ),
                 prefsBlock,
                 expandShape,
@@ -614,7 +673,7 @@ async function expandCleanIfShort(input: {
   );
   if (expanded.length < 80) return input.clean;
   // Chỉ nhận nếu dài hơn rõ (tránh model rút gọn)
-  if (countWords(expanded) > words + 80) return expanded;
+  if (countWords(expanded) > words + 50) return expanded;
   return input.clean;
 }
 
@@ -1097,6 +1156,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           article.domain,
           article.seriesId,
           article.createdById,
+          article.id,
         );
         await commitTransition({
           to: WorkflowState.MEMORY_CHECKED,
@@ -1164,6 +1224,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         article.domain,
         article.seriesId,
         article.createdById,
+        article.id,
       );
       const searchBlob = clipText(existingBrief.replace(SEARCH_MARK, "").trim(), 10_000);
       const previousGateFail =
@@ -1185,7 +1246,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         researchPrompt.promptVersion === "2.0"
           ? buildResearchPacketPromptV2(researchContext)
           : buildResearchPrompt(topic, searchBlob, { previousGateFail });
-      const researchRaw = await chatCompletion(
+      let researchRaw = await chatCompletion(
         [
           { role: "system", content: getSystemPrompt(article.domain) },
           ...(researchPrompt.promptVersion === "2.0"
@@ -1207,6 +1268,30 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         ],
         { maxTokens: researchPrompt.promptVersion === "2.0" ? 4500 : 3500 },
       );
+
+      // Packet JSON hỏng (bị cắt / sai cú pháp) → một pass repair trước khi materialize,
+      // nếu không bản Nghiên cứu sẽ hiển thị nguyên khối JSON cho biên tập viên.
+      const packetFailure =
+        researchPrompt.promptVersion === "2.0"
+          ? researchPacketParseFailure(researchRaw)
+          : null;
+      if (packetFailure) {
+        const repaired = await chatCompletion(
+          [
+            { role: "system", content: getSystemPromptForRole(article.domain, "RESEARCH") },
+            {
+              role: "user",
+              content: buildResearchFormatRepairPromptV2({
+                previousOutput: researchRaw,
+                malformedReason: packetFailure,
+              }),
+            },
+          ],
+          { maxTokens: 4500 },
+        );
+        if (!researchPacketParseFailure(repaired)) researchRaw = repaired;
+      }
+
       const researchBrief = materializeResearchBrief(researchRaw);
 
       const evidenceAudit = auditResearchEvidence(researchBrief);
@@ -1310,6 +1395,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 articleShapeSnapshot: selectedShape.snapshot,
                 openingPattern: selectedShape.openingPattern,
                 narrativePattern: selectedShape.narrativePattern,
+                deskJson: mergeDeskJson(article.deskJson, {
+                  shapeSelectionMode:
+                    parseDeskJson(article.deskJson).shapeSelectionMode ?? "auto",
+                }),
               },
               details: {
                 shapeId: selectedShape.id,
@@ -1318,12 +1407,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             });
           }
           const shapeBlock = shapeBlockFor(article);
+          const seriesAnti = await getSeriesAntiOverlapForArticle(article);
           const lockContext = buildInsightLockContextV2({
             topic,
             researchBrief: article.researchBrief ?? "",
             shapeBlock,
+            seriesAntiOverlap: seriesAnti?.block,
           });
-          const lockRaw = await chatCompletion(
+          let lockRaw = await chatCompletion(
             [
               {
                 role: "system",
@@ -1336,7 +1427,51 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             ],
             { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
           );
-          const parsedLock = parseInsightPlanLockV2(lockRaw);
+          let parsedLock = parseInsightPlanLockV2(lockRaw);
+
+          // Cùng series mà thesis/angle gần sibling → một pass re-lock với collision directive.
+          if (parsedLock?.status === "LOCKED" && seriesAnti && seriesAnti.siblings.length > 0) {
+            const { findSeriesAngleCollision } = await import("@/lib/tfes/editorial-memory");
+            const candidate = [parsedLock.thesis, topic, parsedLock.markdown.slice(0, 400)]
+              .filter(Boolean)
+              .join(" · ");
+            const collision = findSeriesAngleCollision(candidate, seriesAnti.siblings);
+            if (collision) {
+              const order =
+                collision.sibling.seriesOrder != null
+                  ? `#${collision.sibling.seriesOrder}`
+                  : "·";
+              const relockContext = buildInsightLockContextV2({
+                topic,
+                researchBrief: article.researchBrief ?? "",
+                shapeBlock,
+                seriesAntiOverlap: `${seriesAnti.block}
+
+## ANGLE_COLLISION
+Candidate trùng sibling ${order} “${collision.sibling.topic}” (score ${collision.score.toFixed(2)}).
+Đã chiếm: ${collision.sibling.core || collision.sibling.topic}
+Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, hoặc failure mode.`,
+              });
+              const relockRaw = await chatCompletion(
+                [
+                  {
+                    role: "system",
+                    content: getSystemPromptForRole(article.domain, "PLAN"),
+                  },
+                  {
+                    role: "user",
+                    content: buildInsightLockPromptV2(relockContext),
+                  },
+                ],
+                { maxTokens: 2200, temperature: 0.4, reasoningEffort: "low" },
+              );
+              const relockParsed = parseInsightPlanLockV2(relockRaw);
+              if (relockParsed?.status === "LOCKED") {
+                lockRaw = relockRaw;
+                parsedLock = relockParsed;
+              }
+            }
+          }
           const lockMarkdown = parsedLock?.markdown ?? lockRaw;
           if (
             !parsedLock ||
@@ -1547,6 +1682,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               articleShapeSnapshot: selectedShape.snapshot,
               openingPattern: selectedShape.openingPattern,
               narrativePattern: selectedShape.narrativePattern,
+              deskJson: mergeDeskJson(article.deskJson, {
+                shapeSelectionMode:
+                  parseDeskJson(article.deskJson).shapeSelectionMode ?? "auto",
+              }),
             },
             details: {
               shapeId: selectedShape.id,
@@ -1634,6 +1773,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const soFar = stripPipelineMarks(article.insightGate);
         const insightPrompt = resolvePromptDescriptor("insight-lock");
         const shapeBlock = shapeBlockFor(article);
+        const seriesAnti = await getSeriesAntiOverlapForArticle(article);
         const insightContext =
           insightPrompt.promptVersion === "2.0"
             ? buildInsightLockContextV2({
@@ -1641,6 +1781,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 researchBrief: article.researchBrief ?? "",
                 decisionBlock: soFar,
                 shapeBlock,
+                seriesAntiOverlap: seriesAnti?.block,
               })
             : "";
         const planning = await chatCompletion(
@@ -1734,14 +1875,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     if (step === WorkflowStep.WRITE) {
       const draft = article.draft12 ?? "";
       const prefs = await writingPrefsForArticle(article);
-      const prefsBlock = formatWritingPrefsPrompt(prefs);
+      const prefsBlock = formatWritingPrefsPrompt(prefs, article.publishFormat);
 
       // Phase A: chưa có nháp
       if (!draft.trim()) {
         const llmStarted = Date.now();
         const draftPrompt = resolvePromptDescriptor("draft-generation");
-        const prefsBlock = formatWritingPrefsPrompt(prefs);
+        const prefsBlock = formatWritingPrefsPrompt(prefs, article.publishFormat);
         const shapeBlock = shapeBlockFor(article);
+        const seriesAnti = await getSeriesAntiOverlapForArticle(article);
         const draftContext =
           draftPrompt.promptVersion === "2.0"
             ? buildDraftGenerationContextV2({
@@ -1751,6 +1893,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 prefsBlock,
                 shapeBlock,
                 voiceReference: buildVoiceReferenceBlock(article.domain),
+                seriesAntiOverlap: seriesAnti?.block,
                 phase: "a",
               })
             : "";
@@ -1818,6 +1961,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const partA = sanitizeEditorialBody(stripPipelineMarks(draft));
         const draftPrompt = resolvePromptDescriptor("draft-generation");
         const shapeBlock = shapeBlockFor(article);
+        const seriesAnti = await getSeriesAntiOverlapForArticle(article);
         const draftContext =
           draftPrompt.promptVersion === "2.0"
             ? buildDraftGenerationContextV2({
@@ -1828,6 +1972,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 prefsBlock,
                 shapeBlock,
                 voiceReference: buildVoiceReferenceBlock(article.domain),
+                seriesAntiOverlap: seriesAnti?.block,
                 phase: "b",
               })
             : "";
@@ -3573,8 +3718,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 10b: Polish bản sạch (một pass LLM) → PUBLISH_READY
       if (finPhase === "polish") {
         const prefs = await writingPrefsForArticle(article);
-        const prefsBlock = formatWritingPrefsPrompt(prefs);
-        const { minWords, aimWords, target } = cleanWordBounds(prefs);
+        const prefsBlock = formatWritingPrefsPrompt(prefs, article.publishFormat);
+        const { minWords, aimWords, target } = cleanWordBounds(prefs, article.publishFormat);
         const rawClean = stripPipelineMarks(article.cleanPublish);
         const fallbackClean = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
         const support = priorPipelineSupportBlock(article);
@@ -3647,7 +3792,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         // Polish bị cắt token / rút quá ngắn → giữ bản sạch trước đó nếu dài hơn
         if (
           polished.length < 80 ||
-          countWords(polished) + 80 < countWords(fallbackClean)
+          countWords(polished) + 50 < countWords(fallbackClean)
         ) {
           polished = fallbackClean;
         }
@@ -3665,9 +3810,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         try {
           polished = await ensureCleanPublishQuality({
-          articleId,
-          publishFormat: article.publishFormat,
-          clean: polished,
+            articleId,
+            publishFormat: article.publishFormat,
+            articleShapeId: article.articleShapeId,
+            articleShapeSnapshot: article.articleShapeSnapshot,
+            clean: polished,
             prefs,
             topic,
             domain: article.domain,
@@ -3891,12 +4038,22 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Bước 10: Publish Ready — Knowledge Record + Bản sạch + Hero Brief
       if (finPhase === "publish" || finPhase === "done") {
         const prefs = await writingPrefsForArticle(article);
-        const prefsBlock = formatWritingPrefsPrompt(prefs);
+        const prefsBlock = formatWritingPrefsPrompt(prefs, article.publishFormat);
 
         if (finPhase === "done" && (article.cleanPublish ?? "").trim().length >= 80) {
           try {
             const cleanedExisting = toReaderCleanPublish(article.cleanPublish!);
-            assertCleanPublishQuality(cleanedExisting, prefs);
+            assertCleanPublishQuality(cleanedExisting, prefs, article.publishFormat);
+            assertShapeFidelity(
+              cleanedExisting,
+              resolveShapeForArticle({
+                articleId: article.id,
+                publishFormat: article.publishFormat,
+                articleShapeId: article.articleShapeId,
+                articleShapeSnapshot: article.articleShapeSnapshot,
+              }),
+              article.publishFormat,
+            );
             assertEngineeringGoldBar({
               domain: article.domain,
               body: cleanedExisting,
@@ -3909,6 +4066,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               cleanPublish: cleanedExisting,
               factCheck: article.factCheck,
               writingPrefs: prefs,
+              publishFormat: article.publishFormat,
             });
             if (skipCheck.length === 0) {
               const marked = cleanedExisting.includes(CLEAN_POLISH_MARK)
@@ -3991,7 +4149,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             support,
             instruction: article.errorMessage?.trim()
               ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)}`
-              : `Tạo bản sạch khoảng ${prefs.targetWordCount} từ; sàn ${cleanWordBounds(prefs).minWords}, aim ${cleanWordBounds(prefs).aimWords}.`,
+              : `Tạo bản sạch khoảng ${prefs.targetWordCount} từ; sàn ${cleanWordBounds(prefs, article.publishFormat).minWords}, aim ${cleanWordBounds(prefs, article.publishFormat).aimWords}.`,
             prefsBlock,
             shapeBlock: shapeBlockFor(article),
           });
@@ -4011,7 +4169,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                           support,
                           `Chủ đề: ${topic}`,
                           "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
-                          `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
+                          `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs, article.publishFormat).minWords}, aim ≥${cleanWordBounds(prefs, article.publishFormat).aimWords}).`,
                           article.errorMessage?.trim()
                             ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
                             : "",
@@ -4056,9 +4214,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         });
         try {
           cleanPublish = await ensureCleanPublishQuality({
-          articleId,
-          publishFormat: article.publishFormat,
-          clean: cleanPublish,
+            articleId,
+            publishFormat: article.publishFormat,
+            articleShapeId: article.articleShapeId,
+            articleShapeSnapshot: article.articleShapeSnapshot,
+            clean: cleanPublish,
             prefs,
             topic,
             domain: article.domain,
@@ -4904,7 +5064,7 @@ export async function polishFromHumanEdits(
   }
 
   const prefs = await writingPrefsForArticle(article);
-  const prefsBlock = formatWritingPrefsPrompt(prefs);
+  const prefsBlock = formatWritingPrefsPrompt(prefs, article.publishFormat);
   const note =
     editNote?.trim() ||
     (await import("@/lib/tfes/desk-state")).parseDeskJson(article.deskJson).editNote ||
@@ -4947,7 +5107,7 @@ export async function polishFromHumanEdits(
     let polished = toReaderCleanPublish(
       sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
     );
-    if (polished.length < 80 || countWords(polished) + 120 < countWords(rawClean)) {
+    if (polished.length < 80 || countWords(polished) + 75 < countWords(rawClean)) {
       // Tôn trọng bản người nếu model rút quá nhiều
       polished = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
     }
