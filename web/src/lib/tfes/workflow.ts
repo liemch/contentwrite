@@ -2260,11 +2260,31 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             action: claim.action,
             source: claim.source,
           }));
+        // Diagnosis hay kết luận cần sửa nhưng để defects rỗng; khi đó gate Fail
+        // và khoảng cách điểm là thứ duy nhất còn actionable cho remediation.
+        const gateFailureActions = currentEditorial.gates
+          .filter((gate) => gate.status === "FAILED")
+          .map(
+            (gate) =>
+              `Gate ${gate.id} FAILED: ${gate.reason?.trim() || "sửa đúng tiêu chí gate này"}`,
+          );
+        const editorialThreshold = TFES_CONTRACT.editorialReview.minimumTotalScore;
+        const scoreGapAction =
+          currentEditorial.totalScore !== null &&
+          currentEditorial.totalScore < editorialThreshold
+            ? [
+                `Điểm Editorial ${currentEditorial.totalScore}/${editorialThreshold} — nâng chất lượng thật (độ sâu lập luận, bằng chứng, nhịp đọc), không đổi từ ngữ bề mặt.`,
+              ]
+            : [];
         const minorV2Context = buildMinorRemediationContextV2({
           defects: currentEditorial.defects.filter(
             (defect) => defect.severity === "MINOR",
           ),
-          requiredActions: currentEditorial.requiredActions,
+          requiredActions: [
+            ...currentEditorial.requiredActions,
+            ...gateFailureActions,
+            ...scoreGapAction,
+          ],
           fallbackFeedback: revisionFeedback,
           draft: stripPipelineMarks(article.draft12),
           evidenceSummary: {
