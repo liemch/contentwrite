@@ -1,7 +1,8 @@
 # AI-TFES v2 RC2 — Prompt Trio
 
-**Release candidate:** RC1 controls plus WP-PV2-01 Prompt Architecture trio  
-**Default behavior:** v1.6-compatible; prompt architecture switch defaults OFF
+**Release candidate:** RC1 controls plus WP-PV2-01 Prompt Architecture trio
+**Default on `main` historically:** v1.6-compatible; prompt architecture OFF
+**Default on `optimize/process` (Preview):** prompt architecture + RC1 convergence ON → `v2-rc2`
 
 ## Features
 
@@ -17,7 +18,8 @@ schema change, migration, model change, threshold change, or retry change is inc
 ## Configuration
 
 ```text
-PIPELINE_CONFIG.aiTfesV2.promptArchitecture.enabled = false
+# optimize/process Preview canary (2026-08-10)
+PIPELINE_CONFIG.aiTfesV2.promptArchitecture.enabled = true
 PIPELINE_CONFIG.aiTfesV2.promptArchitecture.editorialDiagnosisVersion = "2.0"
 PIPELINE_CONFIG.aiTfesV2.promptArchitecture.minorRemediationVersion = "2.0"
 PIPELINE_CONFIG.aiTfesV2.promptArchitecture.lockVerifierVersion = "2.0"
@@ -26,6 +28,8 @@ PIPELINE_CONFIG.aiTfesV2.promptArchitecture.lockVerifierVersion = "2.0"
 OFF selects all existing v1.6 prompts. ON selects only this trio; the remaining prompts stay
 v1.6. Unknown requested versions fail safe to v1.6. New events are labeled
 `aiTfesVersion=v2-rc2` plus `promptArchitectureVersion=2.0`.
+
+Rollback: set `promptArchitecture.enabled = false` (and optionally RC1 flags) without migration.
 
 ## Telemetry and metrics
 

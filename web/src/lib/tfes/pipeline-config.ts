@@ -30,6 +30,10 @@ export const PIPELINE_CONFIG = {
     /** Required Revisions mới nhất từ 9b — đứng đầu prompt remediation */
     revisionFinalVerificationChars: 3_000,
     revisionFailureReasonChars: 700,
+    /** Reader Simulation — bản sạch clip (thấp hơn review vì đã là bản đăng) */
+    readerSimDraftMinChars: 12_000,
+    readerSimDraftMaxChars: 24_000,
+    readerSimDraftCharsPerWord: 8,
   },
 
   /** Retry / vòng lặp */
@@ -41,31 +45,31 @@ export const PIPELINE_CONFIG = {
     articleSoftRetryHint: 16,
   },
 
-  /** AI-TFES v2 RC1 behavior flags. Each controller rolls back independently. */
+  /** AI-TFES v2 behavior flags. Each controller rolls back independently. */
   aiTfesV2: {
     convergenceTelemetry: true,
     /** WP-V2-02 deterministic candidate retention. */
     bestCandidateLock: {
-      enabled: false,
+      enabled: true,
       /** Reject only when candidateScore < bestScore - epsilon. */
       epsilon: 0,
     },
     /** WP-V2-03 suppresses high-quality craft-only Final MINOR outcomes. */
     falseFinalMinorGuard: {
-      enabled: false,
+      enabled: true,
     },
     /** WP-V2-04 adds preservation constraints to MINOR full-draft remediation. */
     minorPreservePrompt: {
-      enabled: false,
+      enabled: true,
       version: "v2-rc1-minor-preserve-v1",
     },
     /** WP-V2-05 pauses post-revision auto-ack on regression/unreadable review. */
     regressionAutoAckBrake: {
-      enabled: false,
+      enabled: true,
     },
     /** WP-PV2-01 selects only the first v2 prompt trio; all other prompts stay v1.6. */
     promptArchitecture: {
-      enabled: false,
+      enabled: true,
       editorialDiagnosisVersion: "2.0",
       minorRemediationVersion: "2.0",
       lockVerifierVersion: "2.0",

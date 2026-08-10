@@ -1,6 +1,6 @@
 # Roadmap — ContentWrite Multi-user Readiness
 
-> Cập nhật: 2026-08-07.
+> Cập nhật: 2026-08-10.
 > Kiến trúc mục tiêu: **modular monolith** (Next.js `web/`), không microservice.
 
 ---
@@ -8,6 +8,8 @@
 ## Vision
 
 Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipeline AI-TFES tiếp tục chạy trên Vercel/serverless — **không** rewrite, **không** Kafka/Redis/K8s trừ khi có bằng chứng tải.
+
+Ưu tiên sản phẩm: **bài đăng chất lượng cho người đọc** (quality-first), không tối ưu passability máy.
 
 ---
 
@@ -24,16 +26,24 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP2.6** | Final Gate & Parser Reliability | **Done — needs production validation** | WP2.5 |
 | **WP2.7** | Production Validation & Measurement | **Implemented — cohort pending** | WP2.5, WP2.6 |
 | **WP-V2-01** | Convergence KPI Telemetry | **Done — cohort pending** | WP2.7 |
-| **WP-V2-02** | Best Candidate Lock | **Done — flag OFF** | WP-V2-01 |
-| **WP-V2-03–05** | AI-TFES v2 RC1 guards/preserve/brake | **Done — Preview validation pending** | WP-V2-01, WP-V2-02 |
-| **WP-PV2-01** | Prompt Architecture v2 priority trio | **Done — flag OFF; READY FOR RC2 PREVIEW** | AI-TFES v2 RC1 |
+| **WP-V2-02** | Best Candidate Lock | **Done — ON on optimize/process (Preview)** | WP-V2-01 |
+| **WP-V2-03–05** | AI-TFES v2 RC1 guards/preserve/brake | **Done — ON on optimize/process (Preview)** | WP-V2-01, WP-V2-02 |
+| **WP-PV2-01** | Prompt Architecture v2 priority trio | **Done — ON on optimize/process (RC2 Preview)** | AI-TFES v2 RC1 |
 | **WP-PV2-02** | Editorial Format Reliability (parser fail ≠ content fail) | **Done — production blocker fixed** | WP-PV2-01 |
+| **WP-QF-00** | Quality-first design + reader meta scrub | **Done on optimize/process** | WP-PV2-02 |
+| **WP-QF-01** | Publish bám best draft | **Done on optimize/process** | WP-QF-00, Candidate Lock |
+| **WP-QF-02** | Context budget reader/fact | **Done on optimize/process** | WP-QF-00 |
+| **WP-QF-03** | Severity-aware remediation | **Done on optimize/process** | WP-QF-00, minorPreserve |
+| **WP-QF-04** | Dual-score craft collapse | **Done on optimize/process** | WP-QF-00, falseFinalMinorGuard |
+| **WP-QF-05** | Prompt language split (machine vs reader) | **Done on optimize/process** | WP-QF-00 |
+| **WP-QF-06** | Threshold revisit (cohort-gated) | **Decision: floors unchanged pending cohort** | WP-QF-01..05 + cohort |
 | **WP-E0A** | Editorial Trajectory Benchmark | **On hold until WP2.7 decision** | WP2.7 GO |
 | **WP3-min** | Auto-write Reliability (decision-gated) | Proposed | Production metrics + auto-write demand |
 | **WP4** | Performance Quick Wins | Planned | WP1 |
 | **WP5** | Workflow Maintainability | Planned | WP2 |
 
-Chi tiết từng WP: [work-packages/README.md](./work-packages/README.md)
+Chi tiết quality-first: [designs/quality-first-pipeline.md](./designs/quality-first-pipeline.md)
+Chi tiết từng WP khác: [work-packages/README.md](./work-packages/README.md)
 
 ---
 

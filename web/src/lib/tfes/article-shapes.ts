@@ -137,7 +137,7 @@ export const ARTICLE_SHAPES: Record<ArticleShapeId, ArticleShape> = {
       "Câu hỏi khó / câu hỏi sai phổ biến",
       "Giả thuyết 1 — vì sao hấp dẫn nhưng lệch",
       "Giả thuyết 2 — lỗ hổng",
-      "Đáp án có điều kiện (insight L2)",
+      "Đáp án có điều kiện (độ sâu insight đạt bar)",
       "Hệ quả nếu vẫn hỏi sai",
       "Câu hỏi đúng hơn để mang về đội",
     ],

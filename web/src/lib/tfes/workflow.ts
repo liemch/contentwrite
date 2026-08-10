@@ -25,6 +25,7 @@ import {
   INSIGHT_GATE_MARK,
   mergeKnowledgeWithPriorReview,
   parseFullOutput,
+  type ParsedOutputs,
   POST_REVISION_REVIEW_MARK,
   READER_SIM_DONE_MARK,
   READER_SIM_RETRY_RE,
@@ -76,6 +77,8 @@ import { inspectEditorialReview } from "@/lib/tfes/editorial-review-gate";
 import { parseEditorialGateFailures } from "@/lib/tfes/editorial-checklist";
 import {
   buildRevisionFeedbackBlock,
+  factDraftClipChars,
+  readerSimClipChars,
   reviewDraftClipChars,
   withoutFinalVerification,
 } from "@/lib/tfes/review-context";
@@ -2274,12 +2277,29 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           minorPrompt.promptVersion === "2.0"
             ? minorV2Context.context
             : revisionLegacyContext;
+        // WP-QF-03: MAJOR/REWRITE must not inherit MINOR preserve semantics.
+        const severityDirective =
+          article.workflowState === WorkflowState.REWRITE_REQUIRED
+            ? [
+                "## REWRITE MODE",
+                "You may restructure the outline and central argument from Planning + Research.",
+                "Do not preserve failing sections. Do not salvage weak prose with synonym swaps.",
+                "Keep only supported claims and the Insight Gate thesis if it still holds.",
+              ].join("\n")
+            : article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED
+              ? [
+                  "## MAJOR MODE",
+                  "You may rewrite affected sections, logic chains, evidence, and recommendations.",
+                  "Preserve unrelated sections only when they are sound; do not treat the whole draft as frozen.",
+                  "Keep the central insight when it remains valid.",
+                ].join("\n")
+              : "";
         const revisionUserPrompt =
           minorPrompt.promptVersion === "2.0"
             ? buildMinorRemediationPromptV2(revisionContext)
             : buildPipelinePrompt(
                 "finalize-revision-remediate",
-                revisionContext,
+                appendContext(severityDirective, revisionContext),
                 undefined,
                 shapeBlockFor(article),
               );
@@ -2472,7 +2492,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "finalize-fact-remediate",
                 appendContext(
                   clipText(article.researchBrief, 3_500),
-                  clipText(stripPipelineMarks(article.draft12), 12_000),
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    factDraftClipChars(article.targetWordCount),
+                  ),
                   clipText(article.factCheck, 6_000),
                   `Chủ đề: ${topic}`,
                 ),
@@ -2554,7 +2577,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 appendContext(
                   clipText(article.researchBrief, 2_500),
                   clipText(article.insightGate, 1_000),
-                  clipText(stripPipelineMarks(article.draft12), 6_000),
+                  clipText(
+                    stripPipelineMarks(article.draft12),
+                    factDraftClipChars(article.targetWordCount),
+                  ),
                   support,
                   `Chủ đề: ${topic}`,
                 ),
@@ -2898,6 +2924,11 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             finalConvergenceContext.previousEditorialGateFailCount,
           editorialThreshold: TFES_CONTRACT.editorialReview.minimumTotalScore,
           insightFloor: TFES_CONTRACT.finalReview.minimumInsightScore,
+          machineContract: result.machineContract,
+          lockResiduals:
+            result.machineContract === "lock-v2"
+              ? result.blockingResiduals
+              : null,
         });
         const effectivePublishReady =
           result.publishReady || finalMinorGuard.suppressed;
@@ -3146,7 +3177,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 "finalize-reader-sim",
                 appendContext(
                   readerRolesForDomain(domain),
-                  clipText(cleanBody, 5_500),
+                  clipText(cleanBody, readerSimClipChars(article.targetWordCount)),
                   `Title: ${article.title || topic}`,
                   `Chủ đề: ${topic}`,
                 ),
@@ -3292,46 +3323,84 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const draftClean = stripPipelineMarks(article.draft12);
         const priorReview = extractEditorialReview(article.knowledgeRecord);
         const support = priorPipelineSupportBlock(article);
-        const finalizeB = await chatCompletion(
-          [
-            { role: "system", content: getSystemPrompt(article.domain) },
-            {
-              role: "user",
-              content: buildPipelinePrompt(
-                "finalize-b",
-                appendContext(
-                  clipText(article.insightGate, 1_000),
-                  clipText(draftClean, 12_000),
-                  support,
-                  `Chủ đề: ${topic}`,
-                  "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
-                  `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
-                  article.errorMessage?.trim()
-                    ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
-                    : "",
-                ),
-                prefsBlock,
-              shapeBlockFor(article),
-            ),
-            },
-          ],
-          { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
-        );
 
-        const parsed = parseFullOutput(appendContext(finalizeB));
-        let cleanPublish = toReaderCleanPublish(
-          sanitizeEditorialBody(stripPipelineMarks(parsed.cleanPublish ?? "")),
-        );
-        if (cleanPublish.length < 80) {
-          const strippedOut = toReaderCleanPublish(
-            sanitizeEditorialBody(stripPipelineMarks(finalizeB)),
+        // WP-QF-01: when Best Candidate Lock holds a best draft, derive the
+        // reader-facing clean body from that draft instead of regenerating via
+        // finalize-b (which dilutes voice). Hero/polish still run in 10b.
+        let parsed: ParsedOutputs = {};
+        let cleanPublish = "";
+        let publishDerivedFromBest = false;
+        if (PIPELINE_CONFIG.aiTfesV2.bestCandidateLock.enabled) {
+          const lockContext = await bestCandidateContextForRun(
+            articleId,
+            article.workflowRunId,
           );
-          cleanPublish =
-            strippedOut.length >= 80
-              ? strippedOut
-              : draftClean.length >= 80
-                ? toReaderCleanPublish(sanitizeEditorialBody(draftClean))
-                : "";
+          const best = lockContext.best;
+          if (best) {
+            const source = activeArtifactRetainsBest(
+              lockContext.activeDraft,
+              best.draftRevision,
+            )
+              ? lockContext.activeDraft
+              : await restorableBestArtifact({
+                  articleId,
+                  workflowRunId: article.workflowRunId,
+                  bestRevision: best.draftRevision,
+                });
+            const bestBody = source?.content
+              ? stripPipelineMarks(source.content)
+              : "";
+            if (bestBody.trim().length >= 80) {
+              cleanPublish = toReaderCleanPublish(
+                sanitizeEditorialBody(bestBody),
+              );
+              publishDerivedFromBest = cleanPublish.length >= 80;
+            }
+          }
+        }
+
+        if (!publishDerivedFromBest) {
+          const finalizeB = await chatCompletion(
+            [
+              { role: "system", content: getSystemPrompt(article.domain) },
+              {
+                role: "user",
+                content: buildPipelinePrompt(
+                  "finalize-b",
+                  appendContext(
+                    clipText(article.insightGate, 1_000),
+                    clipText(draftClean, factDraftClipChars(article.targetWordCount)),
+                    support,
+                    `Chủ đề: ${topic}`,
+                    "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
+                    `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
+                    article.errorMessage?.trim()
+                      ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
+                      : "",
+                  ),
+                  prefsBlock,
+                  shapeBlockFor(article),
+                ),
+              },
+            ],
+            { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
+          );
+
+          parsed = parseFullOutput(appendContext(finalizeB));
+          cleanPublish = toReaderCleanPublish(
+            sanitizeEditorialBody(stripPipelineMarks(parsed.cleanPublish ?? "")),
+          );
+          if (cleanPublish.length < 80) {
+            const strippedOut = toReaderCleanPublish(
+              sanitizeEditorialBody(stripPipelineMarks(finalizeB)),
+            );
+            cleanPublish =
+              strippedOut.length >= 80
+                ? strippedOut
+                : draftClean.length >= 80
+                  ? toReaderCleanPublish(sanitizeEditorialBody(draftClean))
+                  : "";
+          }
         }
         if (cleanPublish.length < 80) {
           throw new Error(

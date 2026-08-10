@@ -201,10 +201,11 @@ type PipelineStep =
   | "finalize";
 
 const FORMAT_RULES_WRITE = `### Định dạng bài (bắt buộc)
-- Title & Subtitle: tiếng Việt rõ nghĩa — CẤM gắn (L2), (L3), L2, cấp insight
+- Title & Subtitle: tiếng Việt rõ nghĩa — CẤM gắn cấp insight (L0–L3), (L2), chữ "L2"
 - CẤM viết HERO IMAGE BRIEF / prompt ảnh trong bước này
 - Ưu tiên đoạn văn + bullet list; HẠN CHẾ markdown table (chỉ khi thật sự cần so sánh số liệu ngắn)
-- Không viết meta biên tập ("Insight Gate đạt L2…", "(L2 insight)") vào body bài`;
+- Không viết meta biên tập / jargon pipeline vào body: Insight Gate, "Insight L2", "≥ L2",
+  GOLD_BAR, PROVISIONAL_*, EDITORIAL_DECISION — cấp insight chỉ ở tab Insight (machine)`;
 
 /** Một sợi chuyện xuyên suốt — chống bản xuất bản rời / listicle */
 const NARRATIVE_FLOW_RULES = `### Nhịp đọc (bắt buộc — bản đăng phải cuốn)
@@ -315,7 +316,7 @@ Decision đã chốt. CHỈ Planning — CẤM viết bài 12 phần / Hero.
 ${shape}
 
 Xuất checklist (≤600 từ):
-- Objective · Audience · 1 Core Message (insight L2/L3)
+- Objective · Audience · 1 Core Message (độ sâu insight đạt bar Gate)
 - **ARTICLE_SHAPE id** (copy đúng id đã gán) + 1 câu vì sao hợp bài này
 - 3–5 Key Insights (mỗi ý + nguồn ngắn từ Research)
 - Ví dụ / tình huống dự kiến (≥1, khớp shape — postmortem = sự cố; debate = 2 phe…)
@@ -330,7 +331,7 @@ Cổng ≥ L2. Chốt Decision + Planning. Không viết 12 phần / Hero.
 ${shape}`,
 
     write: `## Nhiệm vụ bước 7: WRITING (AI-TFES)
-Insight ≥ L2 + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md (bản làm việc nội bộ).
+Insight Gate đạt + Planning xong. Viết đủ 12 phần theo BAR VIẾT + Article.md (bản làm việc nội bộ).
 Có "khi nào KHÔNG". Độ dài theo WRITING PREFS. Nháp chuẩn bị bản sạch theo ARTICLE_SHAPE.
 
 ${prefs}
@@ -344,12 +345,12 @@ ${BLOG_NEWS_VOICE}
 ${articleTpl}`,
 
     "write-a": `## Nhiệm vụ bước 7 WRITING — Phase A (nửa đầu)
-Insight ≥ L2. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY) — bản làm việc nội bộ:
+Insight Gate đạt. Viết NỬA ĐẦU theo Article.md + BAR VIẾT (mức HAY) — bản làm việc nội bộ:
 Title, Subtitle, Metadata, Executive Summary, Introduction, Context, Problem Statement, Deep Analysis.
 
 Yêu cầu độ sâu:
 - Hook / mở khớp ARTICLE_SHAPE (postmortem = sự cố; question-led = câu hỏi; narrative-case = nghịch lý/áp lực cụ thể…) — CẤM mở chung chung và CẤM khuôn “sprint + đội + công ty fintech”
-- Đặt insight L2/L3 sớm (1–2 câu rõ điều kiện) rồi mới Context / Problem
+- Đặt luận điểm trung tâm sớm (1–2 câu rõ điều kiện) rồi mới Context / Problem — không gắn nhãn cấp insight vào body
 - Deep Analysis ≥ 350–500 từ: trade-off có điều kiện; trọng tâm theo draftHint của shape
 - Không lặp câu; thuật ngữ / cơ chế thật từ Research Brief
 - Heading đúng tên Article.md (## Introduction, ## Context…) — CẤM "1. Hook", "2. Executive Summary"
@@ -454,14 +455,17 @@ ${articleTpl}`,
 Sửa toàn bộ bản nháp Article.md theo **Required Revisions**, Quality Gates và Fact-Check Ledger
 trong CONTEXT. Mức MINOR/MAJOR/REWRITE quyết định độ sâu sửa, nhưng không được bỏ qua lỗi.
 
-- MINOR: sửa chính xác wording, flow, điều kiện và claim cục bộ.
-- MAJOR: sửa các phần liên quan, logic/evidence và recommendations; giữ insight nếu vẫn ≥L2.
-- REWRITE: viết lại cấu trúc/lập luận từ Planning + Research Brief, không cứu câu chữ cũ bằng đổi từ.
+- MINOR: sửa chính xác wording, flow, điều kiện và claim cục bộ; giữ thesis/outline/section không liên quan.
+- MAJOR: được phép viết lại các phần liên quan, logic/evidence và recommendations; giữ insight nếu vẫn đạt độ sâu; không đóng băng toàn bài.
+- REWRITE: viết lại cấu trúc/lập luận từ Planning + Research Brief; không cứu câu chữ cũ bằng đổi từ.
 - Unsupported/Contradicted/Unverifiable: xử lý theo FactCheck.md; không thêm số/nguồn mới.
-- Giữ đủ nháp Article.md, insight ≥L2, phản biện và “khi nào không”.
+- Giữ đủ nháp Article.md, độ sâu insight, phản biện và "khi nào không".
+- Không gắn (L2)/(L3)/Insight Gate jargon vào Title hoặc body người đọc.
 
 Chỉ xuất toàn bộ bản nháp Markdown revision mới, bắt đầu bằng \`# Title\`. Không giải thích,
 không output Review, Fact Check, Knowledge Record, bản sạch, Hero hoặc STATUS.
+
+${NARRATIVE_FLOW_RULES}
 
 ${articleTpl}`,
 
@@ -511,8 +515,9 @@ ${shape}
 - CẤM heading biên tập: Introduction, Context, Problem Statement, Deep Analysis, Real-world Examples, Practical Recommendations, Executive Summary, Key Takeaways, Metadata
 - Cấu trúc tối thiểu: \`# Title\` → một dòng *phụ đề in nghiêng* (KHÔNG viết chữ Subtitle) → \`![mô tả ngắn](HERO_IMAGE)\` → thân theo nhịp shape → kết theo shape → References
 - \`##\` chỉ tiêu đề ĐỌC ĐƯỢC — đa dạng wording; đừng lặp cụm “Ba rủi ro…” / “Khi nào nên dừng” ở mọi bài
-- Một luận điểm xuyên suốt; không meta “Insight L2”; không Knowledge Record trong body
-- Title tiếng Việt, KHÔNG (L2); CẤM dòng "Subtitle" / "alt" trần
+- Một luận điểm xuyên suốt; CẤM mọi jargon pipeline ("Insight L2", "Insight Gate", "≥ L2",
+  GOLD_BAR, machine score lines); không Knowledge Record trong body
+- Title tiếng Việt, KHÔNG (L2)/(L3)/L2; CẤM dòng "Subtitle" / "alt" trần
 - Số % chỉ khi có trong Research/Fact; References chỉ URL từ Research; độ dài theo WRITING PREFS
 - Discussion / khuyến nghị 3 cấp: chỉ khi shape yêu cầu — tránh “công thức nhà máy”
 3. Khối riêng **HERO IMAGE BRIEF** (sau bản sạch) — tạm thời, sẽ được viết lại từ bản polish:
@@ -540,7 +545,8 @@ Biên tập LẠI bản sạch đã có thành bản sẵn sàng đăng — KHÔ
 Chỉ xuất bài markdown hoàn chỉnh (bắt đầu bằng \`# Title\`). Không Knowledge Record, không HERO IMAGE BRIEF, không STATUS.
 
 Sửa bắt buộc:
-- Gỡ sót: dòng "alt" trần, placeholder HERO_IMAGE lẻ, heading biên tập (Introduction/Context/Deep Analysis…), meta Insight L2
+- Gỡ sót: dòng "alt" trần, placeholder HERO_IMAGE lẻ, heading biên tập (Introduction/Context/Deep Analysis…),
+  và mọi meta pipeline (Insight L2/L3, Insight Gate, ≥ L2, GOLD_BAR, PROVISIONAL_*/EDITORIAL_DECISION)
 - **Xóa nhãn** \`Subtitle\` / \`Subtitle:\` / \`Title:\` — chỉ giữ nội dung phụ đề (in nghiêng) và \`# Title\`
 - **Xóa mọi dòng chỉ có \`---\` / \`***\` / \`___\`** giữa nội dung (không dùng thematic break)
 - Nối mạch: câu cầu giữa các ##; gộp chỗ lặp "khi nào không nên"; bỏ listicle đánh số Hook/Framework

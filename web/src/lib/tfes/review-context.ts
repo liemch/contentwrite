@@ -26,6 +26,23 @@ export function reviewDraftClipChars(targetWordCount?: number | null): number {
   );
 }
 
+/** Fact Check / Fact remediate dùng cùng ngân sách nháp với Editorial Review. */
+export const factDraftClipChars = reviewDraftClipChars;
+
+/** Reader Simulation — clip bản sạch theo target (không cắt Takeaways/References). */
+export function readerSimClipChars(targetWordCount?: number | null): number {
+  const { words, context } = PIPELINE_CONFIG;
+  const target =
+    targetWordCount && targetWordCount > 0 ? targetWordCount : words.defaultTarget;
+  return Math.min(
+    context.readerSimDraftMaxChars,
+    Math.max(
+      context.readerSimDraftMinChars,
+      Math.round(target * context.readerSimDraftCharsPerWord),
+    ),
+  );
+}
+
 /** Phần "## Final Verification (pipeline)" — feedback mới nhất của 9b. */
 export function extractFinalVerification(
   knowledgeRecord: string | null | undefined,
