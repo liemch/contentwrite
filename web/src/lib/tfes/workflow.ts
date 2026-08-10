@@ -62,6 +62,7 @@ import {
 import {
   MAX_EDITORIAL_REVIEW_FORMAT_RETRIES,
   MAX_FINAL_VERIFICATION_FORMAT_RETRIES,
+  MAX_INSIGHT_LOCK_FORMAT_RETRIES,
   MAX_REVISION_REMEDIATION_RETRIES,
   isRevisionRemediationExhausted,
 } from "@/lib/tfes/retry-policy";
@@ -137,6 +138,8 @@ import {
   buildInsightGatePromptV2,
   buildInsightLockContextV2,
   buildInsightLockPromptV2,
+  buildInsightLockRepairPromptV2,
+  insightLockParseFailure,
   buildLockFormatRepairPromptV2,
   buildLockVerifierContextV2,
   buildLockVerifierPromptV2,
@@ -145,6 +148,8 @@ import {
   buildMinorRemediationPromptV2,
   buildResearchPacketContextV2,
   buildResearchPacketPromptV2,
+  buildObservationResearchContextV2,
+  buildObservationResearchPromptV2,
   buildPublishExpansionPromptV2,
   buildPublishPolishPromptV2,
   buildPublishQualityRepairPromptV2,
@@ -202,7 +207,7 @@ import {
   resolveWritingPrefs,
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
-import { readerRolesForDomain, resolveDomainId } from "@/lib/tfes/domains";
+import { readerRolesForDomain, researchModeForDomain, resolveDomainId } from "@/lib/tfes/domains";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 import { formatPublishShapePrompt, resolveShapeForArticle } from "@/lib/tfes/publish-formats";
 import { assertShapeFidelity } from "@/lib/tfes/shape-fidelity";
@@ -699,6 +704,28 @@ async function remediationBudgetForRun(input: {
 
 export const EDITORIAL_FORMAT_INVALID_ACTION = "editorial-review-format-invalid";
 
+export const INSIGHT_LOCK_FORMAT_INVALID_ACTION = "insight-lock-format-invalid";
+
+/**
+ * insight-plan-lock.v2 phải xuất ~17 trường gồm outline[] và keyInsights[];
+ * ngân sách chật làm JSON bị cắt và bị chấm nhầm thành "insight < L2".
+ */
+const INSIGHT_LOCK_MAX_TOKENS = 3600;
+
+/** Số lần lock hỏng định dạng trong run hiện tại — tách khỏi budget gate. */
+async function insightLockFormatAttempts(
+  articleId: string,
+  workflowRunId: string,
+): Promise<number> {
+  return prisma.workflowTransition.count({
+    where: {
+      articleId,
+      workflowRunId,
+      action: INSIGHT_LOCK_FORMAT_INVALID_ACTION,
+    },
+  });
+}
+
 const EDITORIAL_PARSER_PAUSE_HEADING =
   "## Editorial Review — machine format không hợp lệ";
 
@@ -1149,6 +1176,128 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
     if (step === WorkflowStep.RESEARCH) {
       const SEARCH_MARK = "<!--TFES_SEARCH_BLOB-->";
       const existingBrief = article.researchBrief ?? "";
+      const researchMode = researchModeForDomain(article.domain);
+
+      // Fun: bỏ Tavily — một pass observation brief → SYNTHESIZED
+      if (researchMode === "observation") {
+        const memory = await getEditorialMemory(
+          article.domain,
+          article.seriesId,
+          article.createdById,
+          article.id,
+        );
+        await commitTransition({
+          to: WorkflowState.MEMORY_CHECKED,
+          action: "memory-check",
+          artifact: {
+            type: ArtifactType.MEMORY_CHECK,
+            content: memory || "Không có Knowledge Record gần đây.",
+            domainProfileVersion: `${resolveDomainId(article.domain)}@1.6`,
+          },
+        });
+
+        const previousGateFail =
+          gateRetryCount(article.insightGate) > 0
+            ? stripPipelineMarks(article.insightGate)
+            : null;
+        const llmStarted = Date.now();
+        const obsContext = buildObservationResearchContextV2({
+          topic,
+          editorialMemory: memory,
+          previousGateFail,
+        });
+        let researchRaw = await chatCompletion(
+          [
+            {
+              role: "system",
+              content: getSystemPromptForRole(article.domain, "RESEARCH"),
+            },
+            {
+              role: "user",
+              content: buildObservationResearchPromptV2(obsContext),
+            },
+          ],
+          { maxTokens: 2800, temperature: 0.55, reasoningEffort: "low" },
+        );
+        const packetFailure = researchPacketParseFailure(researchRaw);
+        if (packetFailure) {
+          const repaired = await chatCompletion(
+            [
+              {
+                role: "system",
+                content: getSystemPromptForRole(article.domain, "RESEARCH"),
+              },
+              {
+                role: "user",
+                content: buildResearchFormatRepairPromptV2({
+                  previousOutput: researchRaw,
+                  malformedReason: packetFailure,
+                }),
+              },
+            ],
+            { maxTokens: 2800 },
+          );
+          if (!researchPacketParseFailure(repaired)) researchRaw = repaired;
+        }
+
+        const researchBrief = materializeResearchBrief(researchRaw);
+        const evidenceAudit = auditResearchEvidence(researchBrief, "observation");
+        const packetInsufficient = researchPacketCoverageInsufficient(researchRaw);
+        if (!evidenceAudit.passed || packetInsufficient) {
+          const issues = [
+            ...evidenceAudit.issues,
+            ...(packetInsufficient
+              ? ["RESEARCH_PACKET coverageStatus=EVIDENCE_INSUFFICIENT"]
+              : []),
+          ];
+          const failed = await commitTransition({
+            to: WorkflowState.RESEARCH_REQUIRED,
+            action: "observation-research-validation",
+            success: false,
+            articlePatch: {
+              researchBrief: null,
+              errorMessage: `Observation brief chưa đạt: ${issues.join(" · ")}`.slice(0, 500),
+            },
+            details: { issues, researchMode: "observation" },
+            artifact: {
+              type: ArtifactType.RESEARCH_BRIEF,
+              content: researchBrief,
+              metadata: { evidenceAudit, packetInsufficient, researchMode: "observation" },
+            },
+          });
+          return withTimings(failed, {
+            llmMs: Date.now() - llmStarted,
+            searchMs: 0,
+            researchPhase: "observation-fail",
+          });
+        }
+
+        const transitioned = await commitTransition({
+          to: WorkflowState.SYNTHESIZED,
+          action: "observation-research",
+          articlePatch: {
+            researchBrief,
+            errorMessage: null,
+          },
+          artifact: {
+            type: ArtifactType.RESEARCH_BRIEF,
+            content: researchBrief,
+            domainProfileVersion: `${resolveDomainId(article.domain)}@2.0-observation`,
+            metadata: {
+              evidenceAudit,
+              researchMode: "observation",
+              skippedWebSearch: true,
+            },
+          },
+        });
+        return withTimings(transitioned, {
+          searchMs: 0,
+          llmMs: Date.now() - llmStarted,
+          searchHits: 0,
+          searchQueries: 0,
+          researchPhase: "observation",
+        });
+      }
 
       // Phase 1: Tavily — ≥3 nguồn, có góc phản biện (AI-TFES)
       if (!existingBrief.includes(SEARCH_MARK)) {
@@ -1294,7 +1443,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
       const researchBrief = materializeResearchBrief(researchRaw);
 
-      const evidenceAudit = auditResearchEvidence(researchBrief);
+      const evidenceAudit = auditResearchEvidence(researchBrief, "full");
       const packetInsufficient = researchPacketCoverageInsufficient(researchRaw);
       if (!evidenceAudit.passed || packetInsufficient) {
         const issues = [
@@ -1425,8 +1574,35 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 content: buildInsightLockPromptV2(lockContext),
               },
             ],
-            { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
+            {
+              maxTokens: INSIGHT_LOCK_MAX_TOKENS,
+              temperature: 0.35,
+              reasoningEffort: "low",
+            },
           );
+
+          // JSON hỏng là lỗi định dạng, không phải phán quyết insight — sửa tại chỗ trước.
+          const lockFormatFailure = insightLockParseFailure(lockRaw);
+          if (lockFormatFailure) {
+            const repaired = await chatCompletion(
+              [
+                {
+                  role: "system",
+                  content: getSystemPromptForRole(article.domain, "PLAN"),
+                },
+                {
+                  role: "user",
+                  content: buildInsightLockRepairPromptV2({
+                    previousOutput: lockRaw,
+                    malformedReason: lockFormatFailure,
+                  }),
+                },
+              ],
+              { maxTokens: INSIGHT_LOCK_MAX_TOKENS, temperature: 0.2 },
+            );
+            if (!insightLockParseFailure(repaired)) lockRaw = repaired;
+          }
+
           let parsedLock = parseInsightPlanLockV2(lockRaw);
 
           // Cùng series mà thesis/angle gần sibling → một pass re-lock với collision directive.
@@ -1463,7 +1639,11 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
                     content: buildInsightLockPromptV2(relockContext),
                   },
                 ],
-                { maxTokens: 2200, temperature: 0.4, reasoningEffort: "low" },
+                {
+                  maxTokens: INSIGHT_LOCK_MAX_TOKENS,
+                  temperature: 0.4,
+                  reasoningEffort: "low",
+                },
               );
               const relockParsed = parseInsightPlanLockV2(relockRaw);
               if (relockParsed?.status === "LOCKED") {
@@ -1472,12 +1652,65 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
               }
             }
           }
-          const lockMarkdown = parsedLock?.markdown ?? lockRaw;
-          if (
-            !parsedLock ||
-            parsedLock.status !== "LOCKED" ||
-            failedInsightGate(lockMarkdown)
-          ) {
+          /**
+           * Lỗi định dạng, không phải phán quyết insight: giữ nguyên state và
+           * research brief, đếm trên counter riêng, không tiêu budget gate và
+           * không đổ JSON hỏng ra bàn biên tập.
+           */
+          if (!parsedLock) {
+            const reasonCode = insightLockParseFailure(lockRaw) ?? "unparseable";
+            const formatAttempts = await insightLockFormatAttempts(
+              articleId,
+              article.workflowRunId,
+            );
+            const nextAttempt = formatAttempts + 1;
+            const exhausted = nextAttempt >= MAX_INSIGHT_LOCK_FORMAT_RETRIES;
+            const paused = await commitPatch({
+              action: INSIGHT_LOCK_FORMAT_INVALID_ACTION,
+              success: false,
+              articlePatch: {
+                errorMessage: exhausted
+                  ? `Insight Lock sai machine format sau ${MAX_INSIGHT_LOCK_FORMAT_RETRIES} lần ` +
+                    `(${reasonCode}) — chưa chấm được cổng L2; research được giữ nguyên.`
+                  : `Insight Lock output chưa đúng machine format ` +
+                    `(${reasonCode}; lần ${nextAttempt}/${MAX_INSIGHT_LOCK_FORMAT_RETRIES}) — tự chấm lại cổng Insight.`,
+              },
+              details: {
+                parseFailure: true,
+                malformedReasonCode: reasonCode,
+                formatAttempt: nextAttempt,
+                formatRetryExhausted: exhausted,
+                gateBudgetConsumed: false,
+                rawOutputLength: lockRaw.length,
+                prompt: buildPromptExecutionTelemetry({
+                  descriptor: insightLockPrompt,
+                  contextCharacterLength: lockContext.length,
+                  malformedOutput: true,
+                  malformedReasonCode: reasonCode,
+                  rawOutputLength: lockRaw.length,
+                  formatRetryCount: formatAttempts,
+                  formatRetrySucceeded: false,
+                }),
+              },
+            });
+            return withTimings(paused, {
+              llmMs: Date.now() - llmStarted,
+              insightPhase: "lock-format-invalid",
+            });
+          }
+
+          const lockMarkdown = parsedLock.markdown;
+          const gateVerdict =
+            parsedLock.status !== "LOCKED"
+              ? parsedLock.status
+              : failedInsightGate(lockMarkdown)
+                ? "GATE_TEXT_BELOW_L2"
+                : null;
+          if (gateVerdict) {
+            const verdictLabel =
+              gateVerdict === "EVIDENCE_INSUFFICIENT"
+                ? "bằng chứng chưa đủ để chốt luận điểm"
+                : `insight < L2 (${parsedLock.insightLevel})`;
             const retries = gateRetryCount(article.insightGate);
             const nextRetry = retries + 1;
             if (nextRetry > MAX_GATE_RESEARCH_RETRIES) {
@@ -1488,11 +1721,13 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
                 articlePatch: {
                   insightGate: withGateRetryMark(retries, lockMarkdown.trim()),
                   errorMessage:
-                    `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
+                    `Cổng Insight vẫn không đạt sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại ` +
+                    `(${verdictLabel}). Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
                 },
                 details: {
                   retry: nextRetry,
-                  reason: parsedLock?.status ?? "Insight < L2",
+                  reason: gateVerdict,
+                  insightLevel: parsedLock.insightLevel,
                   prompt: buildPromptExecutionTelemetry({
                     descriptor: insightLockPrompt,
                     contextCharacterLength: lockContext.length,
@@ -1520,11 +1755,14 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
                 knowledgeRecord: null,
                 cleanPublish: null,
                 heroBrief: null,
-                errorMessage: `Gate < L2 — nghiên cứu lại góc sắc hơn (lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
+                errorMessage:
+                  `Gate chưa đạt — ${verdictLabel} — nghiên cứu lại góc sắc hơn ` +
+                  `(lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
               },
               details: {
                 retry: nextRetry,
-                reason: parsedLock?.status ?? "Insight < L2",
+                reason: gateVerdict,
+                insightLevel: parsedLock.insightLevel,
               },
               artifact: { type: ArtifactType.REVIEW, content: lockMarkdown },
             });
@@ -3841,6 +4079,7 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
           cleanPublish: polished,
           factCheck: article.factCheck,
           writingPrefs: prefs,
+          domain: article.domain,
         });
         if (polishCheck.length > 0) {
           const detail = polishCheck.map((i) => i.message).join(" · ");
@@ -4067,6 +4306,7 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
               factCheck: article.factCheck,
               writingPrefs: prefs,
               publishFormat: article.publishFormat,
+              domain: article.domain,
             });
             if (skipCheck.length === 0) {
               const marked = cleanedExisting.includes(CLEAN_POLISH_MARK)
@@ -4245,6 +4485,7 @@ Bắt buộc chọn thesis/angle KHÁC rõ — siết điều kiện, audience, 
           cleanPublish,
           factCheck: article.factCheck,
           writingPrefs: prefs,
+          domain: article.domain,
         });
 
         // Giữ Review trong KR để Polish vẫn đọc được sau khi có Knowledge Record thật

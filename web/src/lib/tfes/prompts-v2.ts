@@ -560,6 +560,66 @@ Do not fill missing evidence from memory.
 ${context}`;
 }
 
+/** Fun domain — brief quan sát, không Tavily / không bắt URL. */
+export function buildObservationResearchContextV2(input: {
+  topic: string;
+  editorialMemory?: string | null;
+  previousGateFail?: string | null;
+}): string {
+  return appendContext(
+    `TOPIC:\n${clipText(input.topic, 500)}`,
+    `RESEARCH_MODE:\nobservation (Fun) — no web search; do not invent URLs or statistics`,
+    input.editorialMemory?.trim()
+      ? `DEDUPLICATION_HINTS:\n${clipText(input.editorialMemory, 2_500)}`
+      : "",
+    input.previousGateFail?.trim()
+      ? `PREVIOUS_GATE_FAIL:\n${clipText(input.previousGateFail, 2_500)}`
+      : "",
+  );
+}
+
+export function buildObservationResearchPromptV2(context: string): string {
+  return `PROMPT_ID: observation-research
+VERSION: 2.0
+CONTRACT_VERSION: research-packet.v2
+ROLE: RESEARCH
+
+Domain Fun: produce an *observation* packet for TOPIC. No web search was run.
+Do not plan or write the article body.
+
+TASK
+1. List concrete scenes / social patterns a reader would recognize (Vietnam-friendly OK).
+2. Propose ≥3 non-obvious findings (conditional, with a twist).
+3. Note contradictions / “when this joke or take is unfair”.
+4. List insightCandidates (narrow angles) and limitations (what you do NOT know / must not invent).
+5. sources and evidence arrays MUST be empty [] — never invent URLs, viral counts, or “studies”.
+
+FORBIDDEN
+- Invented links, follower counts, “research shows”, product launch facts without user-provided evidence.
+- Article draft, title finalization, quality score.
+- Clickbait listicle outline.
+
+OUTPUT — exactly one marked JSON object:
+${RESEARCH_PACKET_MARKER}
+{
+  "contractVersion": "research-packet.v2",
+  "topic": "<topic>",
+  "coverageStatus": "SUFFICIENT",
+  "sources": [],
+  "evidence": [],
+  "contradictions": ["..."],
+  "findings": ["...","...","..."],
+  "insightCandidates": ["..."],
+  "limitations": ["No web search; treat stats/trends as opinion unless user supplies sources"]
+}
+
+JSON keys English exactly. COMPACT JSON. ≥3 findings. coverageStatus=SUFFICIENT for observation packets.
+If TOPIC demands hard facts you cannot ground, set coverageStatus=EVIDENCE_INSUFFICIENT and explain in limitations.
+
+=== CONTEXT ===
+${context}`;
+}
+
 export function buildResearchFormatRepairPromptV2(input: {
   previousOutput: string;
   malformedReason: string;
@@ -667,6 +727,11 @@ export function materializeResearchBrief(raw: string): string {
       "",
       "## Sources",
     ];
+    if (sources.length === 0) {
+      lines.push(
+        "- (Observation mode — không web search; không có URL. Cấm bịa số liệu/trend có tên.)",
+      );
+    }
     for (const item of sources) {
       if (!item || typeof item !== "object") continue;
       const source = item as Record<string, unknown>;
@@ -1070,11 +1135,45 @@ ${INSIGHT_LOCK_MARKER}
   "status": "LOCKED|INSIGHT_BELOW_L2|EVIDENCE_INSUFFICIENT"
 }
 
-JSON keys English exactly. No article body. No Hero. No invented evidence.
+JSON keys English exactly. COMPACT JSON — no pretty-printing, no comments.
+outline ≤ 8 items, keyInsights ≤ 5 items, each ≤ 160 characters: the object MUST close.
+No article body. No Hero. No invented evidence.
 status=LOCKED only when insightLevel is L2 or L3 and all three tests PASS.
 
 === CONTEXT ===
 ${context}`;
+}
+
+export function buildInsightLockRepairPromptV2(input: {
+  previousOutput: string;
+  malformedReason: string;
+}): string {
+  return `PROMPT_ID: insight-lock
+VERSION: 2.0
+CONTRACT_VERSION: insight-plan-lock.v2
+ROLE: FORMAT_REPAIR
+
+Previous Insight Lock output could not be parsed (reason: ${input.malformedReason}).
+Do NOT re-judge the thesis and do NOT change any verdict already made below.
+Re-emit only ${INSIGHT_LOCK_MARKER} then one COMPACT JSON object with the required keys
+(thesis, insightLevel, tests, audience, category, angle, reason, editorialRisk, objective,
+counterPosition, applicationBoundary, shapeId, outline, keyInsights, status).
+Keep outline ≤ 8 items and keyInsights ≤ 5 items so the object closes.
+No prose outside the marker block. No Markdown. No article body.
+
+=== PREVIOUS OUTPUT ===
+${clipText(input.previousOutput, 8_000)}`;
+}
+
+/**
+ * JSON không parse được → lý do; null = parse tốt.
+ * Khác research packet: insight-lock bắt buộc JSON, nên marker-missing cũng là lỗi format.
+ */
+export function insightLockParseFailure(
+  raw: string | null | undefined,
+): string | null {
+  const extracted = extractMarkedJson(raw, INSIGHT_LOCK_MARKER);
+  return extracted.json ? null : extracted.reason;
 }
 
 export type InsightPlanLockV2 = {

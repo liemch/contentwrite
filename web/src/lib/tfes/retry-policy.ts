@@ -7,6 +7,12 @@ export const MAX_FINAL_VERIFICATION_FORMAT_RETRIES = 3;
  * không phải lỗi nội dung, nên không được tiêu revision budget.
  */
 export const MAX_EDITORIAL_REVIEW_FORMAT_RETRIES = 2;
+/**
+ * Insight Lock format-only retries. Output không parse được là lỗi định dạng,
+ * không phải phán quyết "insight < L2": nó không được tiêu budget
+ * MAX_GATE_RESEARCH_RETRIES và không được xoá research brief đã có.
+ */
+export const MAX_INSIGHT_LOCK_FORMAT_RETRIES = 2;
 /** UI soft-continue sau 9b score-fail — hết lượt thì dừng cho người xem. */
 export const MAX_FINAL_VERIFICATION_SOFT_RETRIES = 2;
 
@@ -20,6 +26,18 @@ export function isFinalVerificationFormatExhausted(
   errorMessage: string | null | undefined,
 ): boolean {
   return /Final Verification sai định dạng sau \d+ lần/i.test(errorMessage ?? "");
+}
+
+export function isInsightLockFormatExhausted(
+  errorMessage: string | null | undefined,
+): boolean {
+  return /Insight Lock sai machine format sau \d+ lần/i.test(errorMessage ?? "");
+}
+
+export function isInsightLockFormatRetry(
+  errorMessage: string | null | undefined,
+): boolean {
+  return /Insight Lock output chưa đúng machine format/i.test(errorMessage ?? "");
 }
 
 export function isEditorialFormatExhausted(

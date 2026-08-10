@@ -8,6 +8,7 @@ import {
   type WritingPrefs,
 } from "@/lib/tfes/writing-prefs";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
+import { researchModeForDomain } from "@/lib/tfes/domains";
 import { resolvePublishFormat } from "@/lib/tfes/publish-formats";
 import { countProseWords, wordsToSyllables } from "@/lib/tfes/word-count";
 
@@ -604,6 +605,7 @@ export function editorialSelfCheck(input: {
   factCheck?: string | null;
   writingPrefs?: WritingPrefs | null;
   publishFormat?: string | null;
+  domain?: string | null;
 }): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const draft = input.draft12 ?? "";
@@ -613,6 +615,7 @@ export function editorialSelfCheck(input: {
   const body = `${draft}\n${clean}`;
   const words = Math.max(countWords(draft), countWords(clean));
   const target = prefs?.targetWordCount ?? format.wordHint;
+  const requireSources = researchModeForDomain(input.domain) === "full";
 
   if (words < Math.round(target * 0.55)) {
     issues.push({
@@ -641,7 +644,7 @@ export function editorialSelfCheck(input: {
     });
   }
 
-  if (!hasHttpLink(input.researchBrief) && !hasHttpLink(body)) {
+  if (requireSources && !hasHttpLink(input.researchBrief) && !hasHttpLink(body)) {
     issues.push({
       code: "SOURCES",
       message: "Không thấy URL nguồn thật trong Research/bài (Evidence First).",

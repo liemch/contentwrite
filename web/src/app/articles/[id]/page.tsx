@@ -26,6 +26,8 @@ import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
 import {
   isFinalVerificationFormatExhausted,
+  isInsightLockFormatExhausted,
+  isInsightLockFormatRetry,
   isRevisionRemediationExhausted,
   MAX_FINAL_VERIFICATION_SOFT_RETRIES,
 } from "@/lib/tfes/retry-policy";
@@ -126,6 +128,7 @@ function isWorkflowStopped(article: Article): boolean {
   if (BLOCKING_WORKFLOW_STATES.has(article.workflowState)) return true;
   if (isRevisionRemediationExhausted(article.errorMessage)) return true;
   if (isFinalVerificationFormatExhausted(article.errorMessage)) return true;
+  if (isInsightLockFormatExhausted(article.errorMessage)) return true;
   if (
     article.workflowState === "FACT_CHECK_FAILED" &&
     isFactRemediationExhausted(article.errorMessage)
@@ -353,7 +356,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         setTab("insight");
         pushLog(
           "warn",
-          "→ Gate vẫn < L2 sau khi nghiên cứu lại. Đổi chủ đề hoặc Làm lại từ đầu.",
+          /bằng chứng chưa đủ/i.test(msg)
+            ? "→ Bằng chứng chưa đủ để chốt luận điểm — thu hẹp chủ đề về thứ có nguồn kiểm chứng được."
+            : "→ Gate vẫn chưa đạt sau khi nghiên cứu lại. Đổi chủ đề hoặc Làm lại từ đầu.",
         );
       } else {
         setTab(tabForArticle(next));
@@ -361,8 +366,28 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       return { article: next };
     }
 
+    // Lock hỏng định dạng ≠ insight yếu: research giữ nguyên, chỉ chấm lại cổng.
+    if (isInsightLockFormatRetry(next.errorMessage) && action === "run-step") {
+      setActionError(next.errorMessage || "Insight Lock sai định dạng");
+      setTab("insight");
+      pushLog("warn", `⚠ ${next.errorMessage} (${elapsedSec}s)`);
+      pushLog("info", "→ Không phải insight yếu — giữ nguyên research, chấm lại cổng Insight...");
+      return { article: next, softContinue: true };
+    }
+
+    if (isInsightLockFormatExhausted(next.errorMessage)) {
+      setActionError(next.errorMessage || "Insight Lock sai định dạng");
+      setTab("insight");
+      pushLog("error", `✗ Lỗi · ${next.errorMessage} (${elapsedSec}s)`);
+      pushLog(
+        "warn",
+        "→ Model không xuất được JSON hợp lệ, chưa chấm được cổng L2. Chủ đề chưa bị loại — bấm “Chạy bước tiếp” để thử lại.",
+      );
+      return { article: next };
+    }
+
     const isGateRetry =
-      Boolean(next.errorMessage) && /Gate < L2|nghiên cứu lại/i.test(next.errorMessage || "");
+      Boolean(next.errorMessage) && /Gate < L2|Gate chưa đạt|nghiên cứu lại/i.test(next.errorMessage || "");
 
     if (isGateRetry && action === "run-step") {
       setActionError(next.errorMessage || "");
@@ -680,9 +705,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           ? "✗ Dừng ở cổng chất lượng (Gate/Self-check). Xem log · đổi góc hoặc Làm lại từ đầu."
           : "✗ Chu trình dừng vì lỗi",
       );
+    } else if (isInsightLockFormatExhausted(current.errorMessage)) {
+      pushLog(
+        "error",
+        "✗ Dừng vì Insight Lock sai định dạng — KHÔNG phải do góc bài yếu. Bấm “Chạy bước tiếp” để chấm lại.",
+      );
     } else if (
       current.errorMessage &&
-      /Gate < L2|nghiên cứu lại/i.test(current.errorMessage)
+      /Gate < L2|Gate chưa đạt|nghiên cứu lại/i.test(current.errorMessage)
     ) {
       pushLog("warn", `⚠ ${current.errorMessage} — bấm tiếp để Research lại`);
     } else if (softRetries > 0 && !isWorkflowStopped(current)) {
