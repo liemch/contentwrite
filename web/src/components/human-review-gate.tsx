@@ -181,8 +181,17 @@ export function HumanReviewGate({
         </div>
       ) : (
         <div className="mt-4 rounded-xl border border-[var(--line)] bg-white/70 px-3.5 py-3 text-sm text-[var(--ink-muted)]">
-          AI không tách ra Fail rõ ràng. Anh có thể mở Review đầy đủ bên dưới — nếu ổn thì bấm xác
-          nhận để đi Fact-check.
+          {revisionRequired ? (
+            <>
+              AI kết luận cần sửa nhưng không nêu điểm cụ thể. Mở Review đầy đủ bên dưới, ghi chú
+              điểm anh muốn sửa (tuỳ chọn), rồi bấm xác nhận — hệ thống sẽ cho AI sửa lại draft.
+            </>
+          ) : (
+            <>
+              AI không tách ra Fail rõ ràng. Anh có thể mở Review đầy đủ bên dưới — nếu ổn thì bấm
+              xác nhận để đi Fact-check.
+            </>
+          )}
         </div>
       )}
 
@@ -225,10 +234,16 @@ export function HumanReviewGate({
               ? "Chọn hết các điểm trước"
               : !hasAtLeastOneFix
                 ? "Cần nhờ AI sửa ít nhất một điểm"
-                : "Lưu lựa chọn và chạy Fact-check"
+                : revisionRequired
+                  ? "Lưu lựa chọn và cho AI sửa draft"
+                  : "Lưu lựa chọn và chạy Fact-check"
           }
         >
-          {running ? "Đang lưu..." : "Xong — chạy Fact-check"}
+          {running
+            ? "Đang lưu..."
+            : revisionRequired
+              ? "Xong — cho AI sửa draft"
+              : "Xong — chạy Fact-check"}
         </Button>
         {!allResolved && (
           <p className="text-xs text-[var(--warm)]">

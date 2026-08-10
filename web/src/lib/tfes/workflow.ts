@@ -3754,16 +3754,20 @@ export async function confirmHumanReview(
   const requestedAiFix = payload.items.some(
     (item) => item.id !== "ack-pass" && item.disposition === "fixed",
   );
+  // AI có thể kết luận MAJOR/REWRITE mà không nêu điểm nào — người không có gì để chọn.
+  // Vẫn bắt sửa draft, nhưng không chặn người ở màn hình không có lựa chọn.
+  const revisionWithoutFindings = findings.length === 0;
 
   // Cấm «Giữ nguyên» hết khi AI đã yêu cầu revision — tránh lọt Fact/9b với draft chưa sửa.
-  if (aiRequestedRevision && !requestedAiFix) {
+  if (aiRequestedRevision && !requestedAiFix && !revisionWithoutFindings) {
     throw new Error(
       "AI yêu cầu Minor/Major/Rewrite — không được «Giữ nguyên» hết. " +
         "Chọn «Nhờ AI sửa tiếp» cho ít nhất một điểm Fail/Required Revisions.",
     );
   }
 
-  const requiresRevision = aiRequestedRevision && requestedAiFix;
+  const requiresRevision =
+    aiRequestedRevision && (requestedAiFix || revisionWithoutFindings);
 
   return transitionArticle({
     articleId,
@@ -3785,6 +3789,7 @@ export async function confirmHumanReview(
     details: {
       findings: findings.length,
       requestedAiFix,
+      revisionWithoutFindings: aiRequestedRevision && revisionWithoutFindings,
       acceptedWithoutRevision: false,
     },
   });

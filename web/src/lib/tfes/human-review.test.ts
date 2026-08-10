@@ -47,6 +47,60 @@ describe("Human Review findings parser", () => {
     expect(gateFindings).toHaveLength(2);
   });
 
+  it("v2 diagnosis MAJOR với defects rỗng vẫn có điểm để chốt (gate FAILED)", () => {
+    const diagnosis = {
+      contractVersion: "editorial-diagnosis.v2",
+      totalScore: 68,
+      insightScore: 18,
+      gates: [
+        { id: "G1", status: "PASSED", reason: "Insight aligns with central thesis" },
+        { id: "G2", status: "FAILED", reason: "Evidence from low-tier sources" },
+        { id: "G3", status: "PASSED", reason: "Clear logical flow" },
+      ],
+      decision: "MAJOR_REVISION_REQUIRED",
+      defects: [],
+      requiredActions: [],
+    };
+    const findings = parseEditorialFindings(
+      asKnowledgeRecord(`EDITORIAL_DIAGNOSIS_JSON: ${JSON.stringify(diagnosis)}`),
+    );
+
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.some((finding) => finding.label.includes("G2"))).toBe(true);
+    expect(findings.some((finding) => finding.label.includes("G1"))).toBe(false);
+  });
+
+  it("v2 diagnosis đòi revision nhưng không gate fail vẫn trả finding decision", () => {
+    const diagnosis = {
+      contractVersion: "editorial-diagnosis.v2",
+      gates: [{ id: "G1", status: "PASSED", reason: "OK" }],
+      decision: "MAJOR_REVISION_REQUIRED",
+      defects: [],
+      requiredActions: [],
+    };
+    const findings = parseEditorialFindings(
+      asKnowledgeRecord(`EDITORIAL_DIAGNOSIS_JSON: ${JSON.stringify(diagnosis)}`),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.id).toBe("decision");
+  });
+
+  it("v2 diagnosis PASS sạch không tạo finding", () => {
+    const diagnosis = {
+      contractVersion: "editorial-diagnosis.v2",
+      gates: [{ id: "G1", status: "PASSED", reason: "OK" }],
+      decision: "EDITORIAL_REVIEWED",
+      defects: [],
+      requiredActions: [],
+    };
+    expect(
+      parseEditorialFindings(
+        asKnowledgeRecord(`EDITORIAL_DIAGNOSIS_JSON: ${JSON.stringify(diagnosis)}`),
+      ),
+    ).toEqual([]);
+  });
+
   it("input malformed không crash và không tạo finding giả", () => {
     expect(() =>
       parseEditorialFindings(asKnowledgeRecord("| Pass/Fail |\n|||\n\u0000")),
