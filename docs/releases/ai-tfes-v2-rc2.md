@@ -1,86 +1,67 @@
-# AI-TFES v2 RC2 — Prompt Trio
+# AI-TFES v2 RC2 — Full Prompt Architecture
 
-**Release candidate:** RC1 controls plus WP-PV2-01 Prompt Architecture trio
-**Default on `main` historically:** v1.6-compatible; prompt architecture OFF
-**Default on `optimize/process` (Preview):** prompt architecture + RC1 convergence ON → `v2-rc2`
+**Release candidate:** RC1 controls + full Prompt Architecture set
+**Default on `optimize/process` (Preview):** all RC2 prompts ON → `v2-rc2`
 
-## Features
+## Prompt set (all `@2.0` when `promptArchitecture.enabled`)
 
-- Minimal runtime Prompt Registry with v1.6 fallback.
-- `editorial-diagnosis@2.0`: DIAGNOSE-only typed JSON.
-- `minor-remediation@2.0`: MINIMUM EDIT with full-draft compatibility and preserve metadata.
-- `lock-verifier@2.0`: evidence/action/insight/regression Lock without global craft re-score.
-- Prompt/version/context/token-estimate telemetry and bounded metrics.
+| Prompt ID | Step | Contract | Output compatibility |
+|-----------|------|----------|----------------------|
+| `research-packet` | Research Verify+Synth | `research-packet.v2` | JSON + Research Brief markdown (evidence audit) |
+| `insight-lock` | Insight Gate+Decision+Planning (consolidate) | `insight-plan-lock.v2` | Typed JSON → labelled markdown |
+| `draft-generation` | Write A/B | `article-candidate.v2` | Markdown Article.md halves |
+| `editorial-diagnosis` | Editorial Review | `editorial-diagnosis.v2` | Marked JSON (+ gate defect synthesize) |
+| `minor/major-remediation` | Revision | `article-patch.v1` | Section patch apply (+ full-draft fallback) |
+| `rewrite-remediation` | Rewrite | `full-draft-rewrite.v2` | Full Article.md |
+| `fact-audit` | Fact Check | `claim-ledger.v2` | JSON → markdown ledger (CENTRAL-first) |
+| `fact-remediation` | Fact repair | `claim-patch.v1` | Claim/section patch apply |
+| `lock-verifier` | Final 9b | `lock-decision.v2` | Marked JSON (+ format repair) |
+| `publish-renderer` | Publish clean build | `publish-renderer.v2` | Existing clean marker + Markdown |
+| `publish-polish` | Polish | `publish-polish.v2` / `article-patch.v1` | Patch preferred |
+| `publish-expansion` | Length recovery | `publish-expansion.v2` / `article-patch.v1` | Patch preferred |
+| `publish-quality-repair` | Quality-gate recovery | `publish-quality-repair.v2` / `article-patch.v1` | Patch preferred |
+| `hero-brief` | Hero brief | `hero-brief.v2` | Existing Hero Brief labels |
+| `reader-audit` | Reader Sim | `reader-audit.v2` | Typed JSON → `KẾT LUẬN` markdown |
+| `human-polish` | Human Edit Loop | `human-polish.v2` | Full clean Markdown |
 
-No other prompt migration, Section Patch Engine, multi-agent routing, state-machine rewrite,
-schema change, migration, model change, threshold change, or retry change is included.
+`insight-gate` / `editorial-decision` remain available as v1.6/v2 fallbacks when `insightConsolidate.enabled=false`.
+
+Publish package assembly and state transitions are deterministic runtime operations, not LLM prompts.
+
+## Section Patch + quality waves
+
+```text
+PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled = true
+PIPELINE_CONFIG.aiTfesV2.insightConsolidate.enabled = true
+```
+
+- MINOR/MAJOR rem, publish polish/repair/expand, and fact rem prefer `ARTICLE_PATCH_JSON` /
+  `CLAIM_PATCH_JSON` apply via `section-patch.ts` (full-draft fallback on apply failure).
+- Insight Gate+Decision+Planning collapse into `insight-lock@2.0` when consolidate is ON.
+- Research/Fact are JSON-first; Markdown is materialized for legacy auditors.
+- Reader Audit emits typed findings that feed polish targets (no extra smooth step).
 
 ## Configuration
 
 ```text
-# optimize/process Preview canary (2026-08-10)
 PIPELINE_CONFIG.aiTfesV2.promptArchitecture.enabled = true
-PIPELINE_CONFIG.aiTfesV2.promptArchitecture.editorialDiagnosisVersion = "2.0"
-PIPELINE_CONFIG.aiTfesV2.promptArchitecture.minorRemediationVersion = "2.0"
-PIPELINE_CONFIG.aiTfesV2.promptArchitecture.lockVerifierVersion = "2.0"
+# every prompt version field is "2.0", from researchPacket through
+# readerAudit and humanPolish
 ```
 
-OFF selects all existing v1.6 prompts. ON selects only this trio; the remaining prompts stay
-v1.6. Unknown requested versions fail safe to v1.6. New events are labeled
-`aiTfesVersion=v2-rc2` plus `promptArchitectureVersion=2.0`.
+Rollback: `promptArchitecture.enabled = false` → all builders fall back to v1.6.
+Also: `sectionPatch.enabled = false` → full-draft parse; `insightConsolidate.enabled = false` → separate gate/decision ticks.
 
-Rollback: set `promptArchitecture.enabled = false` (and optionally RC1 flags) without migration.
+## Not yet (proposal-only)
 
-## Telemetry and metrics
+- Multi-agent routing, schema migration, score-floor change
+- Patch-only polish without full-draft fallback in production cohorts
 
-`details.telemetry.prompt` records registry metadata, prompt architecture version, context
-characters, equivalent v1.6 context, approximate input tokens, and phase outcomes. It never
-records prompt/article content.
+## Preview checks
 
-The bounded report exposes:
-
-- `promptArchitectureVersionEvents`;
-- `promptContextById`;
-- average current/v1.6 context characters;
-- average context reduction and token estimate;
-- malformed rate by prompt.
-
-## Preview validation
-
-Use an isolated Preview database. Do not trigger AI if Preview points to production data.
-
-Recommended RC2 Preview flags:
-
-```text
-bestCandidateLock.enabled = true
-bestCandidateLock.epsilon = 0
-falseFinalMinorGuard.enabled = true
-regressionAutoAckBrake.enabled = true
-promptArchitecture.enabled = true
-```
-
-`minorPreservePrompt` may remain OFF because `minor-remediation@2.0` contains the stronger
-preserve contract. Validate:
-
-1. Editorial v2 produces valid typed defects/actions.
-2. 85 Editorial PASS + Fact PASS + optional craft polish locks without revision.
-3. Blocking Lock residual does not publish.
-4. Real MINOR keeps title/thesis/outline/unrelated sections.
-5. A 85→63 candidate is rejected when Candidate Lock is enabled.
-6. v1.6 fallback works after switching prompt architecture OFF.
-
-## Rollback
-
-Set `promptArchitecture.enabled=false`. Existing v1.6 prompt builders/parsers remain active and
-all v2 fields are additive. No data rollback, migration, or artifact deletion is needed.
-
-Production Validation kit: [AI-TFES-v2-RC2-validation.md](./AI-TFES-v2-RC2-validation.md).
-
-## Known risks
-
-- MINOR still returns a full draft; preservation is prompt-enforced, not patch/hash-enforced.
-- Typed JSON compliance and Lock recall need real cohort measurement.
-- Approximate input tokens are not provider tokenizer results.
-- Config is deployment-wide.
-- V2 Lock intentionally narrows craft review; inspect all early Lock outcomes for escaped issues.
-
+1. Research Brief still passes evidence audit (URLs, Tier, Accessed, counter-perspective)
+2. Fact ledger still parses + VERIFICATION_STATUS works after CLAIM_LEDGER_JSON render
+3. Write A/B still produce full draft quality marks
+4. Minor rem / polish emit patch when possible; fallback keeps pipeline alive
+5. Editorial → rem → Fact → Lock path green on ≥3 smoke articles
+6. Reader FAIL → polish receives concrete targets; no dedicated smooth step

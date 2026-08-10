@@ -67,7 +67,19 @@ export const PIPELINE_CONFIG = {
     regressionAutoAckBrake: {
       enabled: true,
     },
-    /** WP-PV2-01 selects the RC2 prompt set; remaining prompts stay v1.6. */
+    /**
+     * Section Patch Engine (WP-V2-07+): apply article-patch.v1 / claim-patch.v1
+     * instead of full-draft regen when the model emits a valid patch.
+     * Rollback: enabled=false → legacy full-draft parse.
+     */
+    sectionPatch: {
+      enabled: true,
+    },
+    /** Collapse Insight Gate + Decision + Planning into insight-lock@2.0. */
+    insightConsolidate: {
+      enabled: true,
+    },
+    /** Full RC2 prompt architecture — Research → Draft → Editorial → Fact → Lock. */
     promptArchitecture: {
       enabled: true,
       editorialDiagnosisVersion: "2.0",
@@ -75,6 +87,20 @@ export const PIPELINE_CONFIG = {
       majorRemediationVersion: "2.0",
       rewriteRemediationVersion: "2.0",
       lockVerifierVersion: "2.0",
+      researchPacketVersion: "2.0",
+      factAuditVersion: "2.0",
+      factRemediationVersion: "2.0",
+      insightLockVersion: "2.0",
+      draftGenerationVersion: "2.0",
+      insightGateVersion: "2.0",
+      editorialDecisionVersion: "2.0",
+      publishRendererVersion: "2.0",
+      publishPolishVersion: "2.0",
+      publishExpansionVersion: "2.0",
+      publishQualityRepairVersion: "2.0",
+      humanPolishVersion: "2.0",
+      heroBriefVersion: "2.0",
+      readerAuditVersion: "2.0",
     },
   },
 

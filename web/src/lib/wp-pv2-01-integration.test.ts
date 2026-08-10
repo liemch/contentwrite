@@ -20,14 +20,41 @@ const factPassed = [
   "VERIFICATION_STATUS: PASSED",
 ].join("\n");
 
-describe("WP-PV2-01 prompt trio integration invariants", () => {
-  it("wires registry-selected prompts without replacing v1.6 prompt builders", () => {
+describe("WP-PV2-01 full prompt architecture integration invariants", () => {
+  it("wires every pipeline LLM call through the versioned registry", () => {
     expect(workflowSource).toContain(
       'resolvePromptDescriptor("editorial-diagnosis")',
     );
-    expect(workflowSource).toContain("minor-remediation");
-    expect(workflowSource).toContain("major-remediation");
-    expect(workflowSource).toContain("rewrite-remediation");
+    expect(workflowSource).toContain("research-packet");
+    expect(workflowSource).toContain("fact-audit");
+    expect(workflowSource).toContain("fact-remediation");
+    expect(workflowSource).toContain("insight-lock");
+    expect(workflowSource).toContain("draft-generation");
+    expect(workflowSource).toContain("insight-gate");
+    expect(workflowSource).toContain("editorial-decision");
+    expect(workflowSource).toContain("publish-renderer");
+    expect(workflowSource).toContain("publish-polish");
+    expect(workflowSource).toContain("publish-expansion");
+    expect(workflowSource).toContain("publish-quality-repair");
+    expect(workflowSource).toContain("hero-brief");
+    expect(workflowSource).toContain("reader-audit");
+    expect(workflowSource).toContain("human-polish");
+    expect(workflowSource).toContain("buildResearchPacketPromptV2");
+    expect(workflowSource).toContain("buildInsightGatePromptV2");
+    expect(workflowSource).toContain("buildEditorialDecisionPromptV2");
+    expect(workflowSource).toContain("buildInsightLockPromptV2");
+    expect(workflowSource).toContain("buildDraftGenerationPromptV2");
+    expect(workflowSource).toContain("buildFactAuditPromptV2");
+    expect(workflowSource).toContain("buildFactRemediationPromptV2");
+    expect(workflowSource).toContain("buildPublishRendererPromptV2");
+    expect(workflowSource).toContain("buildReaderAuditPromptV2");
+    expect(workflowSource).toContain("researchPacketCoverageInsufficient");
+    expect(workflowSource).toContain("resolvePatchedOrFullDraft");
+    expect(workflowSource).toContain("insightConsolidate");
+    expect(workflowSource).toContain("parseInsightPlanLockV2");
+    expect(workflowSource).toContain("materializeReaderAudit");
+    expect(workflowSource).toContain("materializeFactLedger");
+    expect(workflowSource).toContain("materializeResearchBrief");
     expect(workflowSource).toContain('resolvePromptDescriptor("lock-verifier")');
     expect(workflowSource).toContain("buildLockFormatRepairPromptV2");
     expect(workflowSource).toContain('buildPipelinePrompt("finalize-verify"');
@@ -95,7 +122,7 @@ ${JSON.stringify({
       maxDraftChars: 16_000,
     });
     expect(buildMinorRemediationPromptV2(context.context)).toContain(
-      "every unrelated section",
+      "ARTICLE_PATCH_JSON:",
     );
     expect(
       evaluateCandidateLock({

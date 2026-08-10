@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-08-10 — Prompt quality waves 1–10 (section patch + contracts)
+
+### Added / Changed
+
+- Section Patch Engine (`section-patch.ts`) with `article-patch.v1` / `claim-patch.v1` apply +
+  `PIPELINE_CONFIG.aiTfesV2.sectionPatch` rollback flag
+- Minor/Major rem, publish polish/repair/expand, and fact rem emit patches (full-draft fallback)
+- JSON-first Research/Fact materializers; fact CENTRAL claim budget; insight-lock consolidate
+- Reader-audit typed JSON → polish targets; role system envelopes; VOICE_REFERENCE injection
+
+### Docs
+
+- `docs/releases/ai-tfes-v2-rc2.md` updated for patch engine + consolidate flags
+
+---
+
+## 2026-08-10 — RC2 all pipeline prompts on v2
+
+### Added
+
+- `research-packet@2.0`, `fact-audit@2.0`, `fact-remediation@2.0`, `insight-lock@2.0`,
+  `draft-generation@2.0` in Prompt Registry + workflow wiring
+- Remaining LLM stages moved to explicit v2 contracts: `insight-gate`, `editorial-decision`,
+  `publish-renderer`, `publish-polish`, `publish-expansion`, `publish-quality-repair`, `hero-brief`,
+  `reader-audit`, and `human-polish`
+- Materializers: Research Brief + Claim Ledger markdown from marked JSON (legacy parsers keep working)
+
+### Docs
+
+- `docs/releases/ai-tfes-v2-rc2.md` — full prompt set table
+
+---
+
 ## 2026-08-10 — RC2 full remediation set (optimize/process)
 
 ### Added / Changed
