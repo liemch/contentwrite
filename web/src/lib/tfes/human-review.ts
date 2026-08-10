@@ -99,6 +99,37 @@ export function parseEditorialFindings(
         severity: "revision",
       });
     }
+
+    // Gate FAILED cũng là điểm cần chốt: v2 hay kết luận MAJOR với defects rỗng,
+    // khi đó gate là thứ duy nhất người có thể chọn "nhờ AI sửa".
+    const gates = Array.isArray(v2.gates) ? v2.gates : [];
+    for (const entry of gates) {
+      if (!entry || typeof entry !== "object") continue;
+      const gate = entry as Record<string, unknown>;
+      if (typeof gate.id !== "string") continue;
+      if (!/^fail/i.test(String(gate.status ?? ""))) continue;
+      const reason =
+        typeof gate.reason === "string" && gate.reason.trim()
+          ? gate.reason.trim()
+          : "Fail";
+      push({
+        id: slugId(gate.id, "gate"),
+        label: `${gate.id}: ${reason}`.slice(0, 180),
+        severity: "fail",
+      });
+    }
+
+    const v2Decision = typeof v2.decision === "string" ? v2.decision : "";
+    if (
+      findings.length === 0 &&
+      /MINOR|MAJOR|REWRITE/i.test(v2Decision)
+    ) {
+      push({
+        id: "decision",
+        label: `Kết luận AI: ${v2Decision} — không liệt kê defect cụ thể, đọc tab Review rồi nhờ AI sửa`,
+        severity: "decision",
+      });
+    }
     return findings.slice(0, 16);
   }
 
