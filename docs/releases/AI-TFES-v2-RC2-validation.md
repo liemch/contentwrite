@@ -1,11 +1,36 @@
 # AI-TFES v2 RC2 — Production Validation Kit
 
-**Release:** RC2 (RC1 controls + WP-PV2-01 Prompt Architecture trio)  
-**Date:** 2026-08-07  
-**Default runtime:** `promptArchitecture.enabled=false` → v1.6  
+**Release:** RC2 (RC1 controls + WP-PV2-01 Prompt Architecture trio)
+**Date:** 2026-08-10
+**Default on `optimize/process` (Preview canary):** all RC1 convergence flags + `promptArchitecture.enabled=true` → `v2-rc2`
+**Production `main` until merge:** keep prior defaults until Preview GO
 **Goal:** Preview → Canary → Production decision with measured KPIs
 
-Related: [ai-tfes-v2-rc2.md](./ai-tfes-v2-rc2.md), [WP-PV2-01](../work-packages/WP-PV2-01-prompt-trio-migration.md)
+Related: [ai-tfes-v2-rc2.md](./ai-tfes-v2-rc2.md), [WP-PV2-01](../work-packages/WP-PV2-01-prompt-trio-migration.md), [quality-first-pipeline](../designs/quality-first-pipeline.md)
+
+---
+
+## 0. optimize/process Preview note (2026-08-10)
+
+Branch `optimize/process` ships Phase B with:
+
+```text
+bestCandidateLock.enabled = true
+falseFinalMinorGuard.enabled = true
+minorPreservePrompt.enabled = true
+regressionAutoAckBrake.enabled = true
+promptArchitecture.enabled = true
+```
+
+Also track **meta-leak rate = 0** on clean publish (Insight L2 / Gate / GOLD_BAR scrubbed).
+
+Preview checklist before merging to `main`:
+
+1. ≥3 smoke articles on Preview DB only
+2. Confirm Candidate Lock retains best on regression
+3. Confirm format failure → `editorial-review-format-*`, not revision exhaustion
+4. Confirm published body has no Insight L2 / Gate jargon
+5. Rollback drill: set each flag `false` independently; confirm `activeAiTfesVersion` falls back
 
 ---
 
@@ -29,9 +54,9 @@ Related: [ai-tfes-v2-rc2.md](./ai-tfes-v2-rc2.md), [WP-PV2-01](../work-packages/
 bestCandidateLock.enabled = true
 bestCandidateLock.epsilon = 0
 falseFinalMinorGuard.enabled = true
+minorPreservePrompt.enabled = true
 regressionAutoAckBrake.enabled = true
 promptArchitecture.enabled = true
-# minorPreservePrompt may stay OFF — minor-remediation@2.0 already embeds preserve contract
 ```
 
 ### Rollback (immediate)
@@ -45,6 +70,7 @@ Optional full RC1 undo if needed:
 ```text
 bestCandidateLock.enabled = false
 falseFinalMinorGuard.enabled = false
+minorPreservePrompt.enabled = false
 regressionAutoAckBrake.enabled = false
 ```
 

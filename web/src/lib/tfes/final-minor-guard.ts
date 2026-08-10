@@ -68,6 +68,9 @@ export function evaluateFinalMinorGuard(input: {
   editorialGateFailCount: number | null;
   editorialThreshold: number;
   insightFloor: number;
+  /** lock-v2 residuals; when set, prefer over Required Revisions prose. */
+  machineContract?: "final-v1" | "lock-v2" | "invalid" | string | null;
+  lockResiduals?: string[] | null;
 }): FinalMinorGuardResult {
   if (!input.machineReadable) {
     return {
@@ -120,8 +123,22 @@ export function evaluateFinalMinorGuard(input: {
     };
   }
 
-  const residuals = residualsOf(input.finalReview);
+  const residuals =
+    input.machineContract === "lock-v2" && Array.isArray(input.lockResiduals)
+      ? input.lockResiduals.map((item) => item.trim()).filter(Boolean)
+      : residualsOf(input.finalReview);
   if (residuals.length === 0) {
+    // lock-v2 PATCH_REQUIRED with an empty residual list is a craft misfire —
+    // the model should have used LOCKED + optionalPolishActions.
+    if (input.machineContract === "lock-v2" && Array.isArray(input.lockResiduals)) {
+      return {
+        eligible: true,
+        suppressed: input.enabled,
+        reasonClass: "craft-only",
+        blockingResidualCount: 0,
+        residualCount: 0,
+      };
+    }
     return {
       eligible: false,
       suppressed: false,

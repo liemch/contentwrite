@@ -9,6 +9,8 @@ import {
 import {
   buildRevisionFeedbackBlock,
   extractFinalVerification,
+  factDraftClipChars,
+  readerSimClipChars,
   reviewDraftClipChars,
   withoutFinalVerification,
 } from "@/lib/tfes/review-context";
@@ -70,6 +72,33 @@ describe("F1 · ngân sách context của reviewer", () => {
     expect(visible).toContain("## Discussion");
     expect(visible).toContain("## References");
     expect(visible).not.toContain("đã cắt");
+  });
+});
+
+describe("WP-QF-02 · fact / reader-sim context budgets", () => {
+  it("factDraftClipChars mirrors the editorial review budget", () => {
+    expect(factDraftClipChars(1_200)).toBe(reviewDraftClipChars(1_200));
+    expect(factDraftClipChars(null)).toBe(reviewDraftClipChars(null));
+  });
+
+  it("readerSimClipChars keeps a 12k floor and stays above the old 5.5k clip", () => {
+    expect(readerSimClipChars(PIPELINE_CONFIG.words.defaultTarget)).toBe(
+      PIPELINE_CONFIG.context.readerSimDraftMinChars,
+    );
+    expect(readerSimClipChars(1_200)).toBeGreaterThan(5_500);
+    expect(readerSimClipChars(MAX_TARGET_WORD_COUNT)).toBeLessThanOrEqual(
+      PIPELINE_CONFIG.context.readerSimDraftMaxChars,
+    );
+  });
+
+  it("reader sim sees Takeaways/References on a typical clean body", () => {
+    const draft = fakeDraft(1_500);
+    const truncated = clipText(draft, 5_500);
+    expect(truncated).not.toContain("## References");
+
+    const visible = clipText(draft, readerSimClipChars(1_200));
+    expect(visible).toContain("## Key Takeaways");
+    expect(visible).toContain("## References");
   });
 });
 

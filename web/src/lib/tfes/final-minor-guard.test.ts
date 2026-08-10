@@ -107,4 +107,46 @@ describe("WP-V2-03 False Final MINOR Guard", () => {
       reasonClass: "unknown-residual",
     });
   });
+
+  it("WP-QF-04: lock-v2 empty residuals are craft-only (not unknown)", () => {
+    expect(
+      evaluateFinalMinorGuard({
+        ...base,
+        finalReview: "FINAL_DECISION: MINOR_REVISION_REQUIRED",
+        machineContract: "lock-v2",
+        lockResiduals: [],
+      }),
+    ).toEqual({
+      eligible: true,
+      suppressed: true,
+      reasonClass: "craft-only",
+      blockingResidualCount: 0,
+      residualCount: 0,
+    });
+  });
+
+  it("WP-QF-04: lock-v2 craft residuals suppress; blocking residuals do not", () => {
+    expect(
+      evaluateFinalMinorGuard({
+        ...base,
+        machineContract: "lock-v2",
+        lockResiduals: ["polish wording", "improve transition flow"],
+      }),
+    ).toMatchObject({
+      eligible: true,
+      suppressed: true,
+      reasonClass: "craft-only",
+    });
+    expect(
+      evaluateFinalMinorGuard({
+        ...base,
+        machineContract: "lock-v2",
+        lockResiduals: ["add missing source evidence for claim C1"],
+      }),
+    ).toMatchObject({
+      eligible: false,
+      suppressed: false,
+      reasonClass: "blocking-residual",
+    });
+  });
 });

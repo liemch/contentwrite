@@ -27,6 +27,59 @@ export function stripHeroBriefSection(text: string): string {
 }
 
 /**
+ * Meta biên tập / machine contract không được xuất hiện trên bản người đọc.
+ * Chỉ dùng trên clean publish / reader prepare — không scrub Insight Gate hay Review raw.
+ */
+export function stripReaderFacingMeta(text: string): string {
+  let body = text;
+
+  // Whole lines that are pure editorial/machine jargon
+  body = body.replace(
+    /^\s*(?:\*{0,2})?(?:Insight\s*Gate|Cổng\s*Insight|Gate\s*(?:Insight)?)\b[^\n]*$/gim,
+    "",
+  );
+  body = body.replace(
+    /^\s*(?:\*{0,2})?(?:PROVISIONAL_(?:TOTAL|INSIGHT)_SCORE|EDITORIAL_DECISION|GATES_G1_G8|FINAL_(?:TOTAL|INSIGHT)_SCORE|FINAL_DECISION|GOLD_BAR)\s*[:：=].*$/gim,
+    "",
+  );
+  body = body.replace(/^\s*GOLD_BAR\s*:[^\n]*$/gim, "");
+  body = body.replace(
+    /^\s*(?:\*{0,2})?Insight\s*L\s*[0-3]\s*(?:\/\s*L\s*[0-3])?\s*[:：].*$/gim,
+    "",
+  );
+  body = body.replace(
+    /^\s*(?:\*{0,2})?(?:ĐẠT|CHƯA ĐẠT)\s*(?:≥\s*)?L\s*[0-3]\b[^\n]*$/gim,
+    "",
+  );
+
+  // Inline jargon → neutral reader language or removal
+  body = body.replace(/\(\s*L\s*[0-3]\s*insight\s*\)/gi, "");
+  body = body.replace(/\bL\s*[0-3]\s*insight\b/gi, "insight");
+  body = body.replace(/\binsight\s*L\s*[0-3](?:\s*\/\s*L\s*[0-3])?\b/gi, "insight");
+  body = body.replace(/\bInsight\s*Gate\b/gi, "luận điểm trung tâm");
+  body = body.replace(/\bCổng\s*Insight\b/gi, "luận điểm trung tâm");
+  body = body.replace(
+    /\b(?:đạt|chua đạt|chưa đạt)\s*(?:≥\s*)?L\s*[0-3]\b/gi,
+    "",
+  );
+  body = body.replace(/\b(?:≥\s*)?L\s*[0-3]\b(?=\s*(?:—|-|,|\.|$))/gi, "");
+  body = body.replace(/\bL\s*[0-3]\s*\/\s*L\s*[0-3]\b/gi, "");
+  body = body.replace(/\s*[\(\[｛【]\s*L\s*[0-3]\s*[\)\]｝】]/gi, "");
+  body = body.replace(/\bGOLD_BAR\b/gi, "");
+  body = body.replace(
+    /\b(?:PROVISIONAL_(?:TOTAL|INSIGHT)_SCORE|EDITORIAL_DECISION|GATES_G1_G8)\b/gi,
+    "",
+  );
+
+  // Collapse leftover empty punctuation / spaces from removals
+  body = body.replace(/[ \t]{2,}/g, " ");
+  body = body.replace(/ ?([,;:])\s*([,;:])/g, "$1");
+  body = body.replace(/\(\s*\)/g, "");
+  body = body.replace(/[ \t]+\n/g, "\n");
+  return body.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
  * Sanitize nháp / bản sạch trước khi lưu DB:
  * - không nhét Hero Brief vào cuối bài
  * - Title/Subtitle không mang (L2)
@@ -59,7 +112,7 @@ export function sanitizeEditorialBody(content: string | null | undefined): strin
   body = body.replace(/^\s*alt\s*$/gim, "");
   body = body.replace(/!\[(?:alt)?\]\(HERO_IMAGE\)/gi, "![Minh họa chủ đề bài](HERO_IMAGE)");
 
-  // Meta biên tập hay lọt vào body
+  // Light meta scrub on drafts (titles + known leak phrases); full scrub is reader-facing.
   body = body.replace(/\(\s*L\s*[0-3]\s*insight\s*\)/gi, "");
   body = body.replace(/\bL2 insight\b/gi, "insight");
   body = body.replace(/^\s*\*{0,2}Insight\s*L\s*[0-3]\s*:\s*/gim, "");
@@ -83,6 +136,7 @@ export function stripThematicBreaks(text: string): string {
 export function toReaderCleanPublish(content: string | null | undefined): string {
   if (!content?.trim()) return content ?? "";
   let body = sanitizeEditorialBody(content);
+  body = stripReaderFacingMeta(body);
 
   body = body.replace(
     /^#{1,3}\s*(Introduction|Context|Problem Statement|Deep Analysis|Real-world Examples|Practical Recommendations|Executive Summary|Key Takeaways|Metadata)\b[^\n]*$/gim,
@@ -111,6 +165,7 @@ export function prepareReaderContent(
   }
 
   body = sanitizeEditorialBody(body);
+  body = stripReaderFacingMeta(body);
 
   body = stripThematicBreaks(body);
 

@@ -10,7 +10,8 @@ describe("WP-V2-02 Best Candidate Lock wiring", () => {
   it("uses one deterministic config and controller without an LLM dependency", () => {
     const config = source("src/lib/tfes/pipeline-config.ts");
     expect(config).toContain("bestCandidateLock");
-    expect(config).toContain("enabled: false");
+    const lockBlock = config.slice(config.indexOf("bestCandidateLock"));
+    expect(lockBlock).toContain("enabled: true");
     expect(config).toContain("epsilon: 0");
 
     const controller = source("src/lib/tfes/best-candidate-lock.ts");

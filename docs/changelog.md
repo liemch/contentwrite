@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-08-10 — Quality-first Phase C (WP-QF-01..06 on optimize/process)
+
+### Added / Changed
+
+- **QF-01:** Publish Ready derive bản sạch từ best locked draft (fallback `finalize-b`)
+- **QF-02:** Fact / Reader Sim dùng ngân sách clip 16k+ / 12k+ (không cắt Takeaways/References sớm)
+- **QF-03:** Remediation severity-aware — MAJOR/REWRITE mode directives; MINOR giữ preserve
+- **QF-04:** Final MINOR guard hiểu lock-v2 residuals rỗng = craft-only
+- **QF-05:** Tách ngôn ngữ máy (L0–L3 ở Gate) vs reader (cấm jargon trong write/publish)
+- **QF-06:** Decision memo — **giữ** Editorial ≥85 / Final ≥90; không hạ floor mù
+
+### Docs
+
+- WP-QF-01..06 status cập nhật; roadmap + design Phase C Done
+
+---
+
+## 2026-08-10 — Quality-first process (optimize/process Phase A+B)
+
+### Fixed
+
+- Bản đăng / reader prepare scrub thêm jargon pipeline: Insight L2/L3, Insight Gate,
+  ≥ L2, GOLD_BAR, PROVISIONAL_*/EDITORIAL_DECISION (không đụng raw Insight/Review artifacts)
+- Write/Publish/Polish prompts nhấn mạnh cấm meta máy trong body người đọc
+
+### Changed
+
+- `optimize/process`: bật canary RC1 convergence + RC2 promptArchitecture
+  (`bestCandidateLock`, `falseFinalMinorGuard`, `minorPreservePrompt`,
+  `regressionAutoAckBrake`, `promptArchitecture`) — rollback từng flag độc lập
+
+### Docs
+
+- `docs/designs/quality-first-pipeline.md` — nguyên tắc craft-first + backlog WP-QF-01..06
+- Roadmap cập nhật WP-QF-* và trạng thái flag Preview
+
+---
+
 ## 2026-08-07 — Editorial Format Reliability (WP-PV2-02)
 
 Production blocker: một Editorial Review sai định dạng bị xử lý như bài chất lượng 0,
