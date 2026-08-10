@@ -2721,8 +2721,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const lockPrompt = resolvePromptDescriptor("lock-verifier");
+        // 1500 cắt mất LOCK_DECISION_JSON khi model viết phần lý giải trước khối JSON.
         const finalVerifyMaxTokens =
-          lockPrompt.promptVersion === "2.0" ? 1500 : 2200;
+          lockPrompt.promptVersion === "2.0" ? 2600 : 2200;
         const finalConvergenceContext = await convergenceContextForRun(
           articleId,
           article.workflowRunId,
@@ -2804,7 +2805,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ],
           { maxTokens: finalVerifyMaxTokens, temperature: 0.2, reasoningEffort: "low" },
         );
-        const result = inspectFinalVerification(finalReview, article.factCheck);
+        const result = inspectFinalVerification(finalReview, article.factCheck, {
+          expectedContract:
+            lockPrompt.promptVersion === "2.0" ? "lock-v2" : "final-v1",
+        });
         const finalVerifyLlmMs = Date.now() - llmStarted;
         const finalGateFailures =
           result.machineContract === "lock-v2"

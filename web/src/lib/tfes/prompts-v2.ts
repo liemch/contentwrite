@@ -322,7 +322,8 @@ Do not re-score the whole craft surface, rewrite prose, or invent remediation.
 Craft-only polish is optional and must not create PATCH_REQUIRED or a full rewrite loop.
 Put it in optionalPolishActions while keeping lockDecision=LOCKED when all lock conditions pass.
 
-Return exactly one marked JSON object:
+Return exactly one marked JSON object and nothing else — no analysis, preamble, or code fence.
+The marker line must be present verbatim:
 LOCK_DECISION_JSON:
 {
   "contractVersion": "lock-decision.v2",
