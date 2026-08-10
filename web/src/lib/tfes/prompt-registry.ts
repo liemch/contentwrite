@@ -1,10 +1,12 @@
 import { extractMarkedJson } from "@/lib/tfes/machine-contract";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
-export type PromptRole = "DIAGNOSE" | "PATCH" | "LOCK";
+export type PromptRole = "DIAGNOSE" | "PATCH" | "LOCK" | "GENERATE";
 export type PromptArchitectureId =
   | "editorial-diagnosis"
   | "minor-remediation"
+  | "major-remediation"
+  | "rewrite-remediation"
   | "lock-verifier";
 export type PromptRuntimeVersion = "1.6" | "2.0";
 
@@ -30,7 +32,7 @@ export type PromptExecutionTelemetry = {
   contextReductionRatio: number | null;
   inputTokenEstimate: number;
   defectCount?: number | null;
-  remediationMedium?: "full-draft-preserve";
+  remediationMedium?: "full-draft-preserve" | "full-draft-major" | "full-draft-rewrite";
   lockDecision?: string | null;
   blockingResidualCount?: number | null;
   falseMinorSuppressed?: boolean;
@@ -58,6 +60,18 @@ const V1: Record<PromptArchitectureId, Omit<PromptDescriptor, "promptId" | "fall
     role: "PATCH",
     source: "content/ai-tfes+prompts.ts",
   },
+  "major-remediation": {
+    promptVersion: "1.6",
+    contractVersion: "article-full-draft-v1.6",
+    role: "PATCH",
+    source: "content/ai-tfes+prompts.ts",
+  },
+  "rewrite-remediation": {
+    promptVersion: "1.6",
+    contractVersion: "article-full-draft-v1.6",
+    role: "GENERATE",
+    source: "content/ai-tfes+prompts.ts",
+  },
   "lock-verifier": {
     promptVersion: "1.6",
     contractVersion: "final-verification-v1",
@@ -79,6 +93,18 @@ const V2: Record<PromptArchitectureId, Omit<PromptDescriptor, "promptId" | "fall
     role: "PATCH",
     source: "src/lib/tfes/prompts-v2.ts",
   },
+  "major-remediation": {
+    promptVersion: "2.0",
+    contractVersion: "full-draft-major.v2",
+    role: "PATCH",
+    source: "src/lib/tfes/prompts-v2.ts",
+  },
+  "rewrite-remediation": {
+    promptVersion: "2.0",
+    contractVersion: "full-draft-rewrite.v2",
+    role: "GENERATE",
+    source: "src/lib/tfes/prompts-v2.ts",
+  },
   "lock-verifier": {
     promptVersion: "2.0",
     contractVersion: "lock-decision.v2",
@@ -91,6 +117,8 @@ function configuredVersion(id: PromptArchitectureId): string {
   const config = PIPELINE_CONFIG.aiTfesV2.promptArchitecture;
   if (id === "editorial-diagnosis") return config.editorialDiagnosisVersion;
   if (id === "minor-remediation") return config.minorRemediationVersion;
+  if (id === "major-remediation") return config.majorRemediationVersion;
+  if (id === "rewrite-remediation") return config.rewriteRemediationVersion;
   return config.lockVerifierVersion;
 }
 
@@ -119,7 +147,7 @@ export function buildPromptExecutionTelemetry(input: {
   contextCharacterLength: number;
   legacyContextCharacterLength?: number | null;
   defectCount?: number | null;
-  remediationMedium?: "full-draft-preserve";
+  remediationMedium?: "full-draft-preserve" | "full-draft-major" | "full-draft-rewrite";
   lockDecision?: string | null;
   blockingResidualCount?: number | null;
   falseMinorSuppressed?: boolean;
@@ -197,4 +225,3 @@ export function parseMarkedPromptJson(
 ): Record<string, unknown> | null {
   return extractMarkedJson(raw, marker).json;
 }
-

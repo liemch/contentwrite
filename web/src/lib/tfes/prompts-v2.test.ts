@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildEditorialDiagnosisContextV2,
   buildEditorialDiagnosisPromptV2,
+  buildLockFormatRepairPromptV2,
   buildLockVerifierContextV2,
   buildLockVerifierPromptV2,
+  buildMajorRemediationPromptV2,
   buildMinorRemediationContextV2,
   buildMinorRemediationPromptV2,
+  buildRewriteRemediationPromptV2,
   type EditorialDefectV2,
 } from "@/lib/tfes/prompts-v2";
 
@@ -91,6 +94,27 @@ describe("Prompt Architecture v2 prompt trio", () => {
     expect(built.context).toContain("Gate G2 FAILED");
     expect(built.context).toContain("unresolved");
     expect(built.context).not.toContain('"preserveSectionIds":["title"');
+  });
+
+  it("MAJOR and REWRITE v2 prompts allow structural repair without MINOR freeze language", () => {
+    const major = buildMajorRemediationPromptV2("CONTEXT");
+    const rewrite = buildRewriteRemediationPromptV2("CONTEXT");
+    expect(major).toContain("PROMPT_ID: major-remediation");
+    expect(major).toContain("full-draft-major.v2");
+    expect(major).not.toContain("minimum edit");
+    expect(rewrite).toContain("PROMPT_ID: rewrite-remediation");
+    expect(rewrite).toContain("Authorized rewrite");
+    expect(rewrite).toContain("Do not salvage failing prose");
+  });
+
+  it("Lock format repair re-emits contract without re-judging", () => {
+    const repair = buildLockFormatRepairPromptV2({
+      previousOutput: "lock should be LOCKED",
+      malformedReason: "marker-missing",
+    });
+    expect(repair).toContain("ROLE: FORMAT_REPAIR");
+    expect(repair).toContain("LOCK_DECISION_JSON:");
+    expect(repair).toContain("Do NOT re-read the article");
   });
 
   it("Lock v2 verifies lock signals without a broad craft re-review", () => {

@@ -67,11 +67,13 @@ export const PIPELINE_CONFIG = {
     regressionAutoAckBrake: {
       enabled: true,
     },
-    /** WP-PV2-01 selects only the first v2 prompt trio; all other prompts stay v1.6. */
+    /** WP-PV2-01 selects the RC2 prompt set; remaining prompts stay v1.6. */
     promptArchitecture: {
       enabled: true,
       editorialDiagnosisVersion: "2.0",
       minorRemediationVersion: "2.0",
+      majorRemediationVersion: "2.0",
+      rewriteRemediationVersion: "2.0",
       lockVerifierVersion: "2.0",
     },
   },

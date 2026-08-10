@@ -346,6 +346,40 @@ function stateFromScores(
 /**
  * Parse machine lines + checklist Fail; ép EDITORIAL_REVIEWED chỉ khi gần bar 9b.
  */
+function synthesizeGateDefects(
+  gates: EditorialGateV2[],
+  decision: string,
+  existing: EditorialDefectV2[],
+): EditorialDefectV2[] {
+  if (existing.length > 0) return existing;
+  if (
+    decision !== "MINOR_REVISION_REQUIRED" &&
+    decision !== "MAJOR_REVISION_REQUIRED" &&
+    decision !== "REWRITE_REQUIRED"
+  ) {
+    return existing;
+  }
+  const failed = gates.filter((gate) => gate.status === "FAILED");
+  if (failed.length === 0) return existing;
+  const severity: EditorialDefectV2["severity"] =
+    decision === "REWRITE_REQUIRED"
+      ? "REWRITE"
+      : decision === "MAJOR_REVISION_REQUIRED"
+        ? "MAJOR"
+        : "MINOR";
+  return failed.map((gate) => ({
+    defectId: `SYN-GATE-${gate.id}`,
+    type: "GATE_FAILURE",
+    severity,
+    location: { sectionId: "article" },
+    diagnosis: gate.reason?.trim() || `${gate.id} FAILED`,
+    requiredOutcome: `Resolve ${gate.id}: ${gate.reason?.trim() || "make this gate PASS"}`,
+    allowedMutations: [],
+    evidenceRefs: [],
+    blocking: severity !== "MINOR",
+  }));
+}
+
 export function inspectEditorialReview(
   review: string | null | undefined,
 ): EditorialReviewInspection {
@@ -557,6 +591,22 @@ export function inspectEditorialReview(
     }
   }
 
+  const v2Defects =
+    machineContract === "v2"
+      ? synthesizeGateDefects(v2.gates, normalizedDecision || "", v2.defects)
+      : [];
+  const v2RequiredActions =
+    machineContract === "v2"
+      ? [
+          ...v2.requiredActions,
+          ...(v2Defects.length > v2.defects.length
+            ? v2Defects
+                .slice(v2.defects.length)
+                .map((defect) => defect.requiredOutcome)
+            : []),
+        ]
+      : [];
+
   return {
     // Unusable machine output must never surface as a quality score.
     totalScore: machineReadable ? totalScore : null,
@@ -568,8 +618,8 @@ export function inspectEditorialReview(
     machineContract,
     gates: machineContract === "v2" ? v2.gates : [],
     gateFailures,
-    defects: machineContract === "v2" ? v2.defects : [],
-    requiredActions: machineContract === "v2" ? v2.requiredActions : [],
+    defects: v2Defects,
+    requiredActions: v2RequiredActions,
     resolvedState,
     failureReasons,
     parseFailure: !machineReadable,

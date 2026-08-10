@@ -162,6 +162,32 @@ ${JSON.stringify({
     expect(result.machineReadable).toBe(false);
     expect(result.resolvedState).toBe(WorkflowState.MINOR_REVISION_REQUIRED);
   });
+
+  it("v2 MAJOR với defects rỗng synthesize defect từ gate FAILED", () => {
+    const gates = Array.from({ length: 8 }, (_, index) => ({
+      id: `G${index + 1}`,
+      status: index === 1 ? "FAILED" : "PASSED",
+      reason: index === 1 ? "Evidence from low-tier sources" : "ok",
+    }));
+    const result = inspectEditorialReview(
+      `EDITORIAL_DIAGNOSIS_JSON:\n${JSON.stringify({
+        contractVersion: "editorial-diagnosis.v2",
+        totalScore: 68,
+        insightScore: 18,
+        gates,
+        decision: "MAJOR_REVISION_REQUIRED",
+        defects: [],
+        requiredActions: [],
+      })}`,
+    );
+    expect(result.machineReadable).toBe(true);
+    expect(result.defects.length).toBeGreaterThan(0);
+    expect(result.defects[0]?.defectId).toBe("SYN-GATE-G2");
+    expect(result.defects[0]?.requiredOutcome).toContain("G2");
+    expect(result.requiredActions.some((action) => action.includes("G2"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("Editorial Review checklist parser", () => {

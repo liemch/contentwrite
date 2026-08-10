@@ -115,11 +115,17 @@ Machine format rules (violating any of these voids the response):
 - Keep the whole object under ${MAX_EDITORIAL_DEFECTS} defects so the response is never truncated.
 
 Content rules:
+- If decision is MINOR_REVISION_REQUIRED, MAJOR_REVISION_REQUIRED, or REWRITE_REQUIRED,
+  defects MUST be a non-empty array (at least one concrete defect). Empty defects with a
+  revision decision is invalid machine output.
 - Every defect must include defectId, type, severity, location.sectionId, diagnosis,
   requiredOutcome, allowedMutations, evidenceRefs, and blocking.
 - severity is MINOR | MAJOR | REWRITE; blocking is a JSON boolean.
+- For each FAILED gate, emit a matching defect (or requiredActions entry) that names the gate
+  and what must change in the article.
 - Defects diagnose only. Do not include replacement section/article content.
-- EDITORIAL_REVIEWED requires totalScore >=85, insightScore >=20, and G1–G8 PASSED.
+- EDITORIAL_REVIEWED requires totalScore >=85, insightScore >=20, G1–G8 PASSED, and
+  defects/requiredActions may be empty.
 - Unknown extra JSON fields are allowed; required fields above are mandatory.
 
 === CONTEXT ===
@@ -286,6 +292,75 @@ Missing metadata must not make the draft incomplete.
 ${context}`;
 }
 
+/** MAJOR: full-draft compatibility, but allow rewriting related sections/logic. */
+export function buildMajorRemediationPromptV2(context: string): string {
+  return `PROMPT_ID: major-remediation
+VERSION: 2.0
+CONTRACT_VERSION: full-draft-major.v2
+ROLE: PATCH
+
+Repair MAJOR defects. You may rewrite affected sections, logic chains, evidence wording, and
+recommendations. Do not diagnose again and do not self-score.
+
+PRESERVE when still sound:
+- title unless a listed defect targets it;
+- central thesis/insight when it remains valid;
+- unrelated sections that do not participate in the listed defects;
+- source URLs and Research-backed numbers.
+
+ALLOWED:
+- rewrite affected sections entirely;
+- restructure arguments inside allowed sections;
+- qualify or remove unsupported claims named by defects/actions.
+
+FORBIDDEN:
+- synonym-only salvage of failing sections;
+- inventing new sources or numbers not in Research/context;
+- freezing the whole draft as if this were MINOR;
+- emitting Review, Fact Ledger, score, or decision.
+
+Output the complete Markdown draft beginning with "# Title". Then append:
+UNCHANGED_SECTIONS: <comma-separated headings>
+CHANGED_SECTIONS: <comma-separated headings>
+
+=== CONTEXT ===
+${context}`;
+}
+
+/** REWRITE: restructure from Planning + Research; do not salvage weak prose. */
+export function buildRewriteRemediationPromptV2(context: string): string {
+  return `PROMPT_ID: rewrite-remediation
+VERSION: 2.0
+CONTRACT_VERSION: full-draft-rewrite.v2
+ROLE: GENERATE
+
+Authorized rewrite. Rebuild outline and central argument from Planning + Research in CONTEXT.
+Do not salvage failing prose with synonym swaps. Do not self-score.
+
+KEEP only:
+- supported claims that still match Research evidence;
+- Insight Gate thesis if it still holds;
+- genuine URLs/numbers from Research.
+
+REWRITE:
+- structure, section flow, and weak analysis;
+- recommendations and examples that fail listed defects;
+- any section needed to close FAILED gates / required actions.
+
+FORBIDDEN:
+- copying a failing draft with cosmetic edits;
+- new sources not in Research;
+- Insight Gate / L2 jargon in title or body;
+- emitting Review, Fact Ledger, score, or decision.
+
+Output the complete Markdown draft beginning with "# Title". Then append:
+UNCHANGED_SECTIONS: <comma-separated headings>
+CHANGED_SECTIONS: <comma-separated headings>
+
+=== CONTEXT ===
+${context}`;
+}
+
 export function buildLockVerifierContextV2(input: {
   editorialResult: unknown;
   factSummary: unknown;
@@ -349,5 +424,39 @@ regression. Unknown or missing required context must return CONTEXT_INCOMPLETE.
 
 === CONTEXT ===
 ${context}`;
+}
+
+/**
+ * Format-only repair for Lock Verifier — do not re-judge; re-emit LOCK_DECISION_JSON.
+ */
+export function buildLockFormatRepairPromptV2(input: {
+  previousOutput: string;
+  malformedReason: string;
+}): string {
+  return `PROMPT_ID: lock-verifier
+VERSION: 2.0
+CONTRACT_VERSION: lock-decision.v2
+ROLE: FORMAT_REPAIR
+
+Your previous Lock Verifier output could not be parsed (reason: ${input.malformedReason}).
+
+Do NOT re-read the article. Do NOT change the lock judgement you already made.
+Convert the previous output into exactly one marked JSON object and nothing else.
+
+Emit the marker line LOCK_DECISION_JSON: exactly once, then one JSON object with keys:
+contractVersion ("lock-decision.v2"), lockDecision, factLockStatus, insightFloorStatus,
+blockingResiduals, openRequiredActions, unresolvedDefectIds, regressionDetected,
+optionalPolishActions.
+
+If a required value is genuinely absent, use the most conservative complete values:
+- missing lockDecision -> CONTEXT_INCOMPLETE
+- missing array fields -> []
+- missing boolean regressionDetected -> true
+- missing fact/insight status -> FAILED
+
+No prose, no code fence, no trailing comma.
+
+=== PREVIOUS OUTPUT ===
+${clipText(input.previousOutput, 6_000)}`;
 }
 

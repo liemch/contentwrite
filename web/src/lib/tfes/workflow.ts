@@ -120,10 +120,13 @@ import {
   buildEditorialDiagnosisContextV2,
   buildEditorialDiagnosisPromptV2,
   buildEditorialFormatRepairPromptV2,
+  buildLockFormatRepairPromptV2,
   buildLockVerifierContextV2,
   buildLockVerifierPromptV2,
+  buildMajorRemediationPromptV2,
   buildMinorRemediationContextV2,
   buildMinorRemediationPromptV2,
+  buildRewriteRemediationPromptV2,
 } from "@/lib/tfes/prompts-v2";
 import {
   assertCleanPublishQuality,
@@ -2209,14 +2212,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
-        const configuredMinorPrompt = resolvePromptDescriptor("minor-remediation");
-        const minorPrompt =
-          article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED
-            ? configuredMinorPrompt
-            : resolvePromptDescriptor("minor-remediation", { enabled: false });
+        const remediationPromptId =
+          article.workflowState === WorkflowState.REWRITE_REQUIRED
+            ? ("rewrite-remediation" as const)
+            : article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED
+              ? ("major-remediation" as const)
+              : article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED
+                ? ("minor-remediation" as const)
+                : null;
+        const remediationPrompt = remediationPromptId
+          ? resolvePromptDescriptor(remediationPromptId)
+          : resolvePromptDescriptor("minor-remediation", { enabled: false });
         const minorPreservePrompt = minorPreserveInstructions({
           enabled:
-            minorPrompt.promptVersion === "1.6" &&
+            remediationPrompt.promptId === "minor-remediation" &&
+            remediationPrompt.promptVersion === "1.6" &&
             PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
           revisionSeverity: article.workflowState,
           version:
@@ -2276,10 +2286,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 `Điểm Editorial ${currentEditorial.totalScore}/${editorialThreshold} — nâng chất lượng thật (độ sâu lập luận, bằng chứng, nhịp đọc), không đổi từ ngữ bề mặt.`,
               ]
             : [];
-        const minorV2Context = buildMinorRemediationContextV2({
-          defects: currentEditorial.defects.filter(
-            (defect) => defect.severity === "MINOR",
-          ),
+        const severityDefects =
+          article.workflowState === WorkflowState.REWRITE_REQUIRED
+            ? currentEditorial.defects
+            : article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED
+              ? currentEditorial.defects.filter(
+                  (defect) =>
+                    defect.severity === "MAJOR" ||
+                    defect.severity === "MINOR" ||
+                    defect.severity === "REWRITE",
+                )
+              : currentEditorial.defects.filter(
+                  (defect) => defect.severity === "MINOR",
+                );
+        const remediationV2Context = buildMinorRemediationContextV2({
+          defects: severityDefects,
           requiredActions: [
             ...currentEditorial.requiredActions,
             ...gateFailureActions,
@@ -2294,8 +2315,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           maxDraftChars: reviewDraftClipChars(article.targetWordCount),
         });
         const revisionContext =
-          minorPrompt.promptVersion === "2.0"
-            ? minorV2Context.context
+          remediationPrompt.promptVersion === "2.0"
+            ? remediationV2Context.context
             : revisionLegacyContext;
         // WP-QF-03: MAJOR/REWRITE must not inherit MINOR preserve semantics.
         const severityDirective =
@@ -2315,8 +2336,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 ].join("\n")
               : "";
         const revisionUserPrompt =
-          minorPrompt.promptVersion === "2.0"
-            ? buildMinorRemediationPromptV2(revisionContext)
+          remediationPrompt.promptVersion === "2.0"
+            ? remediationPrompt.promptId === "rewrite-remediation"
+              ? buildRewriteRemediationPromptV2(revisionContext)
+              : remediationPrompt.promptId === "major-remediation"
+                ? buildMajorRemediationPromptV2(revisionContext)
+                : buildMinorRemediationPromptV2(revisionContext)
             : buildPipelinePrompt(
                 "finalize-revision-remediate",
                 appendContext(severityDirective, revisionContext),
@@ -2338,7 +2363,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         );
         const preserveMetadataExpected =
-          minorPrompt.promptVersion === "2.0" || Boolean(minorPreservePrompt);
+          remediationPrompt.promptVersion === "2.0" || Boolean(minorPreservePrompt);
         const preserveOutput = preserveMetadataExpected
           ? parseMinorPreserveOutput(repairedRaw)
           : {
@@ -2354,8 +2379,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const minorPreserveTelemetry = preserveMetadataExpected
           ? {
               minorPreservePromptVersion:
-                minorPrompt.promptVersion === "2.0"
-                  ? "minor-remediation@2.0"
+                remediationPrompt.promptVersion === "2.0"
+                  ? remediationPrompt.promptId === "rewrite-remediation"
+                    ? "rewrite-remediation@2.0"
+                    : remediationPrompt.promptId === "major-remediation"
+                      ? "major-remediation@2.0"
+                      : "minor-remediation@2.0"
                   : PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
               changedSectionCount: preserveOutput.metadataReadable
                 ? preserveOutput.changedSections.length
@@ -2366,13 +2395,20 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               preserveMetadataReadable: preserveOutput.metadataReadable,
             }
           : null;
-        const minorPromptTelemetry = buildPromptExecutionTelemetry({
-          descriptor: minorPrompt,
+        const remediationPromptTelemetry = buildPromptExecutionTelemetry({
+          descriptor: remediationPrompt,
           contextCharacterLength: revisionContext.length,
           legacyContextCharacterLength: revisionLegacyContext.length,
-          defectCount: currentEditorial.defects.length,
-          ...(minorPrompt.promptVersion === "2.0"
-            ? { remediationMedium: "full-draft-preserve" as const }
+          defectCount: severityDefects.length,
+          ...(remediationPrompt.promptVersion === "2.0"
+            ? {
+                remediationMedium:
+                  remediationPrompt.promptId === "rewrite-remediation"
+                    ? ("full-draft-rewrite" as const)
+                    : remediationPrompt.promptId === "major-remediation"
+                      ? ("full-draft-major" as const)
+                      : ("full-draft-preserve" as const),
+              }
             : {}),
         });
         assertFullDraftQuality(repairedDraft);
@@ -2438,7 +2474,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ...(minorPreserveTelemetry
                 ? { minorPreserve: minorPreserveTelemetry }
                 : {}),
-              prompt: minorPromptTelemetry,
+              prompt: remediationPromptTelemetry,
             }),
           },
           artifact: {
@@ -2791,9 +2827,35 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 candidateSignal: stripPipelineMarks(article.draft12),
               })
             : finalLegacyContext;
+        const priorLockFormatAttempts = await prisma.workflowTransition.count({
+          where: {
+            articleId,
+            workflowRunId: article.workflowRunId,
+            action: "final-verification-format-invalid",
+          },
+        });
+        let previousLockOutput: string | null = null;
+        if (lockPrompt.promptVersion === "2.0" && priorLockFormatAttempts > 0) {
+          const priorReview = await prisma.workflowArtifact.findFirst({
+            where: {
+              articleId,
+              workflowRunId: article.workflowRunId,
+              type: ArtifactType.REVIEW,
+            },
+            orderBy: { revision: "desc" },
+            select: { content: true },
+          });
+          previousLockOutput = priorReview?.content?.trim() || null;
+        }
         const lockUserPrompt =
           lockPrompt.promptVersion === "2.0"
-            ? buildLockVerifierPromptV2(lockContext)
+            ? previousLockOutput
+              ? buildLockFormatRepairPromptV2({
+                  previousOutput: previousLockOutput,
+                  malformedReason:
+                    "missing or unreadable LOCK_DECISION_JSON",
+                })
+              : buildLockVerifierPromptV2(lockContext)
             : buildPipelinePrompt("finalize-verify", lockContext);
         const finalReview = await chatCompletion(
           [

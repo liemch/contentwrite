@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-10 — RC2 full remediation set (optimize/process)
+
+### Added / Changed
+
+- `major-remediation@2.0` + `rewrite-remediation@2.0` (full-draft, severity-aware) wired via Prompt Registry
+- Editorial v2 synthesizes defects from FAILED gates when revision decision has empty `defects`
+- Lock Verifier format-repair path when prior 9b output lacked `LOCK_DECISION_JSON`
+- Diagnosis prompt requires non-empty defects for MINOR/MAJOR/REWRITE decisions
+
+### Docs
+
+- `docs/releases/ai-tfes-v2-rc2.md` — rem set + harden wave status
+
+---
+
 ## 2026-08-10 — Quality-first Phase C (WP-QF-01..06 on optimize/process)
 
 ### Added / Changed

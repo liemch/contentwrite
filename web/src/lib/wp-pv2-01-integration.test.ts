@@ -25,10 +25,11 @@ describe("WP-PV2-01 prompt trio integration invariants", () => {
     expect(workflowSource).toContain(
       'resolvePromptDescriptor("editorial-diagnosis")',
     );
-    expect(workflowSource).toContain(
-      'resolvePromptDescriptor("minor-remediation")',
-    );
+    expect(workflowSource).toContain("minor-remediation");
+    expect(workflowSource).toContain("major-remediation");
+    expect(workflowSource).toContain("rewrite-remediation");
     expect(workflowSource).toContain('resolvePromptDescriptor("lock-verifier")');
+    expect(workflowSource).toContain("buildLockFormatRepairPromptV2");
     expect(workflowSource).toContain('buildPipelinePrompt("finalize-verify"');
     expect(workflowSource).toContain('"finalize-revision-remediate"');
   });
