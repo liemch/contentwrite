@@ -188,9 +188,14 @@ export function buildMinorRemediationContextV2(input: {
     if (index + 1 < sections.length) contextIndexes.add(index + 1);
   }
   const targetSectionIds = targetIndexes.map((index) => sections[index].id);
-  const preserveSectionIds = sections
-    .filter((_, index) => !targetIndexes.includes(index))
-    .map((section) => section.id);
+  // Không định vị được section nào (diagnosis thiếu defect) thì mask "giữ tất cả"
+  // sẽ cấm mọi sửa đổi và vòng remediation quay vòng với đúng một điểm số.
+  const preserveSectionIds =
+    targetIndexes.length > 0
+      ? sections
+          .filter((_, index) => !targetIndexes.includes(index))
+          .map((section) => section.id)
+      : [];
   const localContext = [...contextIndexes]
     .sort((a, b) => a - b)
     .map((index) => {
@@ -228,7 +233,10 @@ export function buildMinorRemediationContextV2(input: {
         preserveOutline: true,
         preserveSectionOrdering: true,
       })}`,
-      `TARGET_SECTIONS: ${targetSectionIds.join(", ") || "infer only from required action location"}`,
+      `TARGET_SECTIONS: ${
+        targetSectionIds.join(", ") ||
+        "unresolved — locate the listed failures yourself and edit exactly those spots"
+      }`,
       localContext.length > 0
         ? `TARGET_AND_NEIGHBOR_INDEX:\n${clipText(
             JSON.stringify(localContext),

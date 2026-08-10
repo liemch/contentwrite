@@ -76,6 +76,23 @@ describe("Prompt Architecture v2 prompt trio", () => {
     expect(prompt).not.toContain("EDITORIAL_DECISION:");
   });
 
+  it("MINOR v2 without locatable defects does not freeze the whole draft", () => {
+    const built = buildMinorRemediationContextV2({
+      defects: [],
+      requiredActions: ["Gate G2 FAILED: Evidence from low-tier sources"],
+      fallbackFeedback: "legacy fallback",
+      draft,
+      evidenceSummary: { verdict: "PASSED" },
+      maxDraftChars: 16_000,
+    });
+
+    expect(built.targetSectionIds).toEqual([]);
+    expect(built.preserveSectionIds).toEqual([]);
+    expect(built.context).toContain("Gate G2 FAILED");
+    expect(built.context).toContain("unresolved");
+    expect(built.context).not.toContain('"preserveSectionIds":["title"');
+  });
+
   it("Lock v2 verifies lock signals without a broad craft re-review", () => {
     const context = buildLockVerifierContextV2({
       editorialResult: { score: 85, passed: true, defects: [] },
