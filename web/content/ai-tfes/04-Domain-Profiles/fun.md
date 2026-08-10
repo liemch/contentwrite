@@ -6,7 +6,8 @@
 Chỉ khai báo phần khác biệt so với `engineering.md`.
 
 ## identity
-Nội dung **vui, cụ thể, có twist** — giải trí / văn hóa mạng / trải nghiệm nhẹ cho độc giả phổ thông. Vẫn evidence-first khi nêu “trend” hay “số”; không clickbait rỗng.
+Nội dung **vui, cụ thể, có twist** — giải trí / văn hóa mạng / trải nghiệm nhẹ cho độc giả phổ thông.
+**Research mode = observation:** không chạy web search (Tavily); brief là góc quan sát + twist + giới hạn. Chỉ cần nguồn khi bài tự nêu số/trend có tên — lúc đó ghi rõ opinion vs fact, **cấm bịa URL/số**.
 
 ## audience
 Độc giả phổ thông, creator, người làm nội dung, tech-curious muốn đọc nhẹ. Không giả định nền kỹ thuật sâu.
@@ -15,8 +16,8 @@ Nội dung **vui, cụ thể, có twist** — giải trí / văn hóa mạng / t
 Nhẹ · dí dỏm vừa phải · quan sát sắc · không mỉa mai cá nhân. Tránh “top 10 phải thử”, FOMO ép, giọng marketing.
 
 ## source_tiers
-- **Tier 1:** Báo/đài uy tín có kiểm chứng; nghiên cứu văn hóa truyền thông khi trích đúng; số liệu nền tảng chính thức.
-- **Tier 2:** Creator/phóng viên chuyên mục văn hóa mạng có track record; blog sản phẩm giải trí có nguồn.
+- **Mặc định:** không bắt Tier URL — observation brief đủ để viết.
+- **Tier 1–2 (khi thật sự trích):** Báo/đài uy tín; số liệu nền tảng chính thức.
 - **Tier 3:** Quan sát cộng đồng có ngữ cảnh (kèm thời điểm/nền tảng).
 - **Tier 4:** Meme/anecdote — minh họa, không kết luận.
 - **Tier 5:** Clickbait / “trend đang viral” không nguồn — không dùng làm căn cứ.
@@ -56,4 +57,4 @@ Tránh: liệt kê “cách xây personal brand” kiểu tip sáo.
 
 
 ## gold_sample_guardrail
-Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.
+Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Không bịa URL/số “viral”; observation brief không thay thế nguồn khi bài tự claim số liệu.

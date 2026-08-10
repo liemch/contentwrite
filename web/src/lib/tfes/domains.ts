@@ -15,6 +15,8 @@ export type DomainId = (typeof DOMAIN_IDS)[number];
 
 export type DomainMode = DomainId | "rotate";
 
+export type DomainResearchMode = "full" | "observation";
+
 export type DomainMeta = {
   id: DomainId;
   label: string;
@@ -27,6 +29,11 @@ export type DomainMeta = {
   trendQueries: string[];
   /** Nhãn ngắn cho LLM khi gợi ý seed */
   seedLabel: string;
+  /**
+   * full = Tavily ≥3 nguồn (mặc định kỹ thuật).
+   * observation = bỏ web search; brief quan sát/góc nhìn (Fun).
+   */
+  researchMode: DomainResearchMode;
 };
 
 export const DOMAIN_META: Record<DomainId, DomainMeta> = {
@@ -43,6 +50,7 @@ Góc: cơ chế, trade-off, failure mode, áp dụng được.`,
       "cloud reliability observability API security trade-offs 2026",
     ],
     seedLabel: "engineering (architecture, platform, reliability, AI tooling, API)",
+    researchMode: "full",
   },
   "soft-skills": {
     id: "soft-skills",
@@ -57,6 +65,7 @@ Góc: giao tiếp, phản hồi, quyết định, cộng tác — evidence-based
       "manager communication conflict collaboration trends tech teams 2026",
     ],
     seedLabel: "soft-skills (leadership, feedback, collaboration, career)",
+    researchMode: "full",
   },
   product: {
     id: "product",
@@ -71,6 +80,7 @@ Góc: discovery, ưu tiên, đo lường, trade-off phạm vi — cụ thể, kh
       "B2B SaaS product trade-offs scope outcomes last 3 months 2026",
     ],
     seedLabel: "product (discovery, prioritization, metrics, product engineering)",
+    researchMode: "full",
   },
   "ai-ml": {
     id: "ai-ml",
@@ -85,6 +95,7 @@ Góc: RAG/eval/agents, cost-latency-quality, failure mode — không hype model 
       "retrieval augmented generation failure modes trade-offs 2026",
     ],
     seedLabel: "ai-ml (RAG, agents, eval, LLM ops, cost/quality)",
+    researchMode: "full",
   },
   security: {
     id: "security",
@@ -99,6 +110,7 @@ Góc: threat model, control, trade-off DX vs risk — không fear-mongering / ch
       "OWASP cloud identity vulnerability trade-offs last 3 months 2026",
     ],
     seedLabel: "security (AppSec, supply chain, identity, secure SDLC)",
+    researchMode: "full",
   },
   fun: {
     id: "fun",
@@ -113,6 +125,7 @@ Góc: vui, cụ thể, có twist — không clickbait rỗng, không bịa trend
       "light tech lifestyle humor essays last 3 months 2026",
     ],
     seedLabel: "fun (giải trí, meme văn hóa, gaming/stream, twist nhẹ)",
+    researchMode: "observation",
   },
   "new-tech": {
     id: "new-tech",
@@ -127,6 +140,7 @@ Góc: cái mới thật sự đổi gì, trade-off, khi nào chưa đáng — kh
       "breakthrough tech adoption trade-offs consumer enterprise 2026",
     ],
     seedLabel: "new-tech (công nghệ mới, launch, early adoption, trade-off)",
+    researchMode: "full",
   },
   lifestyle: {
     id: "lifestyle",
@@ -141,6 +155,7 @@ Góc: thói quen, sức khỏe tinh thần nhẹ, sống & làm việc — evide
       "remote work living habits consumer lifestyle Asia 2026",
     ],
     seedLabel: "lifestyle (đời sống, thói quen, wellbeing, sống & làm việc)",
+    researchMode: "full",
   },
 };
 
@@ -163,6 +178,13 @@ export function domainProfilePath(domain: string | null | undefined): string {
 
 export function readerRolesForDomain(domain: string | null | undefined): string {
   return DOMAIN_META[resolveDomainId(domain)].readerRoles;
+}
+
+/** full = Tavily bắt buộc; observation = Fun — brief quan sát, không web search. */
+export function researchModeForDomain(
+  domain: string | null | undefined,
+): DomainResearchMode {
+  return DOMAIN_META[resolveDomainId(domain)].researchMode;
 }
 
 /** Xoay vòng: domain kế tiếp sau lastDomain trong danh sách đầy đủ */

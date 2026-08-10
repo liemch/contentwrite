@@ -15,6 +15,7 @@ import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { isFactRemediationExhausted } from "@/lib/tfes/fact-ledger";
 import {
   isFinalVerificationFormatExhausted,
+  isInsightLockFormatExhausted,
   isRevisionRemediationExhausted,
 } from "@/lib/tfes/retry-policy";
 import { REVIEW_DONE_MARK } from "@/lib/tfes/parser";
@@ -88,6 +89,7 @@ function isAutoWorkflowDone(article: {
   ) return true;
   if (isRevisionRemediationExhausted(article.errorMessage)) return true;
   if (isFinalVerificationFormatExhausted(article.errorMessage)) return true;
+  if (isInsightLockFormatExhausted(article.errorMessage)) return true;
   return article.workflowState === WorkflowState.READER_SIMULATION_FAILED &&
     /chưa đạt sau/i.test(article.errorMessage ?? "");
 }
