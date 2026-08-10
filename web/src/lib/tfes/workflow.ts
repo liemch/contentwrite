@@ -116,14 +116,48 @@ import {
   buildPromptExecutionTelemetry,
   resolvePromptDescriptor,
 } from "@/lib/tfes/prompt-registry";
+import { resolvePatchedOrFullDraft } from "@/lib/tfes/section-patch";
 import {
+  buildDraftGenerationContextV2,
+  buildDraftGenerationPromptV2,
+  buildCleanTransformContextV2,
+  buildEditorialDecisionContextV2,
+  buildEditorialDecisionPromptV2,
   buildEditorialDiagnosisContextV2,
   buildEditorialDiagnosisPromptV2,
   buildEditorialFormatRepairPromptV2,
+  buildFactAuditContextV2,
+  buildFactAuditPromptV2,
+  buildFactRemediationContextV2,
+  buildFactRemediationPromptV2,
+  buildHeroBriefContextV2,
+  buildHeroBriefPromptV2,
+  buildHumanPolishPromptV2,
+  buildInsightGateContextV2,
+  buildInsightGatePromptV2,
+  buildInsightLockContextV2,
+  buildInsightLockPromptV2,
+  buildLockFormatRepairPromptV2,
   buildLockVerifierContextV2,
   buildLockVerifierPromptV2,
+  buildMajorRemediationPromptV2,
   buildMinorRemediationContextV2,
   buildMinorRemediationPromptV2,
+  buildResearchPacketContextV2,
+  buildResearchPacketPromptV2,
+  buildPublishExpansionPromptV2,
+  buildPublishPolishPromptV2,
+  buildPublishQualityRepairPromptV2,
+  buildPublishRendererPromptV2,
+  buildReaderSimulationContextV2,
+  buildReaderAuditPromptV2,
+  buildRewriteRemediationPromptV2,
+  materializeFactLedger,
+  materializeReaderAudit,
+  materializeResearchBrief,
+  parseInsightPlanLockV2,
+  readerAuditPolishTargets,
+  researchPacketCoverageInsufficient,
 } from "@/lib/tfes/prompts-v2";
 import {
   assertCleanPublishQuality,
@@ -147,7 +181,9 @@ import {
   buildDailyTaskPrompt,
   buildPipelinePrompt,
   buildResearchPrompt,
+  buildVoiceReferenceBlock,
   getSystemPrompt,
+  getSystemPromptForRole,
   getSystemPromptLite,
 } from "@/lib/tfes/prompts";
 import {
@@ -375,31 +411,56 @@ async function ensureCleanPublishQuality(input: {
 
       const prefsBlock = formatWritingPrefsPrompt(input.prefs);
       const directives = buildCleanRepairDirectives(activeHint, clean);
+      const repairPrompt = resolvePromptDescriptor("publish-quality-repair");
+      const repairShape = shapeBlockFor({
+        id: input.articleId,
+        publishFormat: input.publishFormat,
+      });
+      const repairContext = buildCleanTransformContextV2({
+        topic: input.topic,
+        source: clean,
+        researchBrief: input.researchBrief,
+        factCheck: input.factCheck,
+        instruction: `${activeHint}\n${directives}`,
+        prefsBlock,
+        shapeBlock: repairShape,
+      });
 
       const repairedRaw = await chatCompletion(
         [
           { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
           {
             role: "user",
-            content: buildPipelinePrompt(
-              "finalize-repair",
-              appendContext(
-                clipText(clean, 18_000),
-                clipText(input.researchBrief, 2_000),
-                clipText(input.factCheck, 1_200),
-                `Chủ đề: ${input.topic}`,
-                `LỖI MÁY CHẤM (sửa đúng):\n${activeHint.slice(0, 700)}`,
-                directives,
-              ),
-              prefsBlock,
-              shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
-            ),
+            content:
+              repairPrompt.promptVersion === "2.0"
+                ? buildPublishQualityRepairPromptV2(repairContext)
+                : buildPipelinePrompt(
+                    "finalize-repair",
+                    appendContext(
+                      clipText(clean, 18_000),
+                      clipText(input.researchBrief, 2_000),
+                      clipText(input.factCheck, 1_200),
+                      `Chủ đề: ${input.topic}`,
+                      `LỖI MÁY CHẤM (sửa đúng):\n${activeHint.slice(0, 700)}`,
+                      directives,
+                    ),
+                    prefsBlock,
+                    repairShape,
+                  ),
           },
         ],
         { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
       );
       const repaired = toReaderCleanPublish(
-        sanitizeEditorialBody(stripPipelineMarks(repairedRaw)),
+        sanitizeEditorialBody(
+          stripPipelineMarks(
+            resolvePatchedOrFullDraft({
+              baseDocument: clean,
+              rawOutput: repairedRaw,
+              enabled: PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled,
+            }).document,
+          ),
+        ),
       );
       if (repaired.length >= 80) clean = repaired;
       clean = applyDeterministicCleanFixes(clean, input.prefs);
@@ -415,6 +476,14 @@ async function ensureCleanPublishQuality(input: {
           (isDryOpenerFail(stillHint) || hasDryOpener(clean)
             ? "CHỈ SỬA ĐOẠN MỞ: nghịch lý / failure+metric từ Research. CẤM Trong môi trường/bối cảnh/Ngày nay. CẤM “Trong một sprint…”, “đội … công ty fintech/startup”."
             : `Sửa đúng: ${stillHint.slice(0, 400)}`);
+        const pass2Context = buildCleanTransformContextV2({
+          topic: input.topic,
+          source: clean,
+          researchBrief: input.researchBrief,
+          instruction: `${stillHint}\n${focus}`,
+          prefsBlock,
+          shapeBlock: repairShape,
+        });
 
         const pass2Raw = await chatCompletion(
           [
@@ -424,25 +493,36 @@ async function ensureCleanPublishQuality(input: {
             },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-repair",
-                appendContext(
-                  clipText(clean, 18_000),
-                  clipText(input.researchBrief, 1_500),
-                  `Chủ đề: ${input.topic}`,
-                  `VẪN FAIL SAU LẦN SỬA TRƯỚC:\n${stillHint.slice(0, 500)}`,
-                  focus,
-                  "Giữ title + luận điểm chính. Xuất lại TOÀN BỘ bài markdown.",
-                ),
-                prefsBlock,
-                shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
-              ),
+              content:
+                repairPrompt.promptVersion === "2.0"
+                  ? buildPublishQualityRepairPromptV2(pass2Context)
+                  : buildPipelinePrompt(
+                      "finalize-repair",
+                      appendContext(
+                        clipText(clean, 18_000),
+                        clipText(input.researchBrief, 1_500),
+                        `Chủ đề: ${input.topic}`,
+                        `VẪN FAIL SAU LẦN SỬA TRƯỚC:\n${stillHint.slice(0, 500)}`,
+                        focus,
+                        "Giữ title + luận điểm chính. Xuất lại TOÀN BÀI dài hơn.",
+                      ),
+                      prefsBlock,
+                      repairShape,
+                    ),
             },
           ],
           { maxTokens: cleanGenMaxTokens(input.prefs.targetWordCount) },
         );
         const pass2 = toReaderCleanPublish(
-          sanitizeEditorialBody(stripPipelineMarks(pass2Raw)),
+          sanitizeEditorialBody(
+            stripPipelineMarks(
+              resolvePatchedOrFullDraft({
+                baseDocument: clean,
+                rawOutput: pass2Raw,
+                enabled: PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled,
+              }).document,
+            ),
+          ),
         );
         if (pass2.length >= 80) clean = pass2;
         clean = applyDeterministicCleanFixes(clean, input.prefs);
@@ -484,29 +564,53 @@ async function expandCleanIfShort(input: {
 
   const need = Math.max(aimWords - words, minWords - words);
   const prefsBlock = formatWritingPrefsPrompt(input.prefs);
+  const expandPrompt = resolvePromptDescriptor("publish-expansion");
+  const expandShape = shapeBlockFor({
+    id: input.articleId,
+    publishFormat: input.publishFormat,
+  });
+  const expandContext = buildCleanTransformContextV2({
+    topic: input.topic,
+    source: input.clean,
+    researchBrief: input.researchBrief,
+    instruction: `Hiện có ~${words} từ. Target ~${target}; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân.`,
+    prefsBlock,
+    shapeBlock: expandShape,
+  });
   const expandedRaw = await chatCompletion(
     [
       { role: "system", content: getSystemPrompt(input.domain ?? "engineering") },
       {
         role: "user",
-        content: buildPipelinePrompt(
-          "finalize-expand",
-          appendContext(
-            clipText(input.clean, 18_000),
-            clipText(input.researchBrief, 2_000),
-            `Chủ đề: ${input.topic}`,
-            `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
-          ),
-          prefsBlock,
-          shapeBlockFor({ id: input.articleId, publishFormat: input.publishFormat }),
-        ),
+        content:
+          expandPrompt.promptVersion === "2.0"
+            ? buildPublishExpansionPromptV2(expandContext)
+            : buildPipelinePrompt(
+                "finalize-expand",
+                appendContext(
+                  clipText(input.clean, 18_000),
+                  clipText(input.researchBrief, 2_000),
+                  `Chủ đề: ${input.topic}`,
+                  `Hiện có ~${words} từ (đếm khoảng trắng). Target ~${target} từ; cần ≥${aimWords} (sàn ${minWords}). Viết thêm khoảng ≥${need} từ vào thân — xuất lại TOÀN BÀI dài hơn.`,
+                ),
+                prefsBlock,
+                expandShape,
+              ),
       },
     ],
     { maxTokens: cleanGenMaxTokens(target) },
   );
 
   const expanded = toReaderCleanPublish(
-    sanitizeEditorialBody(stripPipelineMarks(expandedRaw)),
+    sanitizeEditorialBody(
+      stripPipelineMarks(
+        resolvePatchedOrFullDraft({
+          baseDocument: input.clean,
+          rawOutput: expandedRaw,
+          enabled: PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled,
+        }).document,
+      ),
+    ),
   );
   if (expanded.length < 80) return input.clean;
   // Chỉ nhận nếu dài hơn rõ (tránh model rút gọn)
@@ -1067,44 +1171,77 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ? stripPipelineMarks(article.insightGate)
           : null;
       const llmStarted = Date.now();
-      const researchBrief = await chatCompletion(
+      const researchPrompt = resolvePromptDescriptor("research-packet");
+      const researchContext =
+        researchPrompt.promptVersion === "2.0"
+          ? buildResearchPacketContextV2({
+              topic,
+              searchBlob,
+              editorialMemory: memory,
+              previousGateFail,
+            })
+          : "";
+      const researchUserPrompt =
+        researchPrompt.promptVersion === "2.0"
+          ? buildResearchPacketPromptV2(researchContext)
+          : buildResearchPrompt(topic, searchBlob, { previousGateFail });
+      const researchRaw = await chatCompletion(
         [
           { role: "system", content: getSystemPrompt(article.domain) },
+          ...(researchPrompt.promptVersion === "2.0"
+            ? []
+            : [
+                {
+                  role: "user" as const,
+                  content: buildDailyTaskPrompt({
+                    domain: article.domain,
+                    topic: article.topic ?? undefined,
+                    editorialMemory: clipText(memory, 2_500),
+                  }),
+                },
+              ]),
           {
             role: "user",
-            content: buildDailyTaskPrompt({
-              domain: article.domain,
-              topic: article.topic ?? undefined,
-              editorialMemory: clipText(memory, 2_500),
-            }),
-          },
-          {
-            role: "user",
-            content: buildResearchPrompt(topic, searchBlob, { previousGateFail }),
+            content: researchUserPrompt,
           },
         ],
-        { maxTokens: 3500 },
+        { maxTokens: researchPrompt.promptVersion === "2.0" ? 4500 : 3500 },
       );
+      const researchBrief = materializeResearchBrief(researchRaw);
 
       const evidenceAudit = auditResearchEvidence(researchBrief);
-      if (!evidenceAudit.passed) {
+      const packetInsufficient = researchPacketCoverageInsufficient(researchRaw);
+      if (!evidenceAudit.passed || packetInsufficient) {
+        const issues = [
+          ...evidenceAudit.issues,
+          ...(packetInsufficient
+            ? ["RESEARCH_PACKET coverageStatus=EVIDENCE_INSUFFICIENT"]
+            : []),
+        ];
         const failed = await commitTransition({
           to: WorkflowState.RESEARCH_REQUIRED,
           action: "research-evidence-validation",
           success: false,
           articlePatch: {
             researchBrief: null,
-            errorMessage: `Research Brief chưa đạt evidence contract: ${evidenceAudit.issues.join(" · ")}`.slice(0, 500),
+            errorMessage: `Research Brief chưa đạt evidence contract: ${issues.join(" · ")}`.slice(0, 500),
           },
           details: {
-            issues: evidenceAudit.issues,
+            issues,
             lineageCount: evidenceAudit.lineages.length,
             urlCount: evidenceAudit.urls.length,
+            prompt: buildPromptExecutionTelemetry({
+              descriptor: researchPrompt,
+              contextCharacterLength:
+                researchPrompt.promptVersion === "2.0"
+                  ? researchContext.length
+                  : searchBlob.length,
+            }),
           },
           artifact: {
             type: ArtifactType.RESEARCH_BRIEF,
             content: researchBrief,
-            metadata: { evidenceAudit },
+            metadata: { evidenceAudit, packetInsufficient },
           },
         });
         return withTimings(failed, {
@@ -1123,8 +1260,19 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         artifact: {
           type: ArtifactType.RESEARCH_BRIEF,
           content: researchBrief,
-          domainProfileVersion: `${resolveDomainId(article.domain)}@1.6`,
-          metadata: { evidenceAudit },
+          domainProfileVersion: `${resolveDomainId(article.domain)}@${
+            researchPrompt.promptVersion === "2.0" ? "2.0" : "1.6"
+          }`,
+          metadata: {
+            evidenceAudit,
+            prompt: buildPromptExecutionTelemetry({
+              descriptor: researchPrompt,
+              contextCharacterLength:
+                researchPrompt.promptVersion === "2.0"
+                  ? researchContext.length
+                  : searchBlob.length,
+            }),
+          },
         },
       });
       return withTimings(transitioned, {
@@ -1138,17 +1286,171 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       const phase = insightPhaseOf(article.insightGate);
 
       // Gate: L0–L3 + 3 test (giữa Synthesis → Decision)
+      // When insightConsolidate is ON, insight-lock@2.0 covers Gate+Decision+Planning.
       if (phase === "gate") {
         const llmStarted = Date.now();
+        const insightLockPrompt = resolvePromptDescriptor("insight-lock");
+        if (
+          PIPELINE_CONFIG.aiTfesV2.insightConsolidate.enabled &&
+          insightLockPrompt.promptVersion === "2.0"
+        ) {
+          if (!article.articleShapeSnapshot?.trim()) {
+            const selectedShape = await selectArticleShape({
+              articleId: article.id,
+              domain: article.domain,
+              publishFormat: article.publishFormat,
+              topic: article.topic,
+              insightGate: article.insightGate,
+            });
+            article = await commitPatch({
+              action: "select-article-shape",
+              articlePatch: {
+                articleShapeId: selectedShape.id,
+                articleShapeVersion: selectedShape.version,
+                articleShapeSnapshot: selectedShape.snapshot,
+                openingPattern: selectedShape.openingPattern,
+                narrativePattern: selectedShape.narrativePattern,
+              },
+              details: {
+                shapeId: selectedShape.id,
+                shapeVersion: selectedShape.version,
+              },
+            });
+          }
+          const shapeBlock = shapeBlockFor(article);
+          const lockContext = buildInsightLockContextV2({
+            topic,
+            researchBrief: article.researchBrief ?? "",
+            shapeBlock,
+          });
+          const lockRaw = await chatCompletion(
+            [
+              {
+                role: "system",
+                content: getSystemPromptForRole(article.domain, "PLAN"),
+              },
+              {
+                role: "user",
+                content: buildInsightLockPromptV2(lockContext),
+              },
+            ],
+            { maxTokens: 2200, temperature: 0.35, reasoningEffort: "low" },
+          );
+          const parsedLock = parseInsightPlanLockV2(lockRaw);
+          const lockMarkdown = parsedLock?.markdown ?? lockRaw;
+          if (
+            !parsedLock ||
+            parsedLock.status !== "LOCKED" ||
+            failedInsightGate(lockMarkdown)
+          ) {
+            const retries = gateRetryCount(article.insightGate);
+            const nextRetry = retries + 1;
+            if (nextRetry > MAX_GATE_RESEARCH_RETRIES) {
+              const failed = await commitTransition({
+                to: WorkflowState.INSIGHT_REJECTED,
+                action: "insight-gate",
+                success: false,
+                articlePatch: {
+                  insightGate: withGateRetryMark(retries, lockMarkdown.trim()),
+                  errorMessage:
+                    `Cổng Insight vẫn < L2 sau ${MAX_GATE_RESEARCH_RETRIES} lần nghiên cứu lại. Đổi chủ đề/góc hoặc Làm lại từ đầu.`,
+                },
+                details: {
+                  retry: nextRetry,
+                  reason: parsedLock?.status ?? "Insight < L2",
+                  prompt: buildPromptExecutionTelemetry({
+                    descriptor: insightLockPrompt,
+                    contextCharacterLength: lockContext.length,
+                  }),
+                },
+                artifact: { type: ArtifactType.REVIEW, content: lockMarkdown },
+              });
+              return withTimings(failed, {
+                llmMs: Date.now() - llmStarted,
+                insightPhase: "gate-fail",
+              });
+            }
+            await commitTransition({
+              to: WorkflowState.INSIGHT_REJECTED,
+              action: "insight-gate",
+              success: false,
+              articlePatch: {
+                insightGate: withGateRetryMark(
+                  nextRetry,
+                  `## Gate lần trước — CHƯA ĐẠT ≥ L2\n\n${lockMarkdown.trim()}`,
+                ),
+                researchBrief: null,
+                draft12: null,
+                factCheck: null,
+                knowledgeRecord: null,
+                cleanPublish: null,
+                heroBrief: null,
+                errorMessage: `Gate < L2 — nghiên cứu lại góc sắc hơn (lần ${nextRetry}/${MAX_GATE_RESEARCH_RETRIES}).`,
+              },
+              details: {
+                retry: nextRetry,
+                reason: parsedLock?.status ?? "Insight < L2",
+              },
+              artifact: { type: ArtifactType.REVIEW, content: lockMarkdown },
+            });
+            const retried = await commitTransition({
+              to: WorkflowState.RESEARCH_REQUIRED,
+              action: "request-research",
+              details: { retry: nextRetry },
+            });
+            return withTimings(retried, {
+              llmMs: Date.now() - llmStarted,
+              insightPhase: "gate-retry",
+            });
+          }
+
+          const merged = `${lockMarkdown.trim()}\n\n${INSIGHT_GATE_MARK}\n\n${INSIGHT_DECISION_MARK}\n\n${INSIGHT_DONE_MARK}`;
+          const transitioned = await commitTransition({
+            to: WorkflowState.PLANNED,
+            action: "insight-lock-consolidated",
+            articlePatch: {
+              insightGate: withGateRetryMark(
+                gateRetryCount(article.insightGate),
+                merged,
+              ),
+              errorMessage: null,
+            },
+            artifact: { type: ArtifactType.REVIEW, content: lockMarkdown },
+            details: {
+              prompt: buildPromptExecutionTelemetry({
+                descriptor: insightLockPrompt,
+                contextCharacterLength: lockContext.length,
+              }),
+              insightLevel: parsedLock.insightLevel,
+              status: parsedLock.status,
+            },
+          });
+          return withTimings(transitioned, {
+            llmMs: Date.now() - llmStarted,
+            insightPhase: "consolidated",
+          });
+        }
+
+        const insightGatePrompt = resolvePromptDescriptor("insight-gate");
+        const insightGateContext = buildInsightGateContextV2({
+          topic,
+          researchBrief: article.researchBrief ?? "",
+        });
         const insightGate = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "insight-a",
-                appendContext(clipText(article.researchBrief, 5_000), `Chủ đề: ${topic}`),
-              ),
+              content:
+                insightGatePrompt.promptVersion === "2.0"
+                  ? buildInsightGatePromptV2(insightGateContext)
+                  : buildPipelinePrompt(
+                      "insight-a",
+                      appendContext(
+                        clipText(article.researchBrief, 5_000),
+                        `Chủ đề: ${topic}`,
+                      ),
+                    ),
             },
           ],
           { maxTokens: 1200, temperature: 0.35, reasoningEffort: "low" },
@@ -1254,22 +1556,32 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
         const llmStarted = Date.now();
         const gateOnly = stripPipelineMarks(article.insightGate);
+        const decisionPrompt = resolvePromptDescriptor("editorial-decision");
+        const decisionContext = buildEditorialDecisionContextV2({
+          topic,
+          insightGate: gateOnly,
+          researchBrief: article.researchBrief ?? "",
+          shapeBlock: shapeBlockFor(article),
+        });
         const decision = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "insight-decision",
-                appendContext(
-                  clipText(gateOnly, 1_200),
-                  clipText(article.researchBrief, 1_200),
-                  `Chủ đề: ${topic}`,
-                  "Trả lời bullet ngắn ≤200 từ. Không nhắc lại Research / Gate tests.",
-                ),
-              undefined,
-              shapeBlockFor(article),
-            ),
+              content:
+                decisionPrompt.promptVersion === "2.0"
+                  ? buildEditorialDecisionPromptV2(decisionContext)
+                  : buildPipelinePrompt(
+                      "insight-decision",
+                      appendContext(
+                        clipText(gateOnly, 1_200),
+                        clipText(article.researchBrief, 1_200),
+                        `Chủ đề: ${topic}`,
+                        "Trả lời bullet ngắn ≤200 từ. Không nhắc lại Research / Gate tests.",
+                      ),
+                      undefined,
+                      shapeBlockFor(article),
+                    ),
             },
           ],
           { maxTokens: 700, temperature: 0.3, reasoningEffort: "low" },
@@ -1320,32 +1632,50 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (phase === "planning") {
         const llmStarted = Date.now();
         const soFar = stripPipelineMarks(article.insightGate);
+        const insightPrompt = resolvePromptDescriptor("insight-lock");
+        const shapeBlock = shapeBlockFor(article);
+        const insightContext =
+          insightPrompt.promptVersion === "2.0"
+            ? buildInsightLockContextV2({
+                topic,
+                researchBrief: article.researchBrief ?? "",
+                decisionBlock: soFar,
+                shapeBlock,
+              })
+            : "";
         const planning = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "insight-planning",
-                appendContext(
-                  clipText(soFar, 1_800),
-                  clipText(article.researchBrief, 2_000),
-                  `Chủ đề: ${topic}`,
-                ),
-              undefined,
-              shapeBlockFor(article),
-            ),
+              content:
+                insightPrompt.promptVersion === "2.0"
+                  ? buildInsightLockPromptV2(insightContext)
+                  : buildPipelinePrompt(
+                      "insight-planning",
+                      appendContext(
+                        clipText(soFar, 1_800),
+                        clipText(article.researchBrief, 2_000),
+                        `Chủ đề: ${topic}`,
+                      ),
+                      undefined,
+                      shapeBlock,
+                    ),
             },
           ],
-          { maxTokens: 1400, temperature: 0.35, reasoningEffort: "low" },
+          {
+            maxTokens: insightPrompt.promptVersion === "2.0" ? 1800 : 1400,
+            temperature: 0.35,
+            reasoningEffort: "low",
+          },
         );
 
         const planningComplete = [
           /Objective/i,
           /Audience/i,
-          /Core Message/i,
-          /Story Flow/i,
-          /không/i,
+          /Core Message|thesis/i,
+          /Story Flow|outline/i,
+          /không|boundary|counter/i,
         ].every((rule) => rule.test(planning));
         if (!planningComplete) {
           const failed = await commitTransition({
@@ -1371,7 +1701,16 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             insightGate: merged,
             errorMessage: null,
           },
-          details: { planning },
+          details: {
+            planning,
+            prompt: buildPromptExecutionTelemetry({
+              descriptor: insightPrompt,
+              contextCharacterLength:
+                insightPrompt.promptVersion === "2.0"
+                  ? insightContext.length
+                  : soFar.length,
+            }),
+          },
         });
         return withTimings(transitioned, {
           llmMs: Date.now() - llmStarted,
@@ -1400,21 +1739,45 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       // Phase A: chưa có nháp
       if (!draft.trim()) {
         const llmStarted = Date.now();
+        const draftPrompt = resolvePromptDescriptor("draft-generation");
+        const prefsBlock = formatWritingPrefsPrompt(prefs);
+        const shapeBlock = shapeBlockFor(article);
+        const draftContext =
+          draftPrompt.promptVersion === "2.0"
+            ? buildDraftGenerationContextV2({
+                topic,
+                researchBrief: article.researchBrief ?? "",
+                insightGate: article.insightGate ?? "",
+                prefsBlock,
+                shapeBlock,
+                voiceReference: buildVoiceReferenceBlock(article.domain),
+                phase: "a",
+              })
+            : "";
         const partA = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "system",
+              content:
+                draftPrompt.promptVersion === "2.0"
+                  ? getSystemPromptForRole(article.domain, "GENERATE")
+                  : getSystemPrompt(article.domain),
+            },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "write-a",
-                appendContext(
-                  clipText(article.researchBrief, 3_500),
-                  clipText(article.insightGate, 2_000),
-                  `Chủ đề: ${topic}`,
-                ),
-                prefsBlock,
-              shapeBlockFor(article),
-            ),
+              content:
+                draftPrompt.promptVersion === "2.0"
+                  ? buildDraftGenerationPromptV2(draftContext)
+                  : buildPipelinePrompt(
+                      "write-a",
+                      appendContext(
+                        clipText(article.researchBrief, 3_500),
+                        clipText(article.insightGate, 2_000),
+                        `Chủ đề: ${topic}`,
+                      ),
+                      prefsBlock,
+                      shapeBlock,
+                    ),
             },
           ],
           { maxTokens: 3500 },
@@ -1433,6 +1796,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             errorMessage: null,
           },
           artifact: { type: ArtifactType.ARTICLE_DRAFT, content: cleanA },
+          details: {
+            prompt: buildPromptExecutionTelemetry({
+              descriptor: draftPrompt,
+              contextCharacterLength:
+                draftPrompt.promptVersion === "2.0"
+                  ? draftContext.length
+                  : 3_500,
+            }),
+          },
         });
         return withTimings(updated, {
           llmMs: Date.now() - llmStarted,
@@ -1444,21 +1816,45 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
       if (draft.includes(WRITE_HALF_MARK) && !draft.includes(WRITE_DONE_MARK)) {
         const llmStarted = Date.now();
         const partA = sanitizeEditorialBody(stripPipelineMarks(draft));
+        const draftPrompt = resolvePromptDescriptor("draft-generation");
+        const shapeBlock = shapeBlockFor(article);
+        const draftContext =
+          draftPrompt.promptVersion === "2.0"
+            ? buildDraftGenerationContextV2({
+                topic,
+                researchBrief: article.researchBrief ?? "",
+                insightGate: article.insightGate ?? "",
+                priorHalf: partA,
+                prefsBlock,
+                shapeBlock,
+                voiceReference: buildVoiceReferenceBlock(article.domain),
+                phase: "b",
+              })
+            : "";
         const partB = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "system",
+              content:
+                draftPrompt.promptVersion === "2.0"
+                  ? getSystemPromptForRole(article.domain, "GENERATE")
+                  : getSystemPrompt(article.domain),
+            },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "write-b",
-                appendContext(
-                  clipText(article.insightGate, 1_500),
-                  clipText(partA, 5_000),
-                  `Chủ đề: ${topic}`,
-                ),
-                prefsBlock,
-              shapeBlockFor(article),
-            ),
+              content:
+                draftPrompt.promptVersion === "2.0"
+                  ? buildDraftGenerationPromptV2(draftContext)
+                  : buildPipelinePrompt(
+                      "write-b",
+                      appendContext(
+                        clipText(article.insightGate, 1_500),
+                        clipText(partA, 5_000),
+                        `Chủ đề: ${topic}`,
+                      ),
+                      prefsBlock,
+                      shapeBlock,
+                    ),
             },
           ],
           { maxTokens: 3500 },
@@ -1486,6 +1882,15 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           articlePatch: {
             draft12: `${merged}\n\n${WRITE_DONE_MARK}`,
             errorMessage: null,
+          },
+          details: {
+            prompt: buildPromptExecutionTelemetry({
+              descriptor: draftPrompt,
+              contextCharacterLength:
+                draftPrompt.promptVersion === "2.0"
+                  ? draftContext.length
+                  : partA.length,
+            }),
           },
           artifact: {
             type: ArtifactType.ARTICLE_DRAFT,
@@ -2209,14 +2614,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const remediationMaxTokens = cleanGenMaxTokens(article.targetWordCount);
-        const configuredMinorPrompt = resolvePromptDescriptor("minor-remediation");
-        const minorPrompt =
-          article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED
-            ? configuredMinorPrompt
-            : resolvePromptDescriptor("minor-remediation", { enabled: false });
+        const remediationPromptId =
+          article.workflowState === WorkflowState.REWRITE_REQUIRED
+            ? ("rewrite-remediation" as const)
+            : article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED
+              ? ("major-remediation" as const)
+              : article.workflowState === WorkflowState.MINOR_REVISION_REQUIRED
+                ? ("minor-remediation" as const)
+                : null;
+        const remediationPrompt = remediationPromptId
+          ? resolvePromptDescriptor(remediationPromptId)
+          : resolvePromptDescriptor("minor-remediation", { enabled: false });
         const minorPreservePrompt = minorPreserveInstructions({
           enabled:
-            minorPrompt.promptVersion === "1.6" &&
+            remediationPrompt.promptId === "minor-remediation" &&
+            remediationPrompt.promptVersion === "1.6" &&
             PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.enabled,
           revisionSeverity: article.workflowState,
           version:
@@ -2276,10 +2688,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 `Điểm Editorial ${currentEditorial.totalScore}/${editorialThreshold} — nâng chất lượng thật (độ sâu lập luận, bằng chứng, nhịp đọc), không đổi từ ngữ bề mặt.`,
               ]
             : [];
-        const minorV2Context = buildMinorRemediationContextV2({
-          defects: currentEditorial.defects.filter(
-            (defect) => defect.severity === "MINOR",
-          ),
+        const severityDefects =
+          article.workflowState === WorkflowState.REWRITE_REQUIRED
+            ? currentEditorial.defects
+            : article.workflowState === WorkflowState.MAJOR_REVISION_REQUIRED
+              ? currentEditorial.defects.filter(
+                  (defect) =>
+                    defect.severity === "MAJOR" ||
+                    defect.severity === "MINOR" ||
+                    defect.severity === "REWRITE",
+                )
+              : currentEditorial.defects.filter(
+                  (defect) => defect.severity === "MINOR",
+                );
+        const remediationV2Context = buildMinorRemediationContextV2({
+          defects: severityDefects,
           requiredActions: [
             ...currentEditorial.requiredActions,
             ...gateFailureActions,
@@ -2294,8 +2717,8 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           maxDraftChars: reviewDraftClipChars(article.targetWordCount),
         });
         const revisionContext =
-          minorPrompt.promptVersion === "2.0"
-            ? minorV2Context.context
+          remediationPrompt.promptVersion === "2.0"
+            ? remediationV2Context.context
             : revisionLegacyContext;
         // WP-QF-03: MAJOR/REWRITE must not inherit MINOR preserve semantics.
         const severityDirective =
@@ -2315,8 +2738,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 ].join("\n")
               : "";
         const revisionUserPrompt =
-          minorPrompt.promptVersion === "2.0"
-            ? buildMinorRemediationPromptV2(revisionContext)
+          remediationPrompt.promptVersion === "2.0"
+            ? remediationPrompt.promptId === "rewrite-remediation"
+              ? buildRewriteRemediationPromptV2(revisionContext)
+              : remediationPrompt.promptId === "major-remediation"
+                ? buildMajorRemediationPromptV2(revisionContext)
+                : buildMinorRemediationPromptV2(revisionContext)
             : buildPipelinePrompt(
                 "finalize-revision-remediate",
                 appendContext(severityDirective, revisionContext),
@@ -2338,14 +2765,27 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           },
         );
         const preserveMetadataExpected =
-          minorPrompt.promptVersion === "2.0" || Boolean(minorPreservePrompt);
-        const preserveOutput = preserveMetadataExpected
+          remediationPrompt.promptVersion === "2.0" || Boolean(minorPreservePrompt);
+        const baseDraft = stripPipelineMarks(article.draft12);
+        const patchResolved = resolvePatchedOrFullDraft({
+          baseDocument: baseDraft,
+          rawOutput: repairedRaw,
+          enabled:
+            PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled &&
+            remediationPrompt.promptVersion === "2.0" &&
+            remediationPrompt.promptId !== "rewrite-remediation",
+          allowlistSectionIds:
+            remediationPrompt.promptId === "minor-remediation"
+              ? remediationV2Context.targetSectionIds
+              : null,
+        });
+        const preserveOutput = preserveMetadataExpected && !patchResolved.usedPatch
           ? parseMinorPreserveOutput(repairedRaw)
           : {
-              draft: repairedRaw,
-              changedSections: [],
-              unchangedSections: [],
-              metadataReadable: false,
+              draft: patchResolved.document,
+              changedSections: patchResolved.sectionsTouched,
+              unchangedSections: remediationV2Context.preserveSectionIds,
+              metadataReadable: patchResolved.usedPatch,
             };
         const repairedDraft = sanitizeEditorialBody(
           stripPipelineMarks(preserveOutput.draft),
@@ -2354,8 +2794,12 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const minorPreserveTelemetry = preserveMetadataExpected
           ? {
               minorPreservePromptVersion:
-                minorPrompt.promptVersion === "2.0"
-                  ? "minor-remediation@2.0"
+                remediationPrompt.promptVersion === "2.0"
+                  ? remediationPrompt.promptId === "rewrite-remediation"
+                    ? "rewrite-remediation@2.0"
+                    : remediationPrompt.promptId === "major-remediation"
+                      ? "major-remediation@2.0"
+                      : "minor-remediation@2.0"
                   : PIPELINE_CONFIG.aiTfesV2.minorPreservePrompt.version,
               changedSectionCount: preserveOutput.metadataReadable
                 ? preserveOutput.changedSections.length
@@ -2366,13 +2810,21 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               preserveMetadataReadable: preserveOutput.metadataReadable,
             }
           : null;
-        const minorPromptTelemetry = buildPromptExecutionTelemetry({
-          descriptor: minorPrompt,
+        const remediationPromptTelemetry = buildPromptExecutionTelemetry({
+          descriptor: remediationPrompt,
           contextCharacterLength: revisionContext.length,
           legacyContextCharacterLength: revisionLegacyContext.length,
-          defectCount: currentEditorial.defects.length,
-          ...(minorPrompt.promptVersion === "2.0"
-            ? { remediationMedium: "full-draft-preserve" as const }
+          defectCount: severityDefects.length,
+          ...(remediationPrompt.promptVersion === "2.0"
+            ? {
+                remediationMedium: patchResolved.usedPatch
+                  ? ("patch" as const)
+                  : remediationPrompt.promptId === "rewrite-remediation"
+                    ? ("full-draft-rewrite" as const)
+                    : remediationPrompt.promptId === "major-remediation"
+                      ? ("full-draft-major" as const)
+                      : ("full-draft-preserve" as const),
+              }
             : {}),
         });
         assertFullDraftQuality(repairedDraft);
@@ -2438,7 +2890,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               ...(minorPreserveTelemetry
                 ? { minorPreserve: minorPreserveTelemetry }
                 : {}),
-              prompt: minorPromptTelemetry,
+              prompt: remediationPromptTelemetry,
             }),
           },
           artifact: {
@@ -2503,23 +2955,37 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           articleId,
           ArtifactType.ARTICLE_DRAFT,
         );
+        const factRemPrompt = resolvePromptDescriptor("fact-remediation");
+        const factRemContext =
+          factRemPrompt.promptVersion === "2.0"
+            ? buildFactRemediationContextV2({
+                researchBrief: article.researchBrief ?? "",
+                draft: stripPipelineMarks(article.draft12),
+                factCheck: article.factCheck ?? "",
+                topic,
+                maxDraftChars: factDraftClipChars(article.targetWordCount),
+              })
+            : "";
         const repairedRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-fact-remediate",
-                appendContext(
-                  clipText(article.researchBrief, 3_500),
-                  clipText(
-                    stripPipelineMarks(article.draft12),
-                    factDraftClipChars(article.targetWordCount),
-                  ),
-                  clipText(article.factCheck, 6_000),
-                  `Chủ đề: ${topic}`,
-                ),
-              ),
+              content:
+                factRemPrompt.promptVersion === "2.0"
+                  ? buildFactRemediationPromptV2(factRemContext)
+                  : buildPipelinePrompt(
+                      "finalize-fact-remediate",
+                      appendContext(
+                        clipText(article.researchBrief, 3_500),
+                        clipText(
+                          stripPipelineMarks(article.draft12),
+                          factDraftClipChars(article.targetWordCount),
+                        ),
+                        clipText(article.factCheck, 6_000),
+                        `Chủ đề: ${topic}`,
+                      ),
+                    ),
             },
           ],
           {
@@ -2528,7 +2994,17 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
             reasoningEffort: "low",
           },
         );
-        const repairedDraft = sanitizeEditorialBody(stripPipelineMarks(repairedRaw));
+        const repairedDraft = sanitizeEditorialBody(
+          stripPipelineMarks(
+            resolvePatchedOrFullDraft({
+              baseDocument: stripPipelineMarks(article.draft12),
+              rawOutput: repairedRaw,
+              enabled:
+                PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled &&
+                factRemPrompt.promptVersion === "2.0",
+            }).document,
+          ),
+        );
         const remediationLlmMs = Date.now() - llmStarted;
         assertFullDraftQuality(repairedDraft);
         assertEngineeringGoldBar({
@@ -2565,6 +3041,14 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               maxTokens: remediationMaxTokens,
               llmMs: remediationLlmMs,
               errorClass: "content",
+              prompt: buildPromptExecutionTelemetry({
+                descriptor: factRemPrompt,
+                contextCharacterLength:
+                  factRemPrompt.promptVersion === "2.0"
+                    ? factRemContext.length
+                    : 6_000,
+                remediationMedium: "full-draft-fact-repair",
+              }),
             }),
           },
           artifact: {
@@ -2587,32 +3071,53 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           knowledgeRecord: article.knowledgeRecord,
           includeFact: false,
         });
+        const factPrompt = resolvePromptDescriptor("fact-audit");
+        const factContext =
+          factPrompt.promptVersion === "2.0"
+            ? buildFactAuditContextV2({
+                researchBrief: article.researchBrief ?? "",
+                insightGate: article.insightGate ?? "",
+                draft: stripPipelineMarks(article.draft12),
+                support,
+                topic,
+                maxDraftChars: factDraftClipChars(article.targetWordCount),
+              })
+            : "";
         const finalizeA = await chatCompletion(
           [
             { role: "system", content: getSystemPromptLite(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-a",
-                appendContext(
-                  clipText(article.researchBrief, 2_500),
-                  clipText(article.insightGate, 1_000),
-                  clipText(
-                    stripPipelineMarks(article.draft12),
-                    factDraftClipChars(article.targetWordCount),
-                  ),
-                  support,
-                  `Chủ đề: ${topic}`,
-                ),
-              ),
+              content:
+                factPrompt.promptVersion === "2.0"
+                  ? buildFactAuditPromptV2(factContext)
+                  : buildPipelinePrompt(
+                      "finalize-a",
+                      appendContext(
+                        clipText(article.researchBrief, 2_500),
+                        clipText(article.insightGate, 1_000),
+                        clipText(
+                          stripPipelineMarks(article.draft12),
+                          factDraftClipChars(article.targetWordCount),
+                        ),
+                        support,
+                        `Chủ đề: ${topic}`,
+                      ),
+                    ),
             },
           ],
-          { maxTokens: 2500, temperature: 0.3, reasoningEffort: "low" },
+          {
+            maxTokens: factPrompt.promptVersion === "2.0" ? 3200 : 2500,
+            temperature: 0.3,
+            reasoningEffort: "low",
+          },
         );
 
         const factLlmMs = Date.now() - llmStarted;
         const parsed = parseFullOutput(finalizeA);
-        const factCheckContent = parsed.factCheck ?? finalizeA;
+        const factCheckContent = materializeFactLedger(
+          parsed.factCheck ?? finalizeA,
+        );
         const statusPassed = /^PASSED$/i.test(verificationStatus(factCheckContent));
         const blockingClaims = countBlockingFactClaims(factCheckContent);
         const passed = statusPassed && blockingClaims === 0;
@@ -2658,7 +3163,7 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
               failureReasons: factFailureReason ? [factFailureReason] : [],
               machineReadable: !factSummary.malformedOutput,
               machineContract: factSummary.malformedOutput ? "invalid" : "fact-ledger",
-              maxTokens: 2500,
+              maxTokens: factPrompt.promptVersion === "2.0" ? 3200 : 2500,
               llmMs: factLlmMs,
               errorClass: passed
                 ? null
@@ -2666,6 +3171,13 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                   ? "parser"
                   : "content",
               fact: factSummary,
+              prompt: buildPromptExecutionTelemetry({
+                descriptor: factPrompt,
+                contextCharacterLength:
+                  factPrompt.promptVersion === "2.0"
+                    ? factContext.length
+                    : 2_500,
+              }),
             }),
           },
           artifact: {
@@ -2721,8 +3233,9 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
 
         const llmStarted = Date.now();
         const lockPrompt = resolvePromptDescriptor("lock-verifier");
+        // 1500 cắt mất LOCK_DECISION_JSON khi model viết phần lý giải trước khối JSON.
         const finalVerifyMaxTokens =
-          lockPrompt.promptVersion === "2.0" ? 1500 : 2200;
+          lockPrompt.promptVersion === "2.0" ? 2600 : 2200;
         const finalConvergenceContext = await convergenceContextForRun(
           articleId,
           article.workflowRunId,
@@ -2790,9 +3303,35 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
                 candidateSignal: stripPipelineMarks(article.draft12),
               })
             : finalLegacyContext;
+        const priorLockFormatAttempts = await prisma.workflowTransition.count({
+          where: {
+            articleId,
+            workflowRunId: article.workflowRunId,
+            action: "final-verification-format-invalid",
+          },
+        });
+        let previousLockOutput: string | null = null;
+        if (lockPrompt.promptVersion === "2.0" && priorLockFormatAttempts > 0) {
+          const priorReview = await prisma.workflowArtifact.findFirst({
+            where: {
+              articleId,
+              workflowRunId: article.workflowRunId,
+              type: ArtifactType.REVIEW,
+            },
+            orderBy: { revision: "desc" },
+            select: { content: true },
+          });
+          previousLockOutput = priorReview?.content?.trim() || null;
+        }
         const lockUserPrompt =
           lockPrompt.promptVersion === "2.0"
-            ? buildLockVerifierPromptV2(lockContext)
+            ? previousLockOutput
+              ? buildLockFormatRepairPromptV2({
+                  previousOutput: previousLockOutput,
+                  malformedReason:
+                    "missing or unreadable LOCK_DECISION_JSON",
+                })
+              : buildLockVerifierPromptV2(lockContext)
             : buildPipelinePrompt("finalize-verify", lockContext);
         const finalReview = await chatCompletion(
           [
@@ -2804,7 +3343,10 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
           ],
           { maxTokens: finalVerifyMaxTokens, temperature: 0.2, reasoningEffort: "low" },
         );
-        const result = inspectFinalVerification(finalReview, article.factCheck);
+        const result = inspectFinalVerification(finalReview, article.factCheck, {
+          expectedContract:
+            lockPrompt.promptVersion === "2.0" ? "lock-v2" : "final-v1",
+        });
         const finalVerifyLlmMs = Date.now() - llmStarted;
         const finalGateFailures =
           result.machineContract === "lock-v2"
@@ -3036,32 +3578,71 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const rawClean = stripPipelineMarks(article.cleanPublish);
         const fallbackClean = toReaderCleanPublish(sanitizeEditorialBody(rawClean));
         const support = priorPipelineSupportBlock(article);
+        const readerPolish = readerAuditPolishTargets(article.knowledgeRecord ?? "");
+        const polishPrompt = resolvePromptDescriptor("publish-polish");
+        const polishContext = buildCleanTransformContextV2({
+          topic,
+          source: rawClean,
+          researchBrief: article.researchBrief,
+          factCheck: article.factCheck,
+          support,
+          instruction: [
+            `Giữ độ dài gần ${target} từ; aim ≥${aimWords}, sàn ≥${minWords}.`,
+            readerPolish
+              ? `Reader-audit polish targets:\n${readerPolish}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          prefsBlock,
+          shapeBlock: shapeBlockFor(article),
+          voiceReference: buildVoiceReferenceBlock(article.domain),
+        });
         const llmStarted = Date.now();
         const polishedRaw = await chatCompletion(
           [
-            { role: "system", content: getSystemPrompt(article.domain) },
+            {
+              role: "system",
+              content:
+                polishPrompt.promptVersion === "2.0"
+                  ? getSystemPromptForRole(article.domain, "PATCH")
+                  : getSystemPrompt(article.domain),
+            },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-polish",
-                appendContext(
-                  clipText(rawClean, 18_000),
-                  clipText(article.researchBrief, 2_000),
-                  support,
-                  `Chủ đề: ${topic}`,
-                  "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
-                  `Độ dài = số TỪ (khoảng trắng), target ~${target} từ (aim ≥${aimWords}, sàn ≥${minWords}). Không rút synopsis.`,
-                ),
-                prefsBlock,
-              shapeBlockFor(article),
-            ),
+              content:
+                polishPrompt.promptVersion === "2.0"
+                  ? buildPublishPolishPromptV2(polishContext)
+                  : buildPipelinePrompt(
+                      "finalize-polish",
+                      appendContext(
+                        clipText(rawClean, 18_000),
+                        clipText(article.researchBrief, 2_000),
+                        support,
+                        `Chủ đề: ${topic}`,
+                        "Chỉ xuất bài markdown hoàn chỉnh — không marker TFES, không Knowledge Record.",
+                        `Độ dài = số TỪ (khoảng trắng), target ~${target} từ (aim ≥${aimWords}, sàn ≥${minWords}). Không rút synopsis.`,
+                      ),
+                      prefsBlock,
+                      shapeBlockFor(article),
+                    ),
             },
           ],
           { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
         );
 
         let polished = toReaderCleanPublish(
-          sanitizeEditorialBody(stripPipelineMarks(polishedRaw)),
+          sanitizeEditorialBody(
+            stripPipelineMarks(
+              resolvePatchedOrFullDraft({
+                baseDocument: rawClean,
+                rawOutput: polishedRaw,
+                enabled:
+                  PIPELINE_CONFIG.aiTfesV2.sectionPatch.enabled &&
+                  polishPrompt.promptVersion === "2.0",
+              }).document,
+            ),
+          ),
         );
         // Polish bị cắt token / rút quá ngắn → giữ bản sạch trước đó nếu dài hơn
         if (
@@ -3134,23 +3715,33 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         );
 
         // Viết lại Hero Brief từ bản sạch đã polish (tránh prompt generic lệch bài)
+        const heroPrompt = resolvePromptDescriptor("hero-brief");
+        const visualContext = extractArticleVisualContext({
+          cleanPublish: polished,
+          title,
+          topic,
+        });
+        const heroContext = buildHeroBriefContextV2({
+          topic,
+          title,
+          visualContext,
+        });
         const heroRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPrompt(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-hero",
-                appendContext(
-                  extractArticleVisualContext({
-                    cleanPublish: polished,
-                    title,
-                    topic,
-                  }),
-                  `Title: ${title}`,
-                  `Chủ đề: ${topic}`,
-                ),
-              ),
+              content:
+                heroPrompt.promptVersion === "2.0"
+                  ? buildHeroBriefPromptV2(heroContext)
+                  : buildPipelinePrompt(
+                      "finalize-hero",
+                      appendContext(
+                        visualContext,
+                        `Title: ${title}`,
+                        `Chủ đề: ${topic}`,
+                      ),
+                    ),
             },
           ],
           { maxTokens: 500 },
@@ -3188,28 +3779,39 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         const llmStarted = Date.now();
         const cleanBody = toReaderCleanPublish(stripPipelineMarks(article.cleanPublish));
         const domain = resolveDomainId(article.domain);
+        const readerPrompt = resolvePromptDescriptor("reader-audit");
+        const readerContext = buildReaderSimulationContextV2({
+          topic,
+          title: article.title || topic,
+          readerRoles: readerRolesForDomain(domain),
+          article: clipText(cleanBody, readerSimClipChars(article.targetWordCount)),
+          shapeBlock: shapeBlockFor(article),
+        });
         const simRaw = await chatCompletion(
           [
             { role: "system", content: getSystemPrompt(article.domain) },
             {
               role: "user",
-              content: buildPipelinePrompt(
-                "finalize-reader-sim",
-                appendContext(
-                  readerRolesForDomain(domain),
-                  clipText(cleanBody, readerSimClipChars(article.targetWordCount)),
-                  `Title: ${article.title || topic}`,
-                  `Chủ đề: ${topic}`,
-                ),
-              undefined,
-              shapeBlockFor(article),
-            ),
+              content:
+                readerPrompt.promptVersion === "2.0"
+                  ? buildReaderAuditPromptV2(readerContext)
+                  : buildPipelinePrompt(
+                      "finalize-reader-sim",
+                      appendContext(
+                        readerRolesForDomain(domain),
+                        clipText(cleanBody, readerSimClipChars(article.targetWordCount)),
+                        `Title: ${article.title || topic}`,
+                        `Chủ đề: ${topic}`,
+                      ),
+                      undefined,
+                      shapeBlockFor(article),
+                    ),
             },
           ],
           { maxTokens: 900 },
         );
 
-        const simOut = stripPipelineMarks(simRaw).trim();
+        const simOut = materializeReaderAudit(stripPipelineMarks(simRaw).trim());
         const retries = readerSimRetryCount(article.knowledgeRecord);
         const failed = readerSimFailed(simOut);
 
@@ -3380,27 +3982,43 @@ export async function runWorkflowStep(articleId: string): Promise<Article> {
         }
 
         if (!publishDerivedFromBest) {
+          const publishPrompt = resolvePromptDescriptor("publish-renderer");
+          const publishContext = buildCleanTransformContextV2({
+            topic,
+            source: draftClean,
+            researchBrief: article.researchBrief,
+            factCheck: article.factCheck,
+            support,
+            instruction: article.errorMessage?.trim()
+              ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)}`
+              : `Tạo bản sạch khoảng ${prefs.targetWordCount} từ; sàn ${cleanWordBounds(prefs).minWords}, aim ${cleanWordBounds(prefs).aimWords}.`,
+            prefsBlock,
+            shapeBlock: shapeBlockFor(article),
+          });
           const finalizeB = await chatCompletion(
             [
               { role: "system", content: getSystemPrompt(article.domain) },
               {
                 role: "user",
-                content: buildPipelinePrompt(
-                  "finalize-b",
-                  appendContext(
-                    clipText(article.insightGate, 1_000),
-                    clipText(draftClean, factDraftClipChars(article.targetWordCount)),
-                    support,
-                    `Chủ đề: ${topic}`,
-                    "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
-                    `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
-                    article.errorMessage?.trim()
-                      ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
-                      : "",
-                  ),
-                  prefsBlock,
-                  shapeBlockFor(article),
-                ),
+                content:
+                  publishPrompt.promptVersion === "2.0"
+                    ? buildPublishRendererPromptV2(publishContext)
+                    : buildPipelinePrompt(
+                        "finalize-b",
+                        appendContext(
+                          clipText(article.insightGate, 1_000),
+                          clipText(draftClean, factDraftClipChars(article.targetWordCount)),
+                          support,
+                          `Chủ đề: ${topic}`,
+                          "Bắt buộc có đúng dòng: === BẢN SẠCH ĐỂ ĐĂNG === rồi viết bài hoàn chỉnh bên dưới.",
+                          `Độ dài bản sạch ~${prefs.targetWordCount} TỪ (đếm khoảng trắng, không phải ký tự; sàn ≥${cleanWordBounds(prefs).minWords}, aim ≥${cleanWordBounds(prefs).aimWords}).`,
+                          article.errorMessage?.trim()
+                            ? `Lần Publish trước chưa đạt: ${article.errorMessage.slice(0, 400)} — viết lại liền mạch đọc được, sửa đúng lỗi đó.`
+                            : "",
+                        ),
+                        prefsBlock,
+                        shapeBlockFor(article),
+                      ),
               },
             ],
             { maxTokens: cleanGenMaxTokens(prefs.targetWordCount) },
@@ -4291,6 +4909,15 @@ export async function polishFromHumanEdits(
     editNote?.trim() ||
     (await import("@/lib/tfes/desk-state")).parseDeskJson(article.deskJson).editNote ||
     "";
+  const humanPolishPrompt = resolvePromptDescriptor("human-polish");
+  const humanPolishContext = buildCleanTransformContextV2({
+    topic: article.topic ?? "",
+    source: rawClean,
+    support: priorPipelineSupportBlock(article),
+    instruction: note ? `Ghi chú biên tập (người):\n${note}` : "Chỉ polish tối thiểu.",
+    prefsBlock,
+    shapeBlock: shapeBlockFor(article),
+  });
 
   try {
     const polishedRaw = await chatCompletion(
@@ -4298,17 +4925,20 @@ export async function polishFromHumanEdits(
         { role: "system", content: getSystemPrompt(article.domain) },
         {
           role: "user",
-          content: buildPipelinePrompt(
-            "finalize-human-polish",
-            appendContext(
-              clipText(rawClean, 18_000),
-              note ? `### Ghi chú biên tập (người)\n${note}` : null,
-              priorPipelineSupportBlock(article),
-              `Chủ đề: ${article.topic ?? ""}`,
-            ),
-            prefsBlock,
-            shapeBlockFor(article),
-          ),
+          content:
+            humanPolishPrompt.promptVersion === "2.0"
+              ? buildHumanPolishPromptV2(humanPolishContext)
+              : buildPipelinePrompt(
+                  "finalize-human-polish",
+                  appendContext(
+                    clipText(rawClean, 18_000),
+                    note ? `### Ghi chú biên tập (người)\n${note}` : null,
+                    priorPipelineSupportBlock(article),
+                    `Chủ đề: ${article.topic ?? ""}`,
+                  ),
+                  prefsBlock,
+                  shapeBlockFor(article),
+                ),
         },
       ],
       { maxTokens: cleanGenMaxTokens(prefs.targetWordCount), temperature: 0.25, reasoningEffort: "low" },

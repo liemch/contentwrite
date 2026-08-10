@@ -1,6 +1,9 @@
 import { countBlockingFactClaims, verificationStatus } from "@/lib/tfes/fact-ledger";
 import { TFES_CONTRACT } from "@/lib/tfes/contract";
-import { parseMarkedPromptJson } from "@/lib/tfes/prompt-registry";
+import {
+  extractMarkedJson,
+  type MarkedJsonReason,
+} from "@/lib/tfes/machine-contract";
 
 export type FinalVerification = {
   totalScore: number | null;
@@ -38,6 +41,75 @@ const LOCK_DECISIONS = [
   "CONTEXT_INCOMPLETE",
 ] as const;
 
+const LOCK_MARKER = "LOCK_DECISION_JSON:";
+const LOCK_CONTRACT_VERSION = "lock-decision.v2";
+
+/**
+ * Marker bị quên là lỗi hay gặp nhất của bước 9b; object vẫn dùng được nếu
+ * contractVersion đúng, nên vớt trước khi tuyên bố sai định dạng.
+ */
+function readLockDecisionJson(body: string): {
+  json: Record<string, unknown> | null;
+  reason: MarkedJsonReason;
+} {
+  const marked = extractMarkedJson(body, LOCK_MARKER);
+  if (marked.json || marked.reason !== "marker-missing") {
+    return { json: marked.json, reason: marked.reason };
+  }
+
+  const contractAt = body.indexOf(LOCK_CONTRACT_VERSION);
+  if (contractAt < 0) return { json: null, reason: "marker-missing" };
+  const objectStart = body.lastIndexOf("{", contractAt);
+  if (objectStart < 0) return { json: null, reason: "marker-missing" };
+
+  const salvaged = extractMarkedJson(
+    `${LOCK_MARKER}${body.slice(objectStart)}`,
+    LOCK_MARKER,
+  );
+  return { json: salvaged.json, reason: salvaged.json ? "ok" : salvaged.reason };
+}
+
+function lockContractFailureReason(reason: MarkedJsonReason): string {
+  switch (reason) {
+    case "json-truncated":
+      return "Lock Verifier v2 bị cắt giữa chừng (LOCK_DECISION_JSON chưa đóng)";
+    case "json-unparseable":
+      return "LOCK_DECISION_JSON không parse được";
+    case "json-missing":
+      return "LOCK_DECISION_JSON có marker nhưng thiếu object";
+    default:
+      return "thiếu LOCK_DECISION_JSON (prompt lock-verifier@2.0 yêu cầu khối JSON này)";
+  }
+}
+
+/** Output 9b không đọc được theo contract v2 — luôn route format retry, không phải verdict. */
+function unreadableLockVerification(
+  factCheck: string | null | undefined,
+  reason: MarkedJsonReason,
+): FinalVerification {
+  return {
+    totalScore: null,
+    insightScore: null,
+    gatesPassed: false,
+    factPassed: /^PASSED$/i.test(verificationStatus(factCheck)),
+    openActions: null,
+    decision: null,
+    blockingClaims: countBlockingFactClaims(factCheck),
+    machineReadable: false,
+    machineContract: "invalid",
+    failureReasons: [lockContractFailureReason(reason)],
+    publishReady: false,
+    degenerateScores: false,
+    lockDecision: null,
+    blockingResiduals: [],
+    openRequiredActions: [],
+    unresolvedDefectIds: [],
+    optionalPolishActions: [],
+    regressionDetected: null,
+    malformedOutput: true,
+  };
+}
+
 function lockStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const values = value.filter((item): item is string => typeof item === "string");
@@ -47,9 +119,16 @@ function lockStringArray(value: unknown): string[] | null {
 function inspectLockVerificationV2(
   body: string,
   factCheck: string | null | undefined,
+  expectedContract?: "lock-v2" | "final-v1",
 ): FinalVerification | null {
-  const json = parseMarkedPromptJson(body, "LOCK_DECISION_JSON:");
-  if (!json) return null;
+  const { json, reason } = readLockDecisionJson(body);
+  if (!json) {
+    // Chỉ khi 9b chạy prompt v2 mới được kết luận "sai contract v2"; auto-detect
+    // vẫn phải rơi về final-v1 để không phá đường legacy.
+    return expectedContract === "lock-v2"
+      ? unreadableLockVerification(factCheck, reason)
+      : null;
+  }
   const lockDecision =
     typeof json.lockDecision === "string" &&
     LOCK_DECISIONS.includes(json.lockDecision as (typeof LOCK_DECISIONS)[number])
@@ -74,7 +153,7 @@ function inspectLockVerificationV2(
   const factPassed = /^PASSED$/i.test(verificationStatus(factCheck));
   const blockingClaims = countBlockingFactClaims(factCheck);
   const fieldsPresent =
-    json.contractVersion === "lock-decision.v2" &&
+    json.contractVersion === LOCK_CONTRACT_VERSION &&
     lockDecision !== null &&
     factLockStatus !== null &&
     insightFloorStatus !== null &&
@@ -227,9 +306,14 @@ function decisionConsistentWithScores(
 export function inspectFinalVerification(
   review: string | null | undefined,
   factCheck: string | null | undefined,
+  options?: { expectedContract?: "lock-v2" | "final-v1" },
 ): FinalVerification {
   const body = review ?? "";
-  const v2 = inspectLockVerificationV2(body, factCheck);
+  const v2 = inspectLockVerificationV2(
+    body,
+    factCheck,
+    options?.expectedContract,
+  );
   if (v2) return v2;
   const totalScore = numberAfter(body, /FINAL_TOTAL_SCORE/);
   const insightScore = numberAfter(body, /FINAL_INSIGHT_SCORE/);

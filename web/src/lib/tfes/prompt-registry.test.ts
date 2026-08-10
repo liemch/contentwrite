@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPromptExecutionTelemetry,
   parseMarkedPromptJson,
+  type PromptArchitectureId,
   resolvePromptDescriptor,
 } from "@/lib/tfes/prompt-registry";
 
@@ -28,9 +29,41 @@ describe("Prompt Registry runtime", () => {
     ).toMatchObject({
       promptId: "minor-remediation",
       promptVersion: "2.0",
-      contractVersion: "full-draft-preserve.v2",
+      contractVersion: "article-patch.v1",
       role: "PATCH",
     });
+  });
+
+  it("selects v2 for every pipeline LLM prompt", () => {
+    const ids: PromptArchitectureId[] = [
+      "research-packet",
+      "insight-gate",
+      "editorial-decision",
+      "insight-lock",
+      "draft-generation",
+      "editorial-diagnosis",
+      "minor-remediation",
+      "major-remediation",
+      "rewrite-remediation",
+      "fact-audit",
+      "fact-remediation",
+      "lock-verifier",
+      "publish-renderer",
+      "publish-polish",
+      "publish-expansion",
+      "publish-quality-repair",
+      "hero-brief",
+      "reader-audit",
+      "human-polish",
+    ];
+
+    for (const id of ids) {
+      expect(resolvePromptDescriptor(id)).toMatchObject({
+        promptId: id,
+        promptVersion: "2.0",
+        fallbackReason: null,
+      });
+    }
   });
 
   it("fails safe to v1.6 for an unknown requested version", () => {

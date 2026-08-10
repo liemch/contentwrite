@@ -107,6 +107,68 @@ ${clipped}
 CẤM: viết dài lan man; lặp lại toàn bộ Research; gắn (L2) vào Title; HERO IMAGE BRIEF; Planning khi đang Decision (và ngược lại).`;
 }
 
+export type SystemPromptRole =
+  | "RESEARCH"
+  | "PLAN"
+  | "GENERATE"
+  | "DIAGNOSE"
+  | "AUDIT"
+  | "PATCH"
+  | "LOCK";
+
+/**
+ * Role-policy system envelopes for Prompt Architecture v2.
+ * GENERATE keeps a stronger craft bar; other roles stay slim to avoid timeouts.
+ */
+export function getSystemPromptForRole(
+  domain: string,
+  role: SystemPromptRole,
+): string {
+  if (role === "GENERATE") return getSystemPrompt(domain);
+  const id = resolveDomainId(domain);
+  const domainProfile = resolveAndValidateDomainProfile(id, readTfesFile).content;
+  const clipped = domainProfile.slice(0, 2_400).trim();
+  const roleLine: Record<Exclude<SystemPromptRole, "GENERATE">, string> = {
+    RESEARCH:
+      "ROLE=RESEARCH. Produce evidence packets only. Never plan, draft, score, or invent sources.",
+    PLAN: "ROLE=PLAN. Lock thesis/audience/shape/outline only. Never write Article.md body.",
+    DIAGNOSE:
+      "ROLE=DIAGNOSE. Emit typed diagnosis/contracts only. Never rewrite the article.",
+    AUDIT:
+      "ROLE=AUDIT. Bind claims or reader friction to evidence/locations. Never rewrite prose.",
+    PATCH:
+      "ROLE=PATCH. Emit bounded patches only for listed targets. Never global restyle.",
+    LOCK: "ROLE=LOCK. Verify lock signals only. Never repair prose or re-score craft broadly.",
+  };
+  return `You are an AI-TFES ${role} agent for domain **${id}**.
+${roleLine[role]}
+Follow the user message contract exactly. Evidence-first. Vietnamese article content when required;
+machine JSON keys stay English.
+
+Domain profile (clipped):
+${clipped}`;
+}
+
+/** Extract a short gold-sample voice reference from the Domain Profile when present. */
+export function buildVoiceReferenceBlock(domain: string | null | undefined): string {
+  try {
+    const id = resolveDomainId(domain ?? "engineering");
+    const profile = resolveAndValidateDomainProfile(id, readTfesFile).content;
+    const goldMatch =
+      profile.match(/##\s*gold_samples[\s\S]{0,2500}/i) ||
+      profile.match(/gold_samples[\s\S]{0,2000}/i);
+    if (!goldMatch) return "";
+    const excerpt = goldMatch[0]
+      .replace(/^##\s*gold_samples\s*/i, "")
+      .trim()
+      .slice(0, 900);
+    if (excerpt.length < 80) return "";
+    return `VOICE_REFERENCE (pattern only — do not copy verbatim):\n${excerpt}`;
+  } catch {
+    return "";
+  }
+}
+
 export function buildDailyTaskPrompt(input: {
   domain: string;
   topic?: string;

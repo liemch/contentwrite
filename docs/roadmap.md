@@ -28,7 +28,7 @@ Hỗ trợ nhiều editor, deploy ổn định, authorization nhất quán, pipe
 | **WP-V2-01** | Convergence KPI Telemetry | **Done — cohort pending** | WP2.7 |
 | **WP-V2-02** | Best Candidate Lock | **Done — ON on optimize/process (Preview)** | WP-V2-01 |
 | **WP-V2-03–05** | AI-TFES v2 RC1 guards/preserve/brake | **Done — ON on optimize/process (Preview)** | WP-V2-01, WP-V2-02 |
-| **WP-PV2-01** | Prompt Architecture v2 priority trio | **Done — ON on optimize/process (RC2 Preview)** | AI-TFES v2 RC1 |
+| **WP-PV2-01** | Prompt Architecture v2 priority trio | **Expanded to rem set on optimize/process (RC2)** | AI-TFES v2 RC1 |
 | **WP-PV2-02** | Editorial Format Reliability (parser fail ≠ content fail) | **Done — production blocker fixed** | WP-PV2-01 |
 | **WP-QF-00** | Quality-first design + reader meta scrub | **Done on optimize/process** | WP-PV2-02 |
 | **WP-QF-01** | Publish bám best draft | **Done on optimize/process** | WP-QF-00, Candidate Lock |

@@ -1,7 +1,11 @@
 # WP-PV2-01 — Prompt Trio Migration
 
-**Status:** Implemented technically; feature OFF; Preview/cohort validation pending  
+**Status:** Superseded by the full RC2 prompt architecture
 **Date:** 2026-08-07
+
+> Historical scope note: this work package documents the initial three-prompt migration.
+> The current runtime enables the complete v2 prompt set; see
+> `docs/releases/ai-tfes-v2-rc2.md`.
 
 ## Scope
 

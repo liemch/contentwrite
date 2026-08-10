@@ -74,6 +74,51 @@ describe("Lock Verifier v2 machine contract", () => {
     expect(result.malformedOutput).toBe(true);
   });
 
+  it("reports the v2 contract defect instead of missing final-v1 fields", () => {
+    const result = inspectFinalVerification(
+      "Everything looks locked to me.",
+      passedFact,
+      { expectedContract: "lock-v2" },
+    );
+
+    expect(result.machineReadable).toBe(false);
+    expect(result.publishReady).toBe(false);
+    expect(result.failureReasons.join(" ")).toContain("LOCK_DECISION_JSON");
+    expect(result.failureReasons.join(" ")).not.toContain("FINAL_TOTAL_SCORE");
+  });
+
+  it("names truncation when the marked object never closes", () => {
+    const result = inspectFinalVerification(
+      'LOCK_DECISION_JSON:\n{"contractVersion":"lock-decision.v2","blockingResiduals":["a',
+      passedFact,
+      { expectedContract: "lock-v2" },
+    );
+
+    expect(result.machineReadable).toBe(false);
+    expect(result.failureReasons.join(" ")).toContain("cắt");
+  });
+
+  it("accepts a valid lock object when the model forgets the marker", () => {
+    const result = inspectFinalVerification(
+      lockOutput().replace("LOCK_DECISION_JSON:\n", "Here is the verdict.\n"),
+      passedFact,
+      { expectedContract: "lock-v2" },
+    );
+
+    expect(result.machineContract).toBe("lock-v2");
+    expect(result.lockDecision).toBe("LOCKED");
+    expect(result.publishReady).toBe(true);
+  });
+
+  it("keeps final-v1 auto-detection when no contract is expected", () => {
+    const result = inspectFinalVerification(
+      "Everything looks locked to me.",
+      passedFact,
+    );
+
+    expect(result.failureReasons.join(" ")).toContain("FINAL_TOTAL_SCORE");
+  });
+
   it("does not map CONTEXT_INCOMPLETE to a remediation decision", () => {
     const result = inspectFinalVerification(
       lockOutput({ lockDecision: "CONTEXT_INCOMPLETE" }),
