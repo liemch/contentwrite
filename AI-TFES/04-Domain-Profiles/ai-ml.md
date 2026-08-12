@@ -54,6 +54,28 @@ Mở: “Retrieval trả về đúng document — nhưng sai đoạn, vì chunk 
 Nhịp: câu trả lời sai nhưng metric xanh → cơ chế (chunking boundary mất ngữ cảnh) → mini-case incident trả lời sai nhưng retrieval “pass” → trade-off chunk lớn (giữ ngữ cảnh) vs nhỏ (retrieval chính xác hơn) → guardrail: eval phải đo tận câu trả lời, không chỉ retrieval → câu hỏi mở cho team.
 Tránh: liệt kê “3 chiến lược chunking” như tutorial.
 
+### Sample C — Eval offline xanh, production đỏ
+Mở: “Benchmark offline đạt 92% — nhưng user thật vẫn báo sai vì câu hỏi production dài hơn và có typos không có trong test set.”
+Nhịp: metric đẹp trên lab → cơ chế (distribution shift / eval không đại diện) → mini-case thêm 50 câu production → trade-off cost eval online → guardrail trước khi ship.
+Tránh: bảng so sánh model không workload.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (AI/ML):
+
+**CẤM**
+- Hype model release: “Model X thay thế mọi workflow”
+- Benchmark bịa hoặc copy vendor không ngữ cảnh
+- Prompt pack / affiliate tool làm nguồn kết luận
+- Mini-case không có failure mode hoặc cost/latency
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (agent thừa / chunk im lặng / eval lệch production)
+- ≥1 mini-case pipeline RAG/agent/eval có số liệu hoặc hậu quả cụ thể
+- Đúng **một** chỗ “khi nào KHÔNG nên” (agent, fine-tune, multi-model)
+- Trade-off cost/latency/quality nêu rõ; % chỉ khi Research có nguồn
+- Phân biệt Opinion vs Fact; không claim vượt evidence model
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

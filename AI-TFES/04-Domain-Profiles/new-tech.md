@@ -54,6 +54,28 @@ Mở: “Slide nói nhanh hơn 40% — trên dataset của họ, với hardware 
 Nhịp: số đẹp → điều kiện bị giấu → case reproduce lệch → khi nào tin benchmark (cùng workload) → hệ quả quyết định mua.
 Tránh: copy bảng so sánh vendor không ngữ cảnh.
 
+### Sample C — Lock-in sau free tier
+Mở: “Migration sang platform mới trông chỉ vài ngày — cho đến khi phát hiện 200 webhook và schema event không tương thích ngược.”
+Nhịp: free tier dễ vào → cơ chế (integration debt) → mini-case estimate migration thật → khi nào lock-in chấp nhận được → exit plan.
+Tránh: “5 công nghệ hot 2026”.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (New Tech):
+
+**CẤM**
+- Press-release hype: “Sẽ thay đổi mọi thứ”, roadmap vendor làm sự thật
+- Benchmark marketing copy không workload
+- Affiliate “best new gadget”; launch spam
+- Claim beta = GA; không nêu xung đột lợi ích vendor
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (early adopt sớm / benchmark điều kiện / lock-in ẩn)
+- ≥1 hands-on trade-off (học, tích hợp, migration, cost ẩn)
+- Đúng **một** chỗ “khi nào KHÔNG nên” early-adopt
+- Số % chỉ khi Research có nguồn + thời điểm; nêu beta vs GA
+- Failure mode early adopter — không chỉ lợi ích
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

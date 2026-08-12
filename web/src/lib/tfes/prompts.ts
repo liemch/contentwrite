@@ -6,6 +6,24 @@ import { resolveAndValidateDomainProfile, clipDomainProfileForRole } from "@/lib
 
 const TFES_ROOT = join(process.cwd(), "content", "ai-tfes");
 
+/** Pull optional anti_generic_and_realism section from resolved Domain Profile. */
+export function extractDomainQualityBar(
+  profileMarkdown: string,
+  domainId: string,
+): string {
+  const match = profileMarkdown.match(
+    /##\s*anti_generic_and_realism\b[\s\S]*?(?=\n##\s+[a-z_][\w-]*\b|$)/i,
+  );
+  if (!match) return "";
+  const body = match[0].replace(/^##[^\n]+\n?/i, "").trim();
+  if (!body) return "";
+  return `
+
+## CHUẨN CHẤT LƯỢNG ${domainId.toUpperCase()} (bắt buộc khi viết / polish)
+${body}
+- Bám nhịp gold_samples — không copy nguyên văn.`;
+}
+
 function assertTfesRoot() {
   if (!existsSync(join(TFES_ROOT, "00-README.md"))) {
     throw new Error(
@@ -42,16 +60,7 @@ export function getSystemPrompt(domain: string): string {
   const id = resolveDomainId(domain);
   const operating = readTfesFile("02-Prompts/Operating-Prompt.md");
   const domainProfile = resolveAndValidateDomainProfile(domain, readTfesFile).content;
-  const engineeringBar =
-    id === "engineering"
-      ? `
-
-## CHUẨN VÀNG ENGINEERING (bắt buộc khi viết / polish)
-- Anti-generic: CẤM mở “Trong môi trường/Ngày nay/ngày càng phức tạp” và khuôn sprint–fintech.
-- Thực tế: ≥1 mini-case vận hành (pipeline/rollback/on-call/…) có chủ ngữ đội/người; tín hiệu lấy từ Research.
-- Đúng một chỗ “khi nào KHÔNG”; Recommendations luôn có điều kiện (khi/nếu/trừ khi).
-- Bám nhịp gold_samples Engineering — không copy nguyên văn.`
-      : "";
+  const qualityBar = extractDomainQualityBar(domainProfile, id);
 
   return `${operating}
 
@@ -60,7 +69,7 @@ export function getSystemPrompt(domain: string): string {
 ## DOMAIN PROFILE (active — bắt buộc tuân thủ)
 
 ${domainProfile}
-${engineeringBar}
+${qualityBar}
 
 ---
 

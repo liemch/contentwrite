@@ -54,6 +54,28 @@ Mở: “Secret được rotate đúng lịch — nhưng log CI vẫn in ra giá
 Nhịp: tưởng rotation đã xong → cơ chế (leak qua kênh phụ: log, cache, artifact) → mini-case phát hiện qua audit ngẫu nhiên → khi nào chấp nhận rủi ro thấp hơn (môi trường nội bộ, không internet-facing) → hệ quả: rotation không đủ, phải audit cả đường đi của secret.
 Tránh: liệt kê “best practice quản lý secrets” chung chung.
 
+### Sample C — OAuth misconfig
+Mở: “Redirect URI khớp trên dashboard — nhưng token vẫn lọt sang app staging vì callback URL chỉ khác một dấu gạch.”
+Nhịp: cấu hình trông đúng → cơ chế (confused deputy / URI normalization) → mini-case phát hiện qua pentest nội bộ → khi nào chấp nhận rủi ro thấp (môi trường dev cách ly) → guardrail cho AppSec review PR.
+Tránh: liệt kê “5 lỗi OAuth phổ biến” không có tình huống.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Security):
+
+**CẤM**
+- Mở fear-mongering: “Hackers sẽ…”, “Zero trust giải quyết mọi thứ”
+- Checklist compliance rỗng: “7 bước bảo mật cơ bản” không điều kiện
+- PoC/tấn công gây hại; doxx incident thật không cần thiết
+- Mini-case bịa không có tín hiệu trong Research Brief
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (control giả an toàn / leak kênh phụ / misconfig tinh vi)
+- ≥1 mini-case vận hành (misconfig, secrets, IAM, supply chain) có chủ ngữ đội/người
+- Đúng **một** chỗ “khi nào KHÔNG nên” (control quá nặng, scope không đáng)
+- Control/residual risk luôn kèm điều kiện (khi / nếu / trừ khi)
+- Case và số liệu neo Research — không bịa CVE/incident cho “có vẻ thật”
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

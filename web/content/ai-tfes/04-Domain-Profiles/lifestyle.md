@@ -57,6 +57,28 @@ Mở: “Reply ‘oke’ lúc 22:40 — sáng hôm sau cả nhóm coi đó là g
 Nhịp: tín hiệu ngầm → cơ chế kỳ vọng → case hybrid team → khi nào reply ngoài giờ vẫn ổn (sự cố thật) → hệ quả văn hóa nhóm.
 Tránh: tip “cách nói không” kiểu script sáo.
 
+### Sample C — Thói quen nhỏ thất bại vì môi trường
+Mở: “Quyết tâm uống đủ nước — nhưng chai luôn ở bàn bếp, còn cả ngày ngồi phòng họp không cửa ra.”
+Nhịp: ý chí vs môi trường → cơ chế (friction / cue) → mini-case đổi vị trí chai → khi nào habit stack vẫn đáng → không shame.
+Tránh: “5 thói quen của người thành công”.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Lifestyle):
+
+**CẤM**
+- Mở self-help: “Thức dậy lúc 5h = thành công”, detox challenge
+- Pseudoscience từ blocklist trình bày như sự thật
+- Shame body/productivity; lên lớp đạo đức
+- Success story cá nhân không kiểm chứng
+
+**BẮT BUỘC**
+- Hook theo nhịp gold_samples (setup tax / tín hiệu ngoài giờ / môi trường vs ý chí)
+- ≥1 tình huống đô thị VN (remote, cao điểm, nhà nhỏ) cụ thể
+- Đúng **một** chỗ “khi nào KHÔNG nên” (tip, app, mục tiêu)
+- Khuyến nghị kèm điều kiện; nghiên cứu nêu giới hạn nếu trích
+- Không chẩn đoán y tế/tâm lý
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

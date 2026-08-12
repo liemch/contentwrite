@@ -57,6 +57,28 @@ Nhịp: feedback mơ → cơ chế hành vi quan sát được → mini-case 1:1
 Mở: “Team bàn 45 phút rồi chọn phương án ‘an toàn nhất’ — không phải vì đúng, vì không ai muốn sở hữu rủi ro của phương án sắc.”
 Nhịp: quyết định ủy thác sợ hãi → khung sở hữu rủi ro → case sprint planning → guardrail → hệ quả.
 
+### Sample C — Code review không leo thang
+Mở: “Comment ‘cách này sai’ trên PR — hai ngày sau cả team né review của nhau, không ai nói thẳng nữa.”
+Nhịp: feedback kỹ thuật thành xung đột cá nhân → cơ chế (psychological safety) → mini-case 1:1 + comment public → khi nào escalate vẫn đúng → hệ quả cho Tech Lead.
+Tránh: script “cách nói khéo” không tình huống.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Soft Skills):
+
+**CẤM**
+- Self-help sáo: MBTI như công cụ đo, learning styles, neuromyth
+- Câu chuyện thành công cá nhân không kiểm chứng
+- Script hội thoại máy móc copy-paste
+- Phán xét đạo đức; chẩn đoán tâm lý cá nhân
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (feedback mơ / quyết định sợ rủi ro / review leo thang)
+- ≥1 tình huống công sở VN có chủ ngữ rõ (lead, peer, stakeholder)
+- Đúng **một** chỗ “khi nào KHÔNG nên” (kỹ thuật áp dụng framework)
+- Khuyến nghị là lựa chọn có điều kiện, có evidence hoặc giới hạn nêu rõ
+- Pseudoscience blocklist: nếu nhắc phải nêu trạng thái bằng chứng
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

@@ -824,4 +824,34 @@ describe("WP2.7 cohort metric aggregation", () => {
     expect(metrics.counts.exhaustedArticles).toBe(0);
     expect(metrics.exhaustionRate).toBe(0);
   });
+
+  it("reports meta-leak rate on cleanPublish for quality KPI", () => {
+    const metrics = aggregateRemediationMetrics([
+      {
+        workflowState: "PUBLISH_READY",
+        cleanPublish: "# Bài sạch\n\nKhông có jargon.",
+        transitions: [],
+      },
+      {
+        workflowState: "PUBLISHED",
+        cleanPublish: "Insight L2: vẫn sót.\nGOLD_BAR: fail",
+        transitions: [],
+      },
+      {
+        workflowState: "DRAFTED",
+        cleanPublish: null,
+        transitions: [],
+      },
+    ]);
+
+    expect(metrics.quality).toEqual({
+      metaLeakRate: 0.5,
+      metaLeakPatternCounts: {
+        "insight-tier": 1,
+        "gold-bar": 1,
+      },
+      metaLeakArticles: 1,
+      metaLeakChecks: 2,
+    });
+  });
 });

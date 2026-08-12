@@ -16,7 +16,9 @@
 | `sensitivity` | ✅ | Ràng buộc đạo đức/pháp lý riêng domain (nếu có) | Insight Gate, Review |
 | `freshness` | ✅ | Cửa sổ thời gian hợp lệ cho thông tin loại nào | Research |
 | `seed_topics` | ✅ | Ngân hàng chủ đề khởi động khi chưa có brief | Editorial Memory, Decision |
-| `gold_samples` | ✅ (≥2) | Mẫu "hay" để bắt chước nhịp/mở bài, KHÔNG copy nguyên văn | Writing |
+| `gold_samples` | ✅ (≥2, khuyến nghị 3) | Mẫu "hay" để bắt chước nhịp/mở bài, KHÔNG copy nguyên văn | Writing |
+| `anti_generic_and_realism` | khuyến nghị mọi domain | CẤM/BẮT BUỘC chống bài generic + siết mini-case thật | Writing (GENERATE) |
+| `gold_sample_guardrail` | khuyến nghị | Nhắc cấm sao chép mẫu | Writing |
 | `learning_track_seed` | tuỳ chọn | Lộ trình học gợi ý nếu domain có tính chuỗi bài | Planning (dài hạn) |
 | `pseudoscience_blocklist` / blocklist tương đương | tuỳ chọn, bắt buộc nếu domain có rủi ro giả khoa học (VD: soft-skills) | Danh sách điều không được trình bày như sự thật | Insight Gate, Fact Check |
 
@@ -29,18 +31,15 @@ Mỗi mẫu gồm 3 dòng:
 
 Khuyến nghị ≥2 mẫu/domain để có đủ đa dạng giọng khi Writing tham chiếu.
 
-## Tình trạng 8 domain hiện có (audit nhanh)
+## Tình trạng 5 domain hiện có (audit nhanh)
 
 | Domain | Có đủ trường bắt buộc? | Ghi chú |
 |---|---|---|
 | `engineering.md` | ✅ | Hồ sơ gốc, đầy đủ, 3 gold_samples |
 | `soft-skills.md` | ✅ | Có thêm `pseudoscience_blocklist` + `learning_track_seed`, 2 gold_samples |
-| `ai-ml.md` | ✅ | 2 gold_samples |
-| `product.md` | ✅ | 2 gold_samples |
-| `security.md` | ✅ | 2 gold_samples |
-| `fun.md` | ✅ | Giải trí / nhẹ; 2 gold_samples |
-| `new-tech.md` | ✅ | Công nghệ mới / early adoption; 2 gold_samples |
-| `lifestyle.md` | ✅ | Đời sống + `pseudoscience_blocklist`; 2 gold_samples |
+| `ai-ml.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
+| `product.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
+| `security.md` | Đã bổ sung `gold_samples` (xem file cập nhật) | Trước đây thiếu |
 
 
 ## Runtime contract v1.6

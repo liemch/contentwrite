@@ -55,6 +55,28 @@ Mở: “Host nói ‘mình nói thật’ đúng lúc donation tăng — khán 
 Nhịp: authentic như brand → cơ chế (performance vs đời thường) → case chat phản ứng → khi nào “diễn” không sao → hệ quả tin cậy.
 Tránh: liệt kê “cách xây personal brand” kiểu tip sáo.
 
+### Sample C — Trend audio tái chế
+Mở: “Cùng một nhạc nền — video A viral, video B bị shadow vì thuật toán coi là spam tái chế.”
+Nhịp: công thức lặp → cơ chế (platform fatigue) → mini-case creator đổi format → khi nào tái chế vẫn ổn (niche nhỏ) → câu hỏi mở.
+Tránh: “top 5 trend tuần này”.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Fun):
+
+**CẤM**
+- Mở FOMO: “Ai cũng đang…”, “Bạn phải thử ngay”
+- Bịa viral case / số view không nguồn
+- Top-N list không quan sát; mỉa mai cá nhân/dễ tổn thương
+- Claim “đang viral thật” không observation brief
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (chu kỳ meme / performance authentic / trend fatigue)
+- ≥1 cảnh cụ thể trên feed/stream/comment — ẩn danh, có ngữ cảnh nền tảng
+- Đúng **một** chỗ “khi nào KHÔNG nên” (đu trend, đu format)
+- Phân biệt opinion vs fact; số/trend có tên phải ghi nguồn hoặc observation
+- Giọng nhẹ nhưng quan sát sắc — không marketing
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Không bịa URL/số “viral”; observation brief không thay thế nguồn khi bài tự claim số liệu.

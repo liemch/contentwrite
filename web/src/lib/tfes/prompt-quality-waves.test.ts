@@ -96,4 +96,10 @@ ${JSON.stringify({
   it("voice reference is optional and never throws", () => {
     expect(() => buildVoiceReferenceBlock("engineering")).not.toThrow();
   });
+
+  it("injects anti_generic bar for non-engineering domains on GENERATE", () => {
+    const security = getSystemPromptForRole("security", "GENERATE");
+    expect(security).toContain("CHUẨN CHẤT LƯỢNG SECURITY");
+    expect(security).toMatch(/anti_generic|CẤM|BẮT BUỘC/i);
+  });
 });
