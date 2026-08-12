@@ -16,7 +16,9 @@
 | `sensitivity` | ✅ | Ràng buộc đạo đức/pháp lý riêng domain (nếu có) | Insight Gate, Review |
 | `freshness` | ✅ | Cửa sổ thời gian hợp lệ cho thông tin loại nào | Research |
 | `seed_topics` | ✅ | Ngân hàng chủ đề khởi động khi chưa có brief | Editorial Memory, Decision |
-| `gold_samples` | ✅ (≥2) | Mẫu "hay" để bắt chước nhịp/mở bài, KHÔNG copy nguyên văn | Writing |
+| `gold_samples` | ✅ (≥2, khuyến nghị 3) | Mẫu "hay" để bắt chước nhịp/mở bài, KHÔNG copy nguyên văn | Writing |
+| `anti_generic_and_realism` | khuyến nghị mọi domain | CẤM/BẮT BUỘC chống bài generic + siết mini-case thật | Writing (GENERATE) |
+| `gold_sample_guardrail` | khuyến nghị | Nhắc cấm sao chép mẫu | Writing |
 | `learning_track_seed` | tuỳ chọn | Lộ trình học gợi ý nếu domain có tính chuỗi bài | Planning (dài hạn) |
 | `pseudoscience_blocklist` / blocklist tương đương | tuỳ chọn, bắt buộc nếu domain có rủi ro giả khoa học (VD: soft-skills) | Danh sách điều không được trình bày như sự thật | Insight Gate, Fact Check |
 
@@ -27,9 +29,22 @@ Mỗi mẫu gồm 3 dòng:
 - **Nhịp:** story arc ngắn (cảnh → cơ chế/insight → mini-case → khi nào KHÔNG nên → hệ quả/câu hỏi mở).
 - **Tránh:** liệt kê rõ kiểu mở/kiểu liệt kê cần tránh cho chủ đề đó.
 
-Khuyến nghị ≥2 mẫu/domain để có đủ đa dạng giọng khi Writing tham chiếu.
+Khuyến nghị ≥3 mẫu/domain để Writing xoay hook đa dạng.
 
-## Tình trạng 5 domain hiện có (audit nhanh)
+## Tình trạng 8 domain (2026-08-12)
+
+| Domain | gold_samples | anti_generic |
+|---|---|---|
+| `engineering.md` | 3 | ✅ |
+| `security.md` | 3 | ✅ |
+| `product.md` | 3 | ✅ |
+| `ai-ml.md` | 3 | ✅ |
+| `soft-skills.md` | 3 | ✅ |
+| `lifestyle.md` | 3 | ✅ |
+| `fun.md` | 3 | ✅ |
+| `new-tech.md` | 3 | ✅ |
+
+## Tình trạng audit cũ (tham chiếu)
 
 | Domain | Có đủ trường bắt buộc? | Ghi chú |
 |---|---|---|

@@ -54,6 +54,28 @@ Mở: “Feature đã ship 2 sprint trước khi ai đó hỏi: ‘Nếu số li
 Nhịp: build trước, hỏi sau → cơ chế (thiếu kill criteria = sunk cost tự động) → mini-case rollback đau vì đã cam kết public → khi nào không cần kill criteria (thử nghiệm rẻ, dễ đảo ngược) → hệ quả cho roadmap.
 Tránh: liệt kê “checklist trước khi build” kiểu template.
 
+### Sample C — Scope cut không làm mất stakeholder
+Mở: “Cắt phạm vi đúng kỹ thuật — nhưng stakeholder vẫn ký off vì slide roadmap vẫn hiển thị feature đã bỏ.”
+Nhịp: quyết định kỹ thuật vs cam kết ngoài → cơ chế (artifact roadmap lệch thực tế) → mini-case sync sau scope cut → khi nào cut im lặng vẫn ổn (internal tool) → hệ quả cho PM/Tech Lead.
+Tránh: framework RACI slide không có tình huống.
+
+
+## anti_generic_and_realism
+Phase 1 — giảm bài generic, siết tính thực tế (Product):
+
+**CẤM**
+- Mở strategy deck: “Trong bối cảnh cạnh tranh…”, “Product-market fit là chìa khóa”
+- Buzzword không trade-off: “10x growth”, “customer-centric” rỗng
+- Success story cá nhân không kiểm chứng; số liệu không nguồn
+- Mini-case bịa “startup ABC” không có chi tiết quyết định
+
+**BẤT BUỘC**
+- Hook theo nhịp gold_samples (metric giả / thiếu kill criteria / cam kết lệch scope)
+- ≥1 mini-case discovery/backlog/experiment có chủ ngữ PM/Tech Lead/team
+- Đúng **một** chỗ “khi nào KHÔNG nên” (A/B, roadmap tool, metric mới)
+- Khuyến nghị luôn kèm điều kiện và trade-off rõ
+- Số liệu chỉ khi Research có nguồn; không thì định tính có điều kiện
+
 
 ## gold_sample_guardrail
 Gold samples chỉ minh họa nhịp và độ cụ thể. Cấm sao chép số liệu, tên, incident, cấu trúc câu hoặc toàn bộ story arc. Mọi con số/case trong bài thật phải đến từ research hoặc dữ liệu người dùng và được fact-check.

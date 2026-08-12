@@ -4,6 +4,7 @@ import {
   sanitizeEditorialBody,
   stripReaderFacingMeta,
   toReaderCleanPublish,
+  detectReaderMetaLeak,
 } from "@/lib/publish-content";
 
 describe("reader-facing meta scrubber", () => {
@@ -51,6 +52,14 @@ describe("reader-facing meta scrubber", () => {
     );
     expect(out).not.toMatch(/\bL\s*[0-3]\b/);
     expect(out.toLowerCase()).toContain("insight");
+  });
+
+  it("detectReaderMetaLeak finds jargon before scrub", () => {
+    const raw = "Insight L2: vẫn sót. Insight Gate fail. GOLD_BAR: OPENER";
+    expect(detectReaderMetaLeak(raw)).toEqual(
+      expect.arrayContaining(["insight-tier", "insight-gate-en", "gold-bar"]),
+    );
+    expect(detectReaderMetaLeak(toReaderCleanPublish(raw))).toEqual([]);
   });
 
   it("sanitizeEditorialBody keeps draft light-scrub without deleting normal prose", () => {

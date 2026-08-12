@@ -1,0 +1,15 @@
+{
+  "cohortId": "wp27-quality-2026-08",
+  "protocolVersion": "wp2.7-v1",
+  "aiTfesVersion": "v2-rc2",
+  "startedAt": "2026-08-12T00:00:00.000Z",
+  "frozenUntil": "2026-09-12T00:00:00.000Z",
+  "notes": "Không tune prompt/threshold trong lúc chạy cohort. Mỗi thay đổi config = cohort mới.",
+  "targets": {
+    "minArticles": 10,
+    "minDomains": 2,
+    "minFeedbackResponses": 8,
+    "maxMetaLeakRate": 0
+  },
+  "articleIds": []
+}

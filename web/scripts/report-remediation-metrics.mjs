@@ -111,6 +111,7 @@ async function main() {
         workflowState: true,
         targetWordCount: true,
         deskJson: true,
+        cleanPublish: true,
         createdAt: true,
         approvedAt: true,
         publishedAt: true,

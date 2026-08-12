@@ -1,3 +1,5 @@
+import { detectReaderMetaLeak } from "./meta-leak.mjs";
+
 const COMPLETED_STATES = new Set(["PUBLISH_READY", "APPROVED", "PUBLISHED"]);
 const REMEDIATION_ACTIONS = new Set([
   "remediate-required-revision",
@@ -174,6 +176,9 @@ export function aggregateRemediationMetrics(articles) {
     reuseIntent: 0,
   };
   let feedbackCount = 0;
+  let metaLeakArticles = 0;
+  let metaLeakChecks = 0;
+  const metaLeakPatternCounts = {};
 
   for (const article of articles) {
     const transitions = [...(article.transitions ?? [])].sort(
@@ -275,6 +280,20 @@ export function aggregateRemediationMetrics(articles) {
       }
     } catch {
       // Invalid legacy deskJson remains visible through a zero feedback denominator.
+    }
+
+    const leakTargets = [article.cleanPublish].filter(Boolean);
+    if (leakTargets.length > 0) {
+      metaLeakChecks += 1;
+      const leakIds = new Set(
+        leakTargets.flatMap((text) => detectReaderMetaLeak(text)),
+      );
+      if (leakIds.size > 0) {
+        metaLeakArticles += 1;
+        for (const id of leakIds) {
+          metaLeakPatternCounts[id] = (metaLeakPatternCounts[id] ?? 0) + 1;
+        }
+      }
     }
 
     const scores = [];
@@ -551,6 +570,7 @@ export function aggregateRemediationMetrics(articles) {
       editorialFormatRetriesStarted,
       editorialFormatFailureEvents:
         editorialFormatRetriesStarted + editorialFormatExhaustedEvents,
+      metaLeakChecks,
     },
     firstPassRate: rate(firstPass, total),
     remediationPassRate: rate(remediationPassed, remediationArticles),
@@ -704,6 +724,12 @@ export function aggregateRemediationMetrics(articles) {
         feedbackCount > 0
           ? Number((feedbackTotals.reuseIntent / feedbackCount).toFixed(2))
           : null,
+    },
+    quality: {
+      metaLeakRate: rate(metaLeakArticles, metaLeakChecks),
+      metaLeakPatternCounts,
+      metaLeakArticles,
+      metaLeakChecks,
     },
     counts: {
       firstPass,
