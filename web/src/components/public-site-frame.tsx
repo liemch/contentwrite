@@ -5,10 +5,35 @@ import { usePathname } from "next/navigation";
 import { useShellSession } from "@/components/session-provider";
 import { BRAND } from "@/lib/brand";
 
-export function PublicSiteFrame({ children }: { children: React.ReactNode }) {
+function EditorialAccessButton({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
   const { user, ready } = useShellSession();
-  const onArticle = pathname.startsWith("/bai/");
+  const loginHref =
+    pathname.startsWith("/bai/") ? `/login?next=${encodeURIComponent(pathname)}` : "/login?next=/dashboard";
+
+  if (ready && user) {
+    return (
+      <Link
+        href="/dashboard"
+        className={`header-cta ${compact ? "px-3 py-2 text-[11px] sm:px-4 sm:text-xs" : "px-5 py-2.5 text-xs sm:text-sm"}`}
+      >
+        Vào biên tập
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      href={loginHref}
+      className={`header-cta ${compact ? "px-3 py-2 text-[11px] sm:px-4 sm:text-xs" : "px-5 py-2.5 text-xs sm:text-sm"}`}
+    >
+      Đăng nhập biên tập
+    </Link>
+  );
+}
+
+export function PublicSiteFrame({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
 
   return (
     <div className="app-shell-bg min-h-screen">
@@ -35,30 +60,22 @@ export function PublicSiteFrame({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            {ready && user ? (
-              <Link href="/dashboard" className="header-cta px-3 py-2 text-[11px] sm:px-4 sm:text-xs">
-                Biên tập
-              </Link>
-            ) : (
-              <Link
-                href={onArticle ? `/login?next=${encodeURIComponent(pathname)}` : "/login"}
-                className="header-cta px-3 py-2 text-[11px] sm:px-4 sm:text-xs"
-              >
-                Đăng nhập
-              </Link>
-            )}
+            <EditorialAccessButton compact />
           </div>
         </div>
       </header>
       {children}
       <footer className="border-t border-[var(--line)]/60 bg-white/40">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-3 py-8 text-sm text-[var(--ink-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-3 py-8 text-sm text-[var(--ink-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <p>
             © {new Date().getFullYear()} {BRAND.name} · {BRAND.pitch}
           </p>
-          <p className="text-xs uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-            {BRAND.productLine}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <EditorialAccessButton compact />
+            <p className="text-xs uppercase tracking-[0.14em] text-[var(--ink-faint)]">
+              {BRAND.productLine}
+            </p>
+          </div>
         </div>
       </footer>
     </div>
