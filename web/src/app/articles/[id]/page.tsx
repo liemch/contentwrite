@@ -850,6 +850,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   return (
     <AppShell
       title={article.title || article.topic || "Bài mới"}
+      withBottomDock
       subtitle={
         running
           ? runningLabel
@@ -878,7 +879,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     >
       <section className="mb-5">
         <PipelineSteps article={article} running={running} />
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+        <div className="mt-3 meta-chip-row text-[11px]">
           {(() => {
             const fmt = resolvePublishFormat(article.publishFormat);
             const shape = resolveShapeForArticle({
@@ -940,12 +941,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             </span>
           ) : null}
           <span
-            className="rounded-full bg-[#eef2ff] px-2.5 py-1 font-semibold text-[#4338ca]"
+            className="hidden rounded-full bg-[#eef2ff] px-2.5 py-1 font-semibold text-[#4338ca] sm:inline-flex"
             title={`Workflow run: ${article.workflowRunId}`}
           >
             v1.6 · {article.workflowState}
           </span>
-          <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-semibold text-[var(--ink-muted)]">
+          <span className="hidden rounded-full bg-[var(--surface-muted)] px-2.5 py-1 font-semibold text-[var(--ink-muted)] sm:inline-flex">
             Content {article.contentVersion}
           </span>
           {(article.avoidFormats || "").trim() ? (
@@ -1122,9 +1123,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </p>
       </section>
 
-      <section className="mb-24 grid gap-5 lg:grid-cols-[240px_1fr]">
-        <nav className="flex flex-col gap-3">
-          <div className="flex flex-row gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+      <section className="grid gap-4 lg:grid-cols-[240px_1fr] lg:gap-5">
+        <nav className="flex min-w-0 flex-col gap-3">
+          <div className="tab-scroll-row lg:flex lg:flex-col lg:overflow-visible">
             {ARTICLE_TAB_GROUPS.map((group) => {
               const groupActive = activeGroup === group.key;
               const hasContent = group.tabs.some((key) => Boolean(contentMap[key]));
@@ -1133,7 +1134,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
                   key={group.key}
                   type="button"
                   onClick={() => setTab(defaultTabInGroup(group.key))}
-                  className={`min-w-[140px] rounded-2xl border px-3.5 py-3 text-left transition lg:min-w-0 ${
+                  className={`w-[132px] rounded-2xl border px-3 py-2.5 text-left transition sm:w-[148px] lg:w-auto lg:min-w-0 lg:px-3.5 lg:py-3 ${
                     groupActive
                       ? "border-[var(--accent)] bg-white shadow-[0_0_0_4px_var(--accent-glow)]"
                       : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)]"
@@ -1151,7 +1152,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
             })}
           </div>
           {activeGroupMeta && activeGroupMeta.tabs.length > 1 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="tab-scroll-row">
               {activeGroupMeta.tabs.map((subKey) => (
                 <button
                   key={subKey}
@@ -1170,7 +1171,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           ) : null}
         </nav>
 
-        <article className="surface-card min-h-[420px] p-6 sm:p-8">
+        <article className="surface-card min-h-[320px] min-w-0 p-4 sm:min-h-[420px] sm:p-8">
           {activeTab && (
             <header className="mb-6 border-b border-[var(--line)] pb-4">
               <div className="flex flex-wrap items-start justify-between gap-3">

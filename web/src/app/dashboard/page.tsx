@@ -97,7 +97,7 @@ export default async function DashboardPage() {
   return (
     <AppShell hidePageChrome>
       {/* Welcome — một composition */}
-      <section className="desk-hero relative mb-8 px-6 py-8 sm:px-10 sm:py-10">
+      <section className="desk-hero relative mb-6 px-4 py-6 sm:mb-8 sm:px-10 sm:py-10">
         <div className="desk-hero-shine" aria-hidden />
         <div className="relative z-[1] flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-xl">
@@ -132,8 +132,8 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="panel-promo mb-8 px-5 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <section className="panel-promo mb-6 px-4 py-4 sm:mb-8 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-[var(--ink)]">Viết nhanh hơn</p>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
           </div>
           <Link
             href="/articles/new"
-            className="inline-flex shrink-0 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            className="inline-flex w-full shrink-0 justify-center rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 sm:w-auto"
           >
             Bắt đầu ngay →
           </Link>

@@ -52,7 +52,7 @@ export function OnboardingChecklist({ steps }: OnboardingChecklistProps) {
         {steps.map((step, index) => (
           <li
             key={step.id}
-            className={`flex items-start gap-3 rounded-xl border px-3 py-3 ${
+            className={`flex flex-col gap-3 rounded-xl border px-3 py-3 sm:flex-row sm:items-start sm:gap-3 sm:px-3 sm:py-3 ${
               step.done
                 ? "border-[rgba(11,107,102,0.25)] bg-[var(--accent-soft)]/40"
                 : "border-[var(--line)] bg-[var(--surface)]"
@@ -74,7 +74,7 @@ export function OnboardingChecklist({ steps }: OnboardingChecklistProps) {
             {!step.done ? (
               <Link
                 href={step.href}
-                className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white"
+                className="inline-flex w-full shrink-0 justify-center rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white sm:w-auto sm:py-1.5"
               >
                 Làm ngay
               </Link>

@@ -22,6 +22,12 @@ export const metadata: Metadata = {
   description: `${BRAND.pitch} — ${BRAND.productLine}`,
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -29,7 +35,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" className="h-full antialiased">
-      <body className="min-h-full">
+      <body className="min-h-full overflow-x-clip">
         <SessionProvider>
           <NavigationProgress />
           <SiteFrame>{children}</SiteFrame>

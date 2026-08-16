@@ -20,8 +20,9 @@ export function LogoutButton() {
   }
 
   return (
-    <Button variant="ghost" size="sm" type="button" busy={busy} onClick={logout}>
-      Đăng xuất
+    <Button variant="ghost" size="sm" type="button" busy={busy} onClick={logout} className="px-2.5 sm:px-3.5">
+      <span className="sm:hidden">Thoát</span>
+      <span className="hidden sm:inline">Đăng xuất</span>
     </Button>
   );
 }

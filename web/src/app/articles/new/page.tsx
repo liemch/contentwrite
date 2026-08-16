@@ -179,7 +179,7 @@ export default function NewArticlePage() {
       <MemoryHints domain={domain} topic={topic} seriesId={seriesId || undefined} />
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-        <form onSubmit={onSubmit} className="surface-card space-y-6 p-6 sm:p-8">
+        <form onSubmit={onSubmit} className="surface-card space-y-6 p-4 sm:p-8">
           <div>
             <Label htmlFor="topic">Chủ đề bài viết</Label>
             <Input
@@ -228,7 +228,7 @@ export default function NewArticlePage() {
 
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--ink)]">Tốc độ viết</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {(Object.keys(CREATION_MODES) as CreationMode[]).map((mode) => {
                 const meta = CREATION_MODES[mode];
                 const active = creationMode === mode;

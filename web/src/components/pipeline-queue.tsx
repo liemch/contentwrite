@@ -74,10 +74,10 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
           return (
             <li
               key={article.id}
-              className="queue-row flex flex-wrap items-center gap-3 px-5 py-4"
+              className="queue-row flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-3 sm:px-5"
             >
               <Link href={`/articles/${article.id}`} className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-[var(--ink)] transition group-hover:text-[var(--accent)] hover:text-[var(--accent)]">
+                <p className="break-words font-semibold text-[var(--ink)] hover:text-[var(--accent)]">
                   {label}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[var(--ink-faint)]">
@@ -104,7 +104,7 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
                 </div>
               </Link>
 
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full shrink-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
                 <StatusBadge status={article.status} />
                 <Button
                   type="button"

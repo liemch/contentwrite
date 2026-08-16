@@ -44,8 +44,8 @@ export default function LoginForm() {
       <div className="pointer-events-none absolute -left-24 top-0 h-[28rem] w-[28rem] rounded-full bg-[var(--accent-glow)] blur-3xl" />
       <div className="pointer-events-none absolute bottom-0 right-0 h-[32rem] w-[32rem] rounded-full bg-[rgba(10,21,32,0.08)] blur-3xl" />
 
-      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-5 py-12 sm:px-8">
-        <div className="grid items-center gap-12 lg:grid-cols-[1.2fr_0.8fr]">
+      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-4 py-10 sm:px-8 sm:py-12">
+        <div className="grid items-center gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:gap-12">
           <section className="animate-fade-up">
             <div className="mb-7 flex items-center gap-3">
               <div className="brand-mark h-12 w-12 text-base">
@@ -61,7 +61,7 @@ export default function LoginForm() {
               </div>
             </div>
 
-            <h1 className="font-[family-name:var(--font-source-serif)] text-4xl font-semibold leading-[1.12] tracking-tight text-[var(--ink)] sm:text-[3.25rem]">
+            <h1 className="font-[family-name:var(--font-source-serif)] text-3xl font-semibold leading-[1.12] tracking-tight text-[var(--ink)] sm:text-[3.25rem]">
               Biên tập tri thức
               <span className="block text-gradient">có kiểm chứng nguồn</span>
             </h1>
@@ -86,7 +86,7 @@ export default function LoginForm() {
             </div>
           </section>
 
-          <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-8 shadow-[var(--shadow-lg)] sm:p-10">
+          <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-lg)] sm:p-10">
             <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập</p>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
               Tài khoản do admin cấp — vào bàn biên tập {BRAND.name}

@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 
 export function MarkdownView({ content }: { content: string }) {
   return (
-    <div className="prose max-w-none">
+    <div className="prose max-w-none min-w-0 overflow-x-auto">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

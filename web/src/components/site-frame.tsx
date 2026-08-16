@@ -22,23 +22,36 @@ function ShellNavigation({ mobile = false }: { mobile?: boolean }) {
     (item) => !("adminOnly" in item && item.adminOnly) || user?.role === "ADMIN",
   );
 
-  const navClass = mobile
-    ? "flex gap-1 overflow-x-auto border-t border-[var(--line)]/50 px-4 py-2.5 md:hidden"
-    : "nav-rail hidden md:flex";
+  if (mobile) {
+    return (
+      <nav className="mobile-scroll-x border-t border-[var(--line)]/50 px-3 py-2 md:hidden">
+        {nav.map((item) => {
+          const active =
+            pathname === item.href ||
+            (item.href !== "/dashboard" && pathname.startsWith(item.href));
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="nav-link whitespace-nowrap"
+              data-active={active}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
-    <nav className={navClass}>
+    <nav className="nav-rail hidden md:flex">
       {nav.map((item) => {
         const active =
           pathname === item.href ||
           (item.href !== "/dashboard" && pathname.startsWith(item.href));
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`nav-link${mobile ? " whitespace-nowrap shrink-0" : ""}`}
-            data-active={active}
-          >
+          <Link key={item.href} href={item.href} className="nav-link" data-active={active}>
             {item.label}
           </Link>
         );
@@ -57,28 +70,30 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell-bg min-h-screen">
       <header className="site-header sticky top-0 z-30">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5 sm:px-8">
-          <div className="flex min-w-0 items-center gap-5 sm:gap-7">
-            <Link href="/dashboard" className="group flex shrink-0 items-center gap-3">
-              <div className="brand-mark transition duration-300 group-hover:scale-[1.04] group-hover:shadow-lg">
-                <span>{BRAND.mark}</span>
-              </div>
-              <div className="hidden sm:block">
-                <p className="font-[family-name:var(--font-source-serif)] text-[15px] font-semibold tracking-tight text-[var(--ink)]">
-                  {BRAND.name}
-                </p>
-                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--ink-faint)]">
-                  {BRAND.tagline}
-                </p>
-              </div>
-            </Link>
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:gap-4 sm:px-8 sm:py-3.5">
+          <Link href="/dashboard" className="group flex min-w-0 shrink items-center gap-2.5 sm:gap-3">
+            <div className="brand-mark h-9 w-9 text-[0.72rem] transition duration-300 group-hover:scale-[1.04] sm:h-10 sm:w-10 sm:text-[0.8rem]">
+              <span>{BRAND.mark}</span>
+            </div>
+            <div className="min-w-0 max-w-[38vw] sm:max-w-none">
+              <p className="truncate font-[family-name:var(--font-source-serif)] text-sm font-semibold tracking-tight text-[var(--ink)] sm:text-[15px]">
+                {BRAND.name}
+              </p>
+              <p className="hidden text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--ink-faint)] sm:block">
+                {BRAND.tagline}
+              </p>
+            </div>
+          </Link>
+
+          <div className="hidden min-w-0 flex-1 justify-center md:flex">
             <ShellNavigation />
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {userLabel && <span className="user-pill hidden lg:inline">{userLabel}</span>}
-            <Link href="/articles/new" className="header-cta hidden sm:inline-flex">
-              + Bài mới
+            <Link href="/articles/new" className="header-cta px-3 py-2 text-[11px] sm:px-4 sm:text-xs">
+              <span className="sm:hidden">+ Viết</span>
+              <span className="hidden sm:inline">+ Bài mới</span>
             </Link>
             <LogoutButton />
           </div>
