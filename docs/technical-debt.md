@@ -45,12 +45,12 @@
 | TD-17 | Không route/workflow integration tests | Quality follow-up | Open |
 | OPS-1 | Production migration/backup/restore chưa có evidence | Production assurance | Open |
 | OPS-2 | Preview có thể ghi production DB nếu dùng chung URL | Production assurance | Open |
-| SEC-DEP-1 | `npm audit` có 4 High advisories | Dependency update | Open |
-| OBS-1 | Thiếu error tracking/metrics/alerts | Production assurance | Open |
+| SEC-DEP-1 | `npm audit` có 4 High advisories | Dependency update | **Mitigated** — next@16.3.1 + audit fix |
+| OBS-1 | Thiếu error tracking/metrics/alerts | Production assurance | **Partial** — SENTRY_DSN + stale alert dashboard |
 | AUTO-1 | Daily cron chỉ tiến một step, không honor retry +45/+60s | WP3-min | Open |
 | ENV-1 | Login cần `ADMIN_PASSWORD` mỗi request nhưng docs nói bootstrap-only | Env follow-up | Open |
 | DOC-1 | README/setup/architecture vẫn hướng dẫn production `db push`; CI env docs stale | Docs follow-up | Open |
-| SEC-10 | Series GET lộ draft title/topic; Article có thể gắn vào Series người khác | WP0 follow-up | Open |
+| SEC-10 | Series GET lộ draft title/topic; Article có thể gắn vào Series người khác | WP0 follow-up | **Mitigated** — owner filter + sanitize + attach guard |
 | REL-1 | Editorial Review, pre-9b và 9b dùng chung remediation budget | WP2.7 candidate | **Deferred** — F7 ngoài phạm vi WP2.6 |
 | REL-2 | Sau remediation, Human Review không mở lại; `draft12` không có đường sửa tay | WP2.7 candidate | **Deferred** — F8/manual editing ngoài phạm vi WP2.6 |
 

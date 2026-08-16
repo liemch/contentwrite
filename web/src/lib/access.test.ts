@@ -107,6 +107,8 @@ describe("sanitizeSeriesArticlesForUser", () => {
       },
     ]);
     expect(rows[0]?.cleanPublish).toBeNull();
+    expect(rows[0]?.title).toBeNull();
+    expect(rows[0]?.topic).toBeNull();
   });
 });
 

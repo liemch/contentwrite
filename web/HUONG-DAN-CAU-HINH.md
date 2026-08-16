@@ -7,7 +7,7 @@ Website nội bộ viết bài theo **AI-TFES**, dùng **GLM-5.2** (NVIDIA NIM) 
 ## 1. Tổng quan kiến trúc
 
 ```
-Browser (nội bộ, login admin)
+Browser (nội bộ, login email + password)
     ↓
 Next.js trên Vercel (thư mục web/)
     ↓
@@ -55,8 +55,9 @@ cp .env.example .env
 | Biến | Bắt buộc | Mô tả |
 |------|:--------:|-------|
 | `DATABASE_URL` | ✅ | PostgreSQL connection string (Neon) |
-| `ADMIN_PASSWORD` | ✅ | Mật khẩu đăng nhập website (1 admin) |
+| `ADMIN_PASSWORD` | ✅ | Bootstrap admin lần đầu (`npm run db:seed-admin`) — **đăng nhập hàng ngày dùng email + password user** |
 | `SESSION_SECRET` | ✅ | Chuỗi ngẫu nhiên ≥32 ký tự (ký session) |
+| `SENTRY_DSN` | Tuỳ chọn | Báo lỗi server (API/pipeline) lên Sentry |
 | `NVIDIA_API_KEY` | ✅ | API key NVIDIA NIM (viết bài + hero FLUX.1-dev) |
 | `TAVILY_API_KEY` | ✅ | API key Tavily search |
 | `FAL_KEY` | Tuỳ chọn | Hero **Qwen-Image** qua fal.ai (không có thì chỉ dùng Flux) |
@@ -156,7 +157,7 @@ npm run dev
 
 Mở: **http://localhost:3000**
 
-- `/login` — đăng nhập bằng `ADMIN_PASSWORD`
+- `/login` — đăng nhập bằng **email + password** (admin seed: `npm run db:seed-admin`, mật khẩu từ `ADMIN_PASSWORD` lần đầu)
 - `/dashboard` — danh sách bài
 - `/articles/new` — tạo bài mới
 
@@ -204,7 +205,7 @@ npx prisma db push
 ### Bước 5 — Kiểm tra
 
 1. Mở URL Vercel → redirect `/login`
-2. Đăng nhập `ADMIN_PASSWORD`
+2. Đăng nhập email admin + password (không dùng raw `ADMIN_PASSWORD` trên form nếu đã seed user)
 3. Tạo bài test → **Chạy 1 bước** (Research) trước
 4. Nếu OK → **Chạy full pipeline**
 

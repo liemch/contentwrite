@@ -6,9 +6,9 @@ import { resolveDomainId } from "@/lib/tfes/domains";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const domain = new URL(request.url).searchParams.get("domain");
-    const series = await listSeries(domain);
+    const series = await listSeries(domain, user);
     return NextResponse.json({ series });
   } catch (error) {
     const res = authErrorResponse(error);

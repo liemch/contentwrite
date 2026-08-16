@@ -17,6 +17,8 @@ import {
 } from "@/lib/tfes/writing-prefs";
 import { wordsToSyllables } from "@/lib/tfes/word-count";
 import { DOMAIN_IDS, domainSelectOptions, type DomainId } from "@/lib/tfes/domains";
+import { CohortTrackerPanel } from "@/components/cohort-tracker-panel";
+import type { CohortStats } from "@/lib/cohort-tracker";
 import { PIPELINE_CONFIG } from "@/lib/tfes/pipeline-config";
 
 function formatWhen(iso: string | null) {
@@ -43,6 +45,7 @@ export default function SettingsPage() {
     source: string;
     tier: string;
   } | null>(null);
+  const [cohortStats, setCohortStats] = useState<CohortStats | null>(null);
 
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState<{
@@ -71,10 +74,11 @@ export default function SettingsPage() {
       return;
     }
 
-    const [res, usersRes, versionRes] = await Promise.all([
+    const [res, usersRes, versionRes, cohortRes] = await Promise.all([
       fetch("/api/settings/auto-write"),
       fetch("/api/users"),
       fetch("/api/health/version"),
+      fetch("/api/admin/cohort"),
     ]);
     setLoading(false);
     if (!res.ok) {
@@ -102,6 +106,10 @@ export default function SettingsPage() {
         };
       };
       setDeploymentVersion(vd.version ?? null);
+    }
+    if (cohortRes.ok) {
+      const cd = (await cohortRes.json()) as { stats?: CohortStats };
+      setCohortStats(cd.stats ?? null);
     }
   }
 
@@ -424,6 +432,12 @@ export default function SettingsPage() {
       <div className="mb-6">
         <UsersAdminPanel />
       </div>
+
+      {cohortStats ? (
+        <div className="mb-6">
+          <CohortTrackerPanel initial={cohortStats} />
+        </div>
+      ) : null}
 
       <div className="mb-6">
         <TfesDocsEditor />

@@ -16,6 +16,7 @@ import {
   saveManualDraftRevision,
   saveFactHumanVerdicts,
 } from "@/lib/tfes/workflow";
+import { reportServerError } from "@/lib/observability";
 import type { HumanReviewItem } from "@/lib/tfes/human-review";
 
 type Params = { params: Promise<{ id: string }> };
@@ -43,7 +44,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         | "save-fact-verdicts"
         | "request-correction"
         | "apply-correction"
-        | "retract";
+        | "retract"
+        | "append-gold-sample";
       notes?: string;
       allowWithoutHero?: boolean;
       editorialScore?: number;
@@ -164,10 +166,28 @@ export async function POST(request: NextRequest, { params }: Params) {
         const next = await retractArticle(id, body.correction ?? "", user.userId);
         return NextResponse.json({ article: next });
       }
+      case "append-gold-sample": {
+        const full = await prisma.article.findUnique({ where: { id } });
+        if (!full?.cleanPublish?.trim()) {
+          return NextResponse.json({ error: "Bài chưa có bản sạch" }, { status: 400 });
+        }
+        const kr = await prisma.knowledgeRecord.findUnique({ where: { articleId: id } });
+        const score = kr?.editorialScore ?? 4;
+        const { appendGoldSampleFromArticle } = await import("@/lib/tfes/editorial-memory");
+        const gold = await appendGoldSampleFromArticle({
+          domain: full.domain,
+          title: full.title || full.topic || "Untitled",
+          cleanPublish: full.cleanPublish,
+          score: Math.max(score, 4),
+          updatedBy: user.email,
+        });
+        return NextResponse.json({ gold });
+      }
       default:
         return NextResponse.json({ error: "action không hợp lệ" }, { status: 400 });
     }
   } catch (error) {
+    reportServerError(error, { route: "POST /api/articles/[id]/actions" });
     const authRes = authErrorResponse(error);
     if (authRes) return authRes;
     const message = error instanceof Error ? error.message : "Lỗi không xác định";

@@ -154,13 +154,24 @@ export type SeriesArticleRow = {
   cleanPublish?: string | null;
 };
 
-/** Strip draft cleanPublish from users without access. */
+/** Strip draft fields from users without access (SEC-10). */
+export function sanitizeSeriesArticleForUser<T extends SeriesArticleRow>(
+  user: SessionUser,
+  article: T,
+): T {
+  if (canViewArticleBody(user, article)) return article;
+  return {
+    ...article,
+    title: null,
+    topic: null,
+    cleanPublish: null,
+  };
+}
+
+/** Strip draft cleanPublish/title/topic from users without access. */
 export function sanitizeSeriesArticlesForUser<T extends SeriesArticleRow>(
   user: SessionUser,
   articles: T[],
 ): T[] {
-  return articles.map((article) => {
-    if (canViewArticleBody(user, article)) return article;
-    return { ...article, cleanPublish: null };
-  });
+  return articles.map((article) => sanitizeSeriesArticleForUser(user, article));
 }

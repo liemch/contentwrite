@@ -17,6 +17,8 @@ import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
 import { PipelineJourneyProgress } from "@/components/pipeline-journey-progress";
 import { HumanReviewBanner } from "@/components/human-review-banner";
+import { GoldSampleButton } from "@/components/gold-sample-button";
+import { StickyPipelineActions } from "@/components/sticky-pipeline-actions";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -44,9 +46,13 @@ import {
 import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
 import { humanizeWorkflowError } from "@/lib/editor-journey";
 import {
+  ARTICLE_SUBTAB_LABELS,
+  ARTICLE_TAB_GROUPS,
   type ArticleTabKey,
+  defaultTabInGroup,
   resolveArticleTabKey,
   tabForFinalVerificationFailure,
+  tabGroupForTab,
 } from "@/lib/article-tabs";
 
 type Article = {
@@ -87,15 +93,18 @@ type Article = {
   publishedAt?: string | null;
 };
 
-const TABS = [
-  { key: "clean", label: "Bản sạch", desc: "Bài đọc liền để đăng" },
-  { key: "research", label: "Nghiên cứu", desc: "Nguồn & trade-off" },
-  { key: "insight", label: "Cổng Insight", desc: "Gate → Decision → Planning" },
-  { key: "draft", label: "Bản nháp 12 phần", desc: "Bản làm việc" },
-  { key: "fact", label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
-  { key: "knowledge", label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
-  { key: "desk", label: "Tóm biên tập", desc: "AI góp ý · người chốt · duyệt" },
-] as const satisfies ReadonlyArray<{ key: ArticleTabKey; label: string; desc: string }>;
+const LEGACY_TAB_META: Record<
+  ArticleTabKey,
+  { label: string; desc: string }
+> = {
+  clean: { label: "Bản sạch", desc: "Bài đọc liền để đăng" },
+  research: { label: "Nghiên cứu", desc: "Nguồn & trade-off" },
+  insight: { label: "Cổng Insight", desc: "Gate → Decision → Planning" },
+  draft: { label: "Bản nháp 12 phần", desc: "Bản làm việc" },
+  fact: { label: "Fact-check", desc: "Bước 9 · Claim → nguồn" },
+  knowledge: { label: "Review / Knowledge", desc: "Review · Reader Sim · metadata" },
+  desk: { label: "Tóm biên tập", desc: "AI góp ý · người chốt · duyệt" },
+};
 
 function timeoutMessage(status: number): string {
   if (status === 504 || status === 408) {
@@ -825,7 +834,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     desk: article.knowledgeRecord || article.factCheck || article.reviewerNotes || "ready",
   };
 
-  const activeTab = TABS.find((t) => t.key === tab);
+  const activeGroup = tabGroupForTab(tab);
+  const activeGroupMeta = ARTICLE_TAB_GROUPS.find((group) => group.key === activeGroup);
+  const activeTab = LEGACY_TAB_META[tab];
   const activeContent = contentMap[tab];
   const displayError = humanizeWorkflowError(
     actionError || article.errorMessage,
@@ -968,108 +979,62 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
       />
 
       <section className="mb-6 flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          busy={running}
-          disabled={running || TERMINAL_WORKFLOW_STATES.has(article.workflowState) || isReviewMode || awaitingHuman}
-          onClick={() => callAction("run-step")}
-        >
-          {running ? "Đang chạy..." : "Chạy bước tiếp"}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          busy={running}
-          disabled={running || TERMINAL_WORKFLOW_STATES.has(article.workflowState) || isReviewMode || awaitingHuman}
-          onClick={runFullPipeline}
-          title="Chạy liên tục đến Publish Ready — giữ tab mở"
-        >
-          Tiếp tục đến khi xong
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          busy={running}
-          disabled={running}
-          onClick={() => callAction("reset")}
-        >
-          Làm lại từ đầu
-        </Button>
-        {article.workflowState !== "PUBLISHED" && article.workflowState !== "RETRACTED" && (
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={running}
-            onClick={async () => {
-              const label = article.title || article.topic || "bài này";
-              if (!window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`)) return;
-              setRunning(true);
-              setRunningLabel("Đang xoá bài...");
-              const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
-              setRunning(false);
-              setRunningLabel("");
-              if (!res.ok) {
-                const data = (await res.json().catch(() => ({}))) as { error?: string };
-                pushLog("error", `✗ ${data.error ?? "Không xoá được"}`);
-                return;
-              }
-              router.push("/dashboard");
-              router.refresh();
-            }}
-          >
-            Xoá bài
-          </Button>
-        )}
-        {article.workflowState === "PUBLISHED" && (
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={running}
-            onClick={() => {
-              const report = window.prompt("Mô tả bằng chứng mới hoặc lỗi cần correction audit:");
-              if (report?.trim()) void callAction("request-correction", { correction: report });
-            }}
-          >
-            Mở correction audit
-          </Button>
-        )}
-        {article.workflowState === "CORRECTION_REQUIRED" && (
-          <>
+        <p className="w-full text-[11px] text-[var(--ink-faint)]">
+          Hành động chính nằm ở thanh cố định phía dưới — «Tiếp tục» / «Chạy đến xong».
+        </p>
+      </section>
+
+      {article.workflowState === "PUBLISHED" ? (
+        <div className="mb-6 space-y-3">
+          <GoldSampleButton articleId={article.id} disabled={running} />
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
               size="sm"
               disabled={running}
               onClick={() => {
-                const correction = window.prompt(
-                  "Dán TOÀN BỘ bản Markdown đã correction (bắt đầu bằng # Title):",
-                );
-                if (!correction?.trim()) return;
-                const meaningChanged = window.confirm(
-                  "Correction này có thay đổi meaning/claim không? OK = có, phải chạy lại Fact Check + Final Verification.",
-                );
-                void callAction("apply-correction", { correction, meaningChanged });
+                const report = window.prompt("Mô tả bằng chứng mới hoặc lỗi cần correction audit:");
+                if (report?.trim()) void callAction("request-correction", { correction: report });
               }}
             >
-              Ghi correction
+              Mở correction audit
             </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={running}
-              onClick={() => {
-                const reason = window.prompt("Lý do retract bài:");
-                if (reason?.trim()) void callAction("retract", { correction: reason });
-              }}
-            >
-              Retract
-            </Button>
-          </>
-        )}
-        <p className="w-full text-[11px] text-[var(--ink-faint)] sm:w-auto sm:ml-auto">
-          Timeout / self-check: hệ thống tự chạy lại bước (tối đa ~16 lần). Giữ tab mở khi dùng
-          “Cả chu trình”.
-        </p>
-      </section>
+          </div>
+        </div>
+      ) : null}
+
+      {article.workflowState === "CORRECTION_REQUIRED" ? (
+        <section className="mb-6 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={running}
+            onClick={() => {
+              const correction = window.prompt(
+                "Dán TOÀN BỘ bản Markdown đã correction (bắt đầu bằng # Title):",
+              );
+              if (!correction?.trim()) return;
+              const meaningChanged = window.confirm(
+                "Correction này có thay đổi meaning/claim không? OK = có, phải chạy lại Fact Check + Final Verification.",
+              );
+              void callAction("apply-correction", { correction, meaningChanged });
+            }}
+          >
+            Ghi correction
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={running}
+            onClick={() => {
+              const reason = window.prompt("Lý do retract bài:");
+              if (reason?.trim()) void callAction("retract", { correction: reason });
+            }}
+          >
+            Retract
+          </Button>
+        </section>
+      ) : null}
 
       <ArticleImageStudio
         article={article}
@@ -1157,31 +1122,52 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </p>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[240px_1fr]">
-        <nav className="flex flex-row gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-          {TABS.map((t) => {
-            const hasContent = Boolean(contentMap[t.key]);
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`min-w-[140px] rounded-2xl border px-3.5 py-3 text-left transition lg:min-w-0 ${
-                  tab === t.key
-                    ? "border-[var(--accent)] bg-white shadow-[0_0_0_4px_var(--accent-glow)]"
-                    : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)]"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-[var(--ink)]">{t.label}</span>
-                  <span
-                    className={`h-2 w-2 rounded-full ${hasContent ? "bg-[var(--accent)]" : "bg-[var(--line-strong)]"}`}
-                  />
-                </div>
-                <p className="mt-0.5 text-[11px] text-[var(--ink-faint)]">{t.desc}</p>
-              </button>
-            );
-          })}
+      <section className="mb-24 grid gap-5 lg:grid-cols-[240px_1fr]">
+        <nav className="flex flex-col gap-3">
+          <div className="flex flex-row gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+            {ARTICLE_TAB_GROUPS.map((group) => {
+              const groupActive = activeGroup === group.key;
+              const hasContent = group.tabs.some((key) => Boolean(contentMap[key]));
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => setTab(defaultTabInGroup(group.key))}
+                  className={`min-w-[140px] rounded-2xl border px-3.5 py-3 text-left transition lg:min-w-0 ${
+                    groupActive
+                      ? "border-[var(--accent)] bg-white shadow-[0_0_0_4px_var(--accent-glow)]"
+                      : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-[var(--ink)]">{group.label}</span>
+                    <span
+                      className={`h-2 w-2 rounded-full ${hasContent ? "bg-[var(--accent)]" : "bg-[var(--line-strong)]"}`}
+                    />
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-[var(--ink-faint)]">{group.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+          {activeGroupMeta && activeGroupMeta.tabs.length > 1 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {activeGroupMeta.tabs.map((subKey) => (
+                <button
+                  key={subKey}
+                  type="button"
+                  onClick={() => setTab(subKey)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    tab === subKey
+                      ? "bg-[var(--accent)] text-white"
+                      : "bg-[var(--surface-muted)] text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                  }`}
+                >
+                  {ARTICLE_SUBTAB_LABELS[subKey]}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </nav>
 
         <article className="surface-card min-h-[420px] p-6 sm:p-8">
@@ -1294,6 +1280,33 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           )}
         </article>
       </section>
+
+      <StickyPipelineActions
+        running={running}
+        workflowState={article.workflowState}
+        isReviewMode={isReviewMode}
+        awaitingHuman={awaitingHuman}
+        onRunStep={() => void callAction("run-step")}
+        onRunFull={runFullPipeline}
+        onReset={() => void callAction("reset")}
+        showDelete={article.workflowState !== "PUBLISHED" && article.workflowState !== "RETRACTED"}
+        onDelete={async () => {
+          const label = article.title || article.topic || "bài này";
+          if (!window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`)) return;
+          setRunning(true);
+          setRunningLabel("Đang xoá bài...");
+          const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
+          setRunning(false);
+          setRunningLabel("");
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            pushLog("error", `✗ ${data.error ?? "Không xoá được"}`);
+            return;
+          }
+          router.push("/dashboard");
+          router.refresh();
+        }}
+      />
     </AppShell>
   );
 }

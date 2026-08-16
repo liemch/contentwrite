@@ -1,3 +1,5 @@
+import { sanitizeSeriesArticleForUser, ownedResourceWhere } from "@/lib/access";
+import type { SessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export function slugifySeriesTitle(title: string): string {
@@ -22,9 +24,12 @@ export async function uniqueSeriesSlug(title: string): Promise<string> {
   return slug;
 }
 
-export async function listSeries(domain?: string | null) {
-  return prisma.series.findMany({
-    where: domain ? { domain } : undefined,
+export async function listSeries(domain: string | null | undefined, user: SessionUser) {
+  const rows = await prisma.series.findMany({
+    where: {
+      ...ownedResourceWhere(user),
+      ...(domain ? { domain } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     include: {
       _count: { select: { articles: true } },
@@ -39,9 +44,22 @@ export async function listSeries(domain?: string | null) {
           seriesOrder: true,
           publishFormat: true,
           publishedAt: true,
+          createdById: true,
+          updatedAt: true,
         },
         take: 8,
       },
     },
   });
+
+  return rows.map((series) => ({
+    ...series,
+    articles: series.articles.map((article) =>
+      sanitizeSeriesArticleForUser(user, {
+        ...article,
+        domain: series.domain,
+        cleanPublish: null,
+      }),
+    ),
+  }));
 }

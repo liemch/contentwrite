@@ -10,6 +10,10 @@ import { getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { BRAND } from "@/lib/brand";
 import { isAwaitingHumanReview } from "@/lib/tfes/human-review";
 import { prisma } from "@/lib/db";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
+import { StaleArticlesAlert } from "@/components/stale-articles-alert";
+import { buildOnboardingSteps } from "@/lib/onboarding";
+import { findStaleArticles } from "@/lib/stale-articles";
 import { WorkflowState } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +78,21 @@ export default async function DashboardPage() {
   ).length;
   const admin = isAdmin(session);
   const greetingName = session.name?.trim() || session.email?.split("@")[0] || "biên tập viên";
+  const onboardingSteps = buildOnboardingSteps(
+    articles.map((article) => ({ id: article.id, workflowState: article.workflowState })),
+  );
+  const staleArticles = admin
+    ? findStaleArticles(
+        workspace.map((article) => ({
+          id: article.id,
+          title: article.title,
+          topic: article.topic,
+          workflowState: article.workflowState,
+          currentStep: article.currentStep,
+          updatedAt: article.updatedAt,
+        })),
+      )
+    : [];
 
   return (
     <AppShell hidePageChrome>
@@ -130,6 +149,10 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </section>
+
+      <OnboardingChecklist steps={onboardingSteps} />
+
+      {admin ? <StaleArticlesAlert articles={staleArticles} /> : null}
 
       {admin && <AutoWriteWatcher />}
 

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertCanCreateArticle, editorialWhere, getQuotaInfo } from "@/lib/access";
+import {
+  assertCanCreateArticle,
+  canAccessSeries,
+  editorialWhere,
+  getQuotaInfo,
+} from "@/lib/access";
 import { AuthError, authErrorResponse, requireUser } from "@/lib/auth";
 import { pickFreshTopic, getAutoWriteConfig } from "@/lib/auto-write/runner";
 import { prisma } from "@/lib/db";
@@ -18,6 +23,7 @@ import {
   resolveWritingPrefs,
 } from "@/lib/tfes/writing-prefs";
 import { resolveCreationMode, type CreationMode } from "@/lib/editor-journey";
+import { reportServerError } from "@/lib/observability";
 
 export async function GET() {
   try {
@@ -128,6 +134,9 @@ export async function POST(request: NextRequest) {
       const series = await prisma.series.findUnique({ where: { id: body.seriesId } });
       if (!series) {
         return NextResponse.json({ error: "Series không tồn tại" }, { status: 400 });
+      }
+      if (!canAccessSeries(user, series)) {
+        return NextResponse.json({ error: "Không có quyền gắn series này" }, { status: 403 });
       }
       seriesId = series.id;
       if (typeof body.seriesOrder === "number" && body.seriesOrder > 0) {

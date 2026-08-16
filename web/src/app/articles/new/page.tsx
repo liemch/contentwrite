@@ -20,6 +20,7 @@ import {
   normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
 import { MemoryHints } from "@/components/memory-hints";
+import { SAMPLE_TOPICS_BY_DOMAIN } from "@/lib/onboarding";
 import { domainSelectOptions } from "@/lib/tfes/domains";
 import { PUBLISH_FORMATS, PUBLISH_FORMAT_IDS, type PublishFormatId } from "@/lib/tfes/publish-formats";
 import {
@@ -191,6 +192,20 @@ export default function NewArticlePage() {
             <FieldHint>
               Càng cụ thể càng tốt. Để trống → hệ thống tự chọn chủ đề từ seed theo domain.
             </FieldHint>
+            {(SAMPLE_TOPICS_BY_DOMAIN[domain] ?? []).length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(SAMPLE_TOPICS_BY_DOMAIN[domain] ?? []).map((sample) => (
+                  <button
+                    key={sample}
+                    type="button"
+                    onClick={() => setTopic(sample)}
+                    className="rounded-full border border-[var(--line)] bg-[var(--surface-muted)] px-3 py-1.5 text-left text-xs text-[var(--ink-muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                  >
+                    {sample}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div>
