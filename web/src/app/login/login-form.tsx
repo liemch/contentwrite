@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { BRAND } from "@/lib/brand";
@@ -89,7 +90,10 @@ export default function LoginForm() {
           <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-lg)] sm:p-10">
             <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập</p>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
-              Tài khoản do admin cấp — vào bàn biên tập {BRAND.name}
+              Tài khoản do admin cấp — vào bàn biên tập {BRAND.name}.{" "}
+              <Link href="/" className="font-medium text-[var(--accent)] hover:underline">
+                Xem trang đọc công khai
+              </Link>
             </p>
 
             <form onSubmit={onSubmit} className="mt-7 space-y-5">

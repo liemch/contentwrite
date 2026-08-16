@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
+import { PublicSiteFrame } from "@/components/public-site-frame";
 import { useShellSession } from "@/components/session-provider";
 import { BRAND } from "@/lib/brand";
+import { isPublicPath } from "@/lib/public-routes";
 
 const NAV_BASE = [
   { href: "/dashboard", label: "Biên tập" },
@@ -64,7 +66,8 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useShellSession();
 
-  if (pathname === "/login" || pathname === "/") return children;
+  if (pathname === "/login") return children;
+  if (isPublicPath(pathname)) return <PublicSiteFrame>{children}</PublicSiteFrame>;
 
   const userLabel = user?.name || user?.email || "";
   return (

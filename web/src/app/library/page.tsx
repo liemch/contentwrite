@@ -164,6 +164,7 @@ export default async function LibraryPage({
             <ArticleCard
               {...featured}
               featured
+              href={`/library/${featured.id}`}
               formatLabel={
                 featured.publishFormat
                   ? PUBLISH_FORMATS[
@@ -181,6 +182,7 @@ export default async function LibraryPage({
                 <ArticleCard
                   key={article.id}
                   {...article}
+                  href={`/library/${article.id}`}
                   formatLabel={
                     article.publishFormat
                       ? PUBLISH_FORMATS[

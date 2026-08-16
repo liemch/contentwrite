@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DomainBadge, StatusBadge } from "@/components/status-badge";
 import { excerptFromMarkdown, readingMinutes } from "@/lib/excerpt";
+import { publicArticleHref } from "@/lib/public-routes";
 
 type ArticleCardProps = {
   id: string;
@@ -16,6 +17,7 @@ type ArticleCardProps = {
   href?: string;
   featured?: boolean;
   formatLabel?: string | null;
+  variant?: "editorial" | "public";
 };
 
 export function ArticleCard({
@@ -32,6 +34,7 @@ export function ArticleCard({
   href,
   featured = false,
   formatLabel,
+  variant = "editorial",
 }: ArticleCardProps) {
   const displayTitle = title || topic || "Bài chưa có tiêu đề";
   const excerpt = excerptFromMarkdown(cleanPublish, featured ? 220 : 140);
@@ -41,7 +44,14 @@ export function ArticleCard({
     month: "short",
     year: "numeric",
   });
-  const link = href ?? (status === "PUBLISHED" ? `/library/${id}` : `/articles/${id}`);
+  const link =
+    href ??
+    (status === "PUBLISHED"
+      ? variant === "public"
+        ? publicArticleHref(id)
+        : `/library/${id}`
+      : `/articles/${id}`);
+  const showStatus = variant === "editorial";
 
   if (featured) {
     return (
@@ -61,7 +71,7 @@ export function ArticleCard({
         )}
         <div className="p-6 sm:p-8">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={status} />
+            {showStatus && <StatusBadge status={status} />}
             <DomainBadge domain={domain} />
             {formatLabel && (
               <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
@@ -115,7 +125,7 @@ export function ArticleCard({
               </span>
             )}
           </div>
-          <StatusBadge status={status} />
+          {showStatus && <StatusBadge status={status} />}
         </div>
         <h3 className="mt-3 line-clamp-2 font-[family-name:var(--font-source-serif)] text-lg font-semibold tracking-tight text-[var(--ink)] transition group-hover:text-[var(--accent)]">
           {displayTitle}
