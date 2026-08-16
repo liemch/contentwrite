@@ -1,19 +1,7 @@
 import { WorkflowState } from "@/generated/prisma/client";
+import type { OnboardingArticleRow, OnboardingStep } from "@/lib/onboarding-types";
 
-export const ONBOARDING_STORAGE_KEY = "tfes-onboarding-v1";
-
-export type OnboardingStep = {
-  id: "create" | "run" | "review" | "publish";
-  label: string;
-  hint: string;
-  href: string;
-  done: boolean;
-};
-
-export type OnboardingArticleRow = {
-  id: string;
-  workflowState: WorkflowState;
-};
+export type { OnboardingStep } from "@/lib/onboarding-types";
 
 const RUNNING_STATES = new Set<WorkflowState>([
   WorkflowState.RESEARCHED,
@@ -34,7 +22,9 @@ const RUNNING_STATES = new Set<WorkflowState>([
 
 export function buildOnboardingSteps(articles: OnboardingArticleRow[]): OnboardingStep[] {
   const hasArticle = articles.length > 0;
-  const hasRunning = articles.some((a) => RUNNING_STATES.has(a.workflowState));
+  const hasRunning = articles.some((a) =>
+    RUNNING_STATES.has(a.workflowState as WorkflowState),
+  );
   const hasReview = articles.some(
     (a) =>
       a.workflowState === WorkflowState.PUBLISH_READY ||
@@ -75,35 +65,3 @@ export function buildOnboardingSteps(articles: OnboardingArticleRow[]): Onboardi
     },
   ];
 }
-
-export const SAMPLE_TOPICS_BY_DOMAIN: Record<string, string[]> = {
-  engineering: [
-    "Khi code review trở thành nút thắt cổ chai của team 8 người",
-    "Vì sao estimate sprint hay lệch 30–50% dù đã có velocity",
-  ],
-  "soft-skills": [
-    "Feedback khó nghe nhưng vẫn giữ trust — 3 cách nói cụ thể",
-    "Họp 1:1 hiệu quả khi IC không muốn 'báo cáo'",
-  ],
-  product: [
-    "Feature parity không cứu được sản phẩm B2B khi onboarding > 2 tuần",
-    "Khi roadmap quý bị phá vì bug P0 liên tiếp",
-  ],
-  "ai-ml": [
-    "Prompt engineering không thay thế được eval set thật",
-    "RAG hay trả lời đúng nhưng sai ngữ cảnh nghiệp vụ",
-  ],
-  security: [
-    "Zero trust trên giấy vs thực tế team remote 40 người",
-    "Incident response khi log retention chỉ 7 ngày",
-  ],
-  fun: [
-    "Game design: vì sao tutorial 5 phút vẫn làm 40% user bỏ cuộc",
-  ],
-  "new-tech": [
-    "Edge compute hấp dẫn nhưng chi phí ẩn ở observability",
-  ],
-  lifestyle: [
-    "Thói quen đọc sách khi lịch họp chiếm 6h/ngày",
-  ],
-};

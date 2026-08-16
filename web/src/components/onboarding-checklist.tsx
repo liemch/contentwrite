@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import {
   ONBOARDING_STORAGE_KEY,
   type OnboardingStep,
-} from "@/lib/onboarding";
+} from "@/lib/onboarding-types";
 
 type OnboardingChecklistProps = {
   steps: OnboardingStep[];

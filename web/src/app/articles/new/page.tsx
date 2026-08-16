@@ -20,7 +20,7 @@ import {
   normalizeAvoidFormatsText,
 } from "@/lib/tfes/writing-prefs";
 import { MemoryHints } from "@/components/memory-hints";
-import { SAMPLE_TOPICS_BY_DOMAIN } from "@/lib/onboarding";
+import { SAMPLE_TOPICS_BY_DOMAIN } from "@/lib/sample-topics";
 import { domainSelectOptions } from "@/lib/tfes/domains";
 import { PUBLISH_FORMATS, PUBLISH_FORMAT_IDS, type PublishFormatId } from "@/lib/tfes/publish-formats";
 import {

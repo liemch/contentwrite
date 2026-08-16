@@ -29,9 +29,22 @@ Mỗi mẫu gồm 3 dòng:
 - **Nhịp:** story arc ngắn (cảnh → cơ chế/insight → mini-case → khi nào KHÔNG nên → hệ quả/câu hỏi mở).
 - **Tránh:** liệt kê rõ kiểu mở/kiểu liệt kê cần tránh cho chủ đề đó.
 
-Khuyến nghị ≥2 mẫu/domain để có đủ đa dạng giọng khi Writing tham chiếu.
+Khuyến nghị ≥3 mẫu/domain để Writing xoay hook đa dạng.
 
-## Tình trạng 5 domain hiện có (audit nhanh)
+## Tình trạng 8 domain (2026-08-12)
+
+| Domain | gold_samples | anti_generic |
+|---|---|---|
+| `engineering.md` | 3 | ✅ |
+| `security.md` | 3 | ✅ |
+| `product.md` | 3 | ✅ |
+| `ai-ml.md` | 3 | ✅ |
+| `soft-skills.md` | 3 | ✅ |
+| `lifestyle.md` | 3 | ✅ |
+| `fun.md` | 3 | ✅ |
+| `new-tech.md` | 3 | ✅ |
+
+## Tình trạng audit cũ (tham chiếu)
 
 | Domain | Có đủ trường bắt buộc? | Ghi chú |
 |---|---|---|
