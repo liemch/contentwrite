@@ -15,6 +15,8 @@ import { EditorialSummaryPanel } from "@/components/editorial-summary-panel";
 import { EditorValidationFeedback } from "@/components/editor-validation-feedback";
 import { MarkdownView } from "@/components/markdown-view";
 import { PipelineRunPanel, type PipelineLogLine } from "@/components/pipeline-run-panel";
+import { PipelineJourneyProgress } from "@/components/pipeline-journey-progress";
+import { HumanReviewBanner } from "@/components/human-review-banner";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { DomainBadge, StatusBadge, STEP_LABELS } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,7 @@ import {
   isWritePhaseQualityFail,
 } from "@/lib/tfes/quality";
 import { resolveMicroStepLabel } from "@/lib/tfes/tracker";
+import { humanizeWorkflowError } from "@/lib/editor-journey";
 import {
   type ArticleTabKey,
   resolveArticleTabKey,
@@ -175,6 +178,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   const [logs, setLogs] = useState<PipelineLogLine[]>([]);
   const [notes, setNotes] = useState("");
   const [actionError, setActionError] = useState("");
+  const [autoRunRequest, setAutoRunRequest] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
   const finalVerifySoftRef = useRef(0);
 
@@ -202,6 +206,14 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!id || typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("autorun") !== "1") return;
+    setAutoRunRequest(true);
+    router.replace(`/articles/${id}`, { scroll: false });
+  }, [id, router]);
 
   async function callAction(
     action:
@@ -723,6 +735,20 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  useEffect(() => {
+    if (!autoRunRequest || !article || running) return;
+    if (article.workflowState !== "IDEA") {
+      setAutoRunRequest(false);
+      return;
+    }
+    setAutoRunRequest(false);
+    pushLog(
+      "info",
+      "→ Tự động chạy chu trình — giữ tab mở (~15–30 phút, có thể dừng chờ Review)",
+    );
+    void runFullPipeline();
+  }, [autoRunRequest, article, running, pushLog]);
+
   function buildExportMarkdown(): string {
     if (!article?.cleanPublish) return "";
     // Bản sạch đã có ảnh gallery (file URL); data URL không nằm trong markdown
@@ -801,7 +827,10 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
   const activeTab = TABS.find((t) => t.key === tab);
   const activeContent = contentMap[tab];
-  const displayError = actionError || article.errorMessage;
+  const displayError = humanizeWorkflowError(
+    actionError || article.errorMessage,
+    article.workflowState,
+  );
   const microLabel = resolveMicroStepLabel(article);
   const awaitingHuman = isAwaitingHumanReview(article);
   const isReviewMode =
@@ -921,6 +950,12 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </section>
 
+      {awaitingHuman && (
+        <HumanReviewBanner onGoToReview={() => setTab("knowledge")} />
+      )}
+
+      <PipelineJourneyProgress article={article} running={running} />
+
       <PipelineRunPanel
         running={running}
         runningLabel={runningLabel}
@@ -947,9 +982,9 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           busy={running}
           disabled={running || TERMINAL_WORKFLOW_STATES.has(article.workflowState) || isReviewMode || awaitingHuman}
           onClick={runFullPipeline}
-          title="Timeout/self-check sẽ tự retry đến PUBLISH_READY (giữ tab mở)"
+          title="Chạy liên tục đến Publish Ready — giữ tab mở"
         >
-          Chạy cả chu trình
+          Tiếp tục đến khi xong
         </Button>
         <Button
           variant="ghost"

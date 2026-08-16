@@ -13,9 +13,11 @@ import { deriveLegacyProjection } from "@/lib/tfes/state-machine";
 import {
   DEFAULT_AVOID_FORMATS,
   DEFAULT_TARGET_WORD_COUNT,
+  FAST_TARGET_WORD_COUNT,
   normalizeAvoidFormatsText,
   resolveWritingPrefs,
 } from "@/lib/tfes/writing-prefs";
+import { resolveCreationMode, type CreationMode } from "@/lib/editor-journey";
 
 export async function GET() {
   try {
@@ -66,6 +68,7 @@ export async function POST(request: NextRequest) {
       articleShapeId?: string | null;
       seriesId?: string | null;
       seriesOrder?: number | null;
+      creationMode?: CreationMode;
     };
     const domain = resolveDomainId(body.domain);
     let topic = body.topic?.trim() || "";
@@ -104,9 +107,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const creationMode = resolveCreationMode(body.creationMode);
+    const defaultWords =
+      creationMode === "fast" ? FAST_TARGET_WORD_COUNT : publishFormat.wordHint;
+
     const prefs = resolveWritingPrefs({
       targetWordCount:
-        body.targetWordCount != null ? body.targetWordCount : publishFormat.wordHint,
+        body.targetWordCount != null ? body.targetWordCount : defaultWords,
       avoidFormats:
         body.avoidFormats !== undefined
           ? normalizeAvoidFormatsText(body.avoidFormats)
@@ -150,7 +157,10 @@ export async function POST(request: NextRequest) {
         status: legacy.status,
         currentStep: legacy.currentStep,
         ...(shapePick.assignment ?? {}),
-        deskJson: mergeDeskJson(null, { shapeSelectionMode: shapePick.mode }),
+        deskJson: mergeDeskJson(null, {
+          shapeSelectionMode: shapePick.mode,
+          creationMode,
+        }),
       },
     });
 

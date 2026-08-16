@@ -9,6 +9,8 @@ export const AVOID_FORMAT_FLAGS = ["table", "mermaid", "numbered_outline"] as co
 export type AvoidFormatFlag = (typeof AVOID_FORMAT_FLAGS)[number];
 
 export const DEFAULT_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.defaultTarget;
+/** Chế độ nhanh — ít từ hơn, pipeline ngắn hơn (~15 phút). */
+export const FAST_TARGET_WORD_COUNT = 550;
 export const MIN_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.minTarget;
 /** Trần cấu hình — trên mức này pipeline dễ cắt token / timeout */
 export const MAX_TARGET_WORD_COUNT: number = PIPELINE_CONFIG.words.maxTarget;

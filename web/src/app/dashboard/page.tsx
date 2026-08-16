@@ -107,9 +107,27 @@ export default async function DashboardPage() {
               href="/articles/new"
               className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm transition hover:bg-[var(--accent-soft)]"
             >
-              + Tạo bài mới
+              ✍ Viết bài mới
             </Link>
           </div>
+        </div>
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-[rgba(12,110,107,0.2)] bg-[var(--accent-soft)]/50 px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-[var(--ink)]">Viết nhanh hơn</p>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Chỉ cần chủ đề + lĩnh vực — hệ thống tự chạy chu trình (~15–30 phút). Giữ tab mở
+              khi đang viết.
+            </p>
+          </div>
+          <Link
+            href="/articles/new"
+            className="inline-flex shrink-0 rounded-full bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            Bắt đầu ngay →
+          </Link>
         </div>
       </section>
 

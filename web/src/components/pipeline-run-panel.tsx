@@ -96,7 +96,8 @@ export function PipelineRunPanel({
           </p>
           {running && (
             <p className="mt-1 text-xs text-[var(--ink-muted)]">
-              Đã chạy {formatElapsed(elapsed)} · mỗi bước có thể 30–120s — đừng đóng tab.
+              Đã chạy {formatElapsed(elapsed)} · mỗi bước 30–120s ·{" "}
+              <strong className="text-[var(--ink)]">giữ tab mở</strong>
             </p>
           )}
           {!running && errorMessage && (
