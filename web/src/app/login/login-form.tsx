@@ -69,21 +69,24 @@ export default function LoginForm() {
               Bàn biên tập nội bộ: research thật, Insight Gate ≥ L2, duyệt người — rồi vào thư viện
               đọc như tạp chí.
             </p>
-            <div className="mt-9 grid max-w-md gap-3.5 text-sm text-[var(--ink-muted)]">
+            <div className="mt-9 grid max-w-md gap-3.5">
               {[
                 "Chu trình AI-TFES 10 bước (+ Insight Gate)",
                 "Thư viện bài đã publish, lọc theo danh mục",
                 "Hero brief sẵn sàng gen ảnh minh họa",
               ].map((item) => (
-                <div key={item} className="flex gap-3">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
+                <div
+                  key={item}
+                  className="flex gap-3 rounded-xl border border-white/60 bg-white/50 px-3.5 py-2.5 text-sm text-[var(--ink-muted)] shadow-sm"
+                >
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-bright)] shadow-[0_0_8px_var(--accent-glow)]" />
                   <span>{item}</span>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-8 sm:p-9">
+          <section className="glass-panel animate-fade-up-delay rounded-[var(--radius-lg)] p-8 shadow-[var(--shadow-lg)] sm:p-10">
             <p className="text-sm font-semibold text-[var(--ink)]">Đăng nhập</p>
             <p className="mt-1 text-sm text-[var(--ink-muted)]">
               Tài khoản do admin cấp — vào bàn biên tập {BRAND.name}

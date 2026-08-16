@@ -29,7 +29,7 @@ export function OnboardingChecklist({ steps }: OnboardingChecklistProps) {
   }
 
   return (
-    <section className="mb-8 rounded-2xl border border-[var(--line)] bg-white px-5 py-5 sm:px-6">
+    <section className="panel-promo mb-8 px-5 py-5 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="section-kicker text-[var(--accent)]">Bắt đầu nhanh</p>

@@ -22,14 +22,12 @@ function ShellNavigation({ mobile = false }: { mobile?: boolean }) {
     (item) => !("adminOnly" in item && item.adminOnly) || user?.role === "ADMIN",
   );
 
+  const navClass = mobile
+    ? "flex gap-1 overflow-x-auto border-t border-[var(--line)]/50 px-4 py-2.5 md:hidden"
+    : "nav-rail hidden md:flex";
+
   return (
-    <nav
-      className={
-        mobile
-          ? "flex gap-1 overflow-x-auto border-t border-[var(--line)]/60 px-4 py-2 md:hidden"
-          : "hidden items-center gap-0.5 md:flex"
-      }
-    >
+    <nav className={navClass}>
       {nav.map((item) => {
         const active =
           pathname === item.href ||
@@ -38,7 +36,7 @@ function ShellNavigation({ mobile = false }: { mobile?: boolean }) {
           <Link
             key={item.href}
             href={item.href}
-            className={`nav-link${mobile ? " whitespace-nowrap" : ""}`}
+            className={`nav-link${mobile ? " whitespace-nowrap shrink-0" : ""}`}
             data-active={active}
           >
             {item.label}
@@ -59,17 +57,17 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell-bg min-h-screen">
       <header className="site-header sticky top-0 z-30">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-8">
-          <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="group flex items-center gap-3">
-              <div className="brand-mark transition group-hover:scale-[1.03]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5 sm:px-8">
+          <div className="flex min-w-0 items-center gap-5 sm:gap-7">
+            <Link href="/dashboard" className="group flex shrink-0 items-center gap-3">
+              <div className="brand-mark transition duration-300 group-hover:scale-[1.04] group-hover:shadow-lg">
                 <span>{BRAND.mark}</span>
               </div>
               <div className="hidden sm:block">
                 <p className="font-[family-name:var(--font-source-serif)] text-[15px] font-semibold tracking-tight text-[var(--ink)]">
                   {BRAND.name}
                 </p>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--ink-faint)]">
+                <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-[var(--ink-faint)]">
                   {BRAND.tagline}
                 </p>
               </div>
@@ -77,16 +75,9 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
             <ShellNavigation />
           </div>
 
-          <div className="flex items-center gap-2.5">
-            {userLabel && (
-              <span className="hidden max-w-[160px] truncate rounded-full bg-white/70 px-3 py-1.5 text-xs text-[var(--ink-muted)] ring-1 ring-[var(--line)] lg:inline">
-                {userLabel}
-              </span>
-            )}
-            <Link
-              href="/articles/new"
-              className="hidden rounded-full bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[var(--accent-hover)] sm:inline-flex"
-            >
+          <div className="flex shrink-0 items-center gap-2">
+            {userLabel && <span className="user-pill hidden lg:inline">{userLabel}</span>}
+            <Link href="/articles/new" className="header-cta hidden sm:inline-flex">
               + Bài mới
             </Link>
             <LogoutButton />

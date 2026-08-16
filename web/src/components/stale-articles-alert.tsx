@@ -10,7 +10,7 @@ export function StaleArticlesAlert({ articles }: StaleArticlesAlertProps) {
   if (articles.length === 0) return null;
 
   return (
-    <section className="mb-8 rounded-2xl border border-[rgba(180,83,9,0.35)] bg-[#fff7ed] px-5 py-4 sm:px-6">
+    <section className="alert-banner mb-8 px-5 py-4 sm:px-6">
       <p className="text-sm font-semibold text-[#9a3412]">
         {articles.length} bài có thể bị treo pipeline (&gt;30 phút không cập nhật)
       </p>

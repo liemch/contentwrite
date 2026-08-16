@@ -96,7 +96,7 @@ export default async function LibraryPage({
       actions={
         <Link
           href="/digests"
-          className="rounded-full bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-semibold text-[var(--accent)]"
+          className="filter-chip filter-chip-sm"
         >
           Weekly digest →
         </Link>
@@ -107,20 +107,11 @@ export default async function LibraryPage({
           <Link
             key={item.key}
             href={hrefFor(item.key, selectedFormat)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-              selected === item.key
-                ? "bg-[var(--ink)] text-white"
-                : "bg-white/80 text-[var(--ink-muted)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]"
-            }`}
+            className="filter-chip"
+            data-active={selected === item.key}
           >
             {item.label}
-            <span
-              className={`ml-1.5 tabular-nums ${
-                selected === item.key ? "text-white/70" : "text-[var(--ink-faint)]"
-              }`}
-            >
-              {item.count}
-            </span>
+            <span className="tabular-nums opacity-70">{item.count}</span>
           </Link>
         ))}
       </div>
@@ -128,11 +119,8 @@ export default async function LibraryPage({
       <div className="mb-8 flex flex-wrap gap-2">
         <Link
           href={hrefFor(selected, "all")}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-            selectedFormat === "all"
-              ? "bg-[var(--accent)] text-white"
-              : "bg-white/70 text-[var(--ink-muted)] ring-1 ring-[var(--line)]"
-          }`}
+          className="filter-chip filter-chip-sm filter-chip-accent"
+          data-active={selectedFormat === "all"}
         >
           Mọi format
         </Link>
@@ -140,14 +128,11 @@ export default async function LibraryPage({
           <Link
             key={id}
             href={hrefFor(selected, id)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              selectedFormat === id
-                ? "bg-[var(--accent)] text-white"
-                : "bg-white/70 text-[var(--ink-muted)] ring-1 ring-[var(--line)]"
-            }`}
+            className="filter-chip filter-chip-sm filter-chip-accent"
+            data-active={selectedFormat === id}
           >
             {PUBLISH_FORMATS[id].labelVi}
-            <span className="ml-1 opacity-70">{countByFormat[id] ?? 0}</span>
+            <span className="opacity-70">{countByFormat[id] ?? 0}</span>
           </Link>
         ))}
       </div>

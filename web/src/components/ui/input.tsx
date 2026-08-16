@@ -1,11 +1,11 @@
 import { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 const fieldClass =
-  "mt-2 w-full rounded-xl border border-[var(--line-strong)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--ink)] shadow-sm transition focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[var(--accent-glow)]";
+  "mt-2 w-full rounded-xl border border-[var(--line)] bg-white/90 px-3.5 py-2.5 text-sm text-[var(--ink)] shadow-sm transition placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[var(--accent-glow)]";
 
 export function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
-    <label htmlFor={htmlFor} className="block text-sm font-medium text-[var(--ink)]">
+    <label htmlFor={htmlFor} className="block text-sm font-semibold tracking-tight text-[var(--ink)]">
       {children}
     </label>
   );

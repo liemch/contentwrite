@@ -42,7 +42,7 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
 
   if (items.length === 0) {
     return (
-      <div className="surface-soft px-6 py-12 text-center">
+      <div className="empty-state px-6 py-14 text-center">
         <p className="font-[family-name:var(--font-source-serif)] text-lg font-semibold text-[var(--ink)]">
           Hàng đợi trống
         </p>
@@ -74,10 +74,10 @@ export function PipelineQueue({ items }: { items: QueueItem[] }) {
           return (
             <li
               key={article.id}
-              className="flex flex-wrap items-center gap-3 px-5 py-4 transition hover:bg-[var(--surface-muted)]"
+              className="queue-row flex flex-wrap items-center gap-3 px-5 py-4"
             >
               <Link href={`/articles/${article.id}`} className="min-w-0 flex-1">
-                <p className="truncate font-medium text-[var(--ink)] hover:text-[var(--accent)]">
+                <p className="truncate font-semibold text-[var(--ink)] transition group-hover:text-[var(--accent)] hover:text-[var(--accent)]">
                   {label}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[var(--ink-faint)]">

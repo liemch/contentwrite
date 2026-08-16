@@ -132,7 +132,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="mb-8 rounded-2xl border border-[rgba(12,110,107,0.2)] bg-[var(--accent-soft)]/50 px-5 py-4 sm:px-6">
+      <section className="panel-promo mb-8 px-5 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-[var(--ink)]">Viết nhanh hơn</p>

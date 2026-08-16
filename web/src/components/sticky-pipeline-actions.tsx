@@ -31,7 +31,7 @@ export function StickyPipelineActions({
   const blocked = running || terminal || isReviewMode || awaitingHuman;
 
   return (
-    <div className="sticky-actions-bar pointer-events-none fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-white/95 px-4 py-3 backdrop-blur-md sm:px-6">
+    <div className="glass-dock pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 py-3.5 sm:px-6">
       <div className="pointer-events-auto mx-auto flex max-w-6xl flex-wrap items-center gap-2">
         <Button size="sm" busy={running} disabled={blocked} onClick={onRunStep}>
           {running ? "Đang chạy..." : "Tiếp tục"}

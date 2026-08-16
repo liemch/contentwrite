@@ -45,10 +45,19 @@ export function ArticleCard({
 
   if (featured) {
     return (
-      <Link href={link} className="group hero-band block overflow-hidden transition hover:-translate-y-0.5">
+      <Link
+        href={link}
+        className="group relative hero-band block overflow-hidden transition duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lg)]"
+      >
         {heroImageUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={heroImageUrl} alt="" className="h-52 w-full object-cover sm:h-64" />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={heroImageUrl} alt="" className="h-52 w-full object-cover sm:h-64" />
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-52 bg-gradient-to-b from-black/15 to-transparent sm:h-64"
+              aria-hidden
+            />
+          </>
         )}
         <div className="p-6 sm:p-8">
           <div className="flex flex-wrap items-center gap-2">
@@ -85,7 +94,7 @@ export function ArticleCard({
   return (
     <Link
       href={link}
-      className="group surface-soft block overflow-hidden transition hover:-translate-y-0.5 hover:border-[var(--accent)]/30 hover:shadow-[var(--shadow)]"
+      className="group surface-soft block overflow-hidden transition duration-300 hover:-translate-y-1 hover:border-[var(--accent)]/35 hover:shadow-[var(--shadow-lg)]"
     >
       {heroImageUrl && (
         // eslint-disable-next-line @next/next/no-img-element

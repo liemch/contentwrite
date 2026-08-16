@@ -18,7 +18,7 @@ export function PipelineJourneyProgress({
   const progress = resolveEditorJourneyProgress(article);
 
   return (
-    <section className="mb-6 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
+    <section className="journey-panel mb-6 p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
@@ -47,19 +47,15 @@ export function PipelineJourneyProgress({
       </div>
 
       <div
-        className="mb-4 h-2 overflow-hidden rounded-full bg-[var(--surface-muted)]"
+        className="progress-track mb-4"
         role="progressbar"
         aria-valuenow={progress.progressPercent}
         aria-valuemin={0}
         aria-valuemax={100}
       >
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            progress.awaitingHuman
-              ? "bg-[var(--warn)]"
-              : running
-                ? "animate-pulse-soft bg-[var(--accent)]"
-                : "bg-[var(--accent)]"
+          className={`progress-fill ${progress.awaitingHuman ? "progress-fill-warn" : ""} ${
+            running && !progress.awaitingHuman ? "animate-pulse-soft" : ""
           }`}
           style={{ width: `${progress.progressPercent}%` }}
         />
