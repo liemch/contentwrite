@@ -3,19 +3,14 @@ import { jwtVerify } from "jose";
 import { getSessionSecretBytes } from "@/lib/auth-secret";
 import { isJwtMarkedInactive } from "@/lib/auth-session";
 import { COOKIE_NAME } from "@/lib/auth-cookie";
+import { isPublicPath } from "@/lib/public-routes";
 import { safeInternalPath } from "@/lib/safe-redirect";
-
-const PUBLIC_PATHS = [
-  "/login",
-  "/api/auth/login",
-  "/api/cron/auto-write",
-];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
-    PUBLIC_PATHS.some((p) => pathname === p) ||
+    isPublicPath(pathname) ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon")
   ) {
