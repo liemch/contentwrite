@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { unstable_noStore as noStore } from "next/cache";
 import { ArticleCard } from "@/components/article-card";
+import { PublicHomeEditorialCta } from "@/components/public-home-editorial-cta";
 import { listPublishedArticles } from "@/lib/public-articles";
 import { BRAND } from "@/lib/brand";
 import { publicArticleHref } from "@/lib/public-routes";
@@ -51,6 +52,7 @@ export default async function PublicHomePage({
           <p className="mt-3 text-sm leading-relaxed text-[var(--ink-muted)] sm:text-[15px]">
             Bài viết đã qua kiểm chứng nguồn và duyệt biên tập — đọc như tạp chí chuyên môn.
           </p>
+          <PublicHomeEditorialCta />
         </header>
 
         <div className="mb-4 flex flex-wrap gap-2">
