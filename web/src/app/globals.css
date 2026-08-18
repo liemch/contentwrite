@@ -811,6 +811,14 @@ html[data-navigation-pending="true"] a[href] {
   scroll-snap-align: start;
 }
 
+@media (min-width: 1024px) {
+  .tab-scroll-row[data-stack-lg="true"] {
+    flex-direction: column;
+    overflow-x: visible;
+    scroll-snap-type: none;
+  }
+}
+
 .glass-dock {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }

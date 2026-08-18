@@ -1125,7 +1125,7 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
 
       <section className="grid gap-4 lg:grid-cols-[240px_1fr] lg:gap-5">
         <nav className="flex min-w-0 flex-col gap-3">
-          <div className="tab-scroll-row lg:flex lg:flex-col lg:overflow-visible">
+          <div className="tab-scroll-row" data-stack-lg="true">
             {ARTICLE_TAB_GROUPS.map((group) => {
               const groupActive = activeGroup === group.key;
               const hasContent = group.tabs.some((key) => Boolean(contentMap[key]));

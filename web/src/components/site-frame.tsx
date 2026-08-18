@@ -26,28 +26,32 @@ function ShellNavigation({ mobile = false }: { mobile?: boolean }) {
 
   if (mobile) {
     return (
-      <nav className="mobile-scroll-x border-t border-[var(--line)]/50 px-3 py-2 md:hidden">
-        {nav.map((item) => {
-          const active =
-            pathname === item.href ||
-            (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="nav-link whitespace-nowrap"
-              data-active={active}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+      // .mobile-scroll-x nằm ngoài @layer nên đè mọi display utility của Tailwind:
+      // md:hidden phải đặt trên phần tử không mang class custom.
+      <div className="md:hidden">
+        <nav className="mobile-scroll-x border-t border-[var(--line)]/50 px-3 py-2">
+          {nav.map((item) => {
+            const active =
+              pathname === item.href ||
+              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="nav-link whitespace-nowrap"
+                data-active={active}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     );
   }
 
   return (
-    <nav className="nav-rail hidden md:flex">
+    <nav className="nav-rail">
       {nav.map((item) => {
         const active =
           pathname === item.href ||
@@ -93,7 +97,11 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            {userLabel && <span className="user-pill hidden lg:inline">{userLabel}</span>}
+            {userLabel && (
+              <span className="hidden lg:inline">
+                <span className="user-pill">{userLabel}</span>
+              </span>
+            )}
             <Link href="/articles/new" className="header-cta px-3 py-2 text-[11px] sm:px-4 sm:text-xs">
               <span className="sm:hidden">+ Viết</span>
               <span className="hidden sm:inline">+ Bài mới</span>
