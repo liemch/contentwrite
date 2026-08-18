@@ -850,7 +850,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
   return (
     <AppShell
       title={article.title || article.topic || "Bài mới"}
-      withBottomDock
       subtitle={
         running
           ? runningLabel
@@ -877,6 +876,33 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         </div>
       }
     >
+      <StickyPipelineActions
+        running={running}
+        workflowState={article.workflowState}
+        isReviewMode={isReviewMode}
+        awaitingHuman={awaitingHuman}
+        onRunStep={() => void callAction("run-step")}
+        onRunFull={runFullPipeline}
+        onReset={() => void callAction("reset")}
+        showDelete={article.workflowState !== "PUBLISHED" && article.workflowState !== "RETRACTED"}
+        onDelete={async () => {
+          const label = article.title || article.topic || "bài này";
+          if (!window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`)) return;
+          setRunning(true);
+          setRunningLabel("Đang xoá bài...");
+          const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
+          setRunning(false);
+          setRunningLabel("");
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            pushLog("error", `✗ ${data.error ?? "Không xoá được"}`);
+            return;
+          }
+          router.push("/dashboard");
+          router.refresh();
+        }}
+      />
+
       <section className="mb-5">
         <PipelineSteps article={article} running={running} />
         <div className="mt-3 meta-chip-row text-[11px]">
@@ -978,12 +1004,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
         onClear={() => setLogs([])}
         defaultExpanded={false}
       />
-
-      <section className="mb-6 flex flex-wrap items-center gap-2">
-        <p className="w-full text-[11px] text-[var(--ink-faint)]">
-          Hành động chính nằm ở thanh cố định phía dưới — «Tiếp tục» / «Chạy đến xong».
-        </p>
-      </section>
 
       {article.workflowState === "PUBLISHED" ? (
         <div className="mb-6 space-y-3">
@@ -1281,33 +1301,6 @@ export default function ArticleDetailPage({ params }: { params: Promise<{ id: st
           )}
         </article>
       </section>
-
-      <StickyPipelineActions
-        running={running}
-        workflowState={article.workflowState}
-        isReviewMode={isReviewMode}
-        awaitingHuman={awaitingHuman}
-        onRunStep={() => void callAction("run-step")}
-        onRunFull={runFullPipeline}
-        onReset={() => void callAction("reset")}
-        showDelete={article.workflowState !== "PUBLISHED" && article.workflowState !== "RETRACTED"}
-        onDelete={async () => {
-          const label = article.title || article.topic || "bài này";
-          if (!window.confirm(`Xoá bài “${label}”? Không hoàn tác được.`)) return;
-          setRunning(true);
-          setRunningLabel("Đang xoá bài...");
-          const res = await fetch(`/api/articles/${id}`, { method: "DELETE" });
-          setRunning(false);
-          setRunningLabel("");
-          if (!res.ok) {
-            const data = (await res.json().catch(() => ({}))) as { error?: string };
-            pushLog("error", `✗ ${data.error ?? "Không xoá được"}`);
-            return;
-          }
-          router.push("/dashboard");
-          router.refresh();
-        }}
-      />
     </AppShell>
   );
 }

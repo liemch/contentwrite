@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { LogoutButton } from "@/components/logout-button";
 import { PublicSiteFrame } from "@/components/public-site-frame";
 import { useShellSession } from "@/components/session-provider";
@@ -69,6 +70,20 @@ function ShellNavigation({ mobile = false }: { mobile?: boolean }) {
 export function SiteFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useShellSession();
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Header cao khác nhau theo breakpoint (mobile có thêm hàng nav), nên --header-h
+  // phải đo thật để các thanh sticky bên dưới neo đúng chỗ.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const sync = () =>
+      document.documentElement.style.setProperty("--header-h", `${Math.round(el.offsetHeight)}px`);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pathname]);
 
   if (pathname === "/login") return children;
   if (isPublicPath(pathname)) return <PublicSiteFrame>{children}</PublicSiteFrame>;
@@ -76,7 +91,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
   const userLabel = user?.name || user?.email || "";
   return (
     <div className="app-shell-bg min-h-screen">
-      <header className="site-header sticky top-0 z-30">
+      <header ref={headerRef} className="site-header sticky top-0 z-30">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:gap-4 sm:px-8 sm:py-3.5">
           <Link href="/dashboard" className="group flex min-w-0 shrink items-center gap-2.5 sm:gap-3">
             <div className="brand-mark h-9 w-9 text-[0.72rem] transition duration-300 group-hover:scale-[1.04] sm:h-10 sm:w-10 sm:text-[0.8rem]">

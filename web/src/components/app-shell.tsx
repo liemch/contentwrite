@@ -10,8 +10,6 @@ type AppShellProps = {
   showHeaderTitle?: boolean;
   /** Dashboard tự render welcome — ẩn title mặc định */
   hidePageChrome?: boolean;
-  /** Trang có thanh hành động cố định phía dưới */
-  withBottomDock?: boolean;
 };
 
 export function AppShell({
@@ -23,14 +21,11 @@ export function AppShell({
   actions,
   showHeaderTitle = true,
   hidePageChrome = false,
-  withBottomDock = false,
 }: AppShellProps) {
   const showTitle = showHeaderTitle && title && !hidePageChrome;
 
   return (
-    <main
-      className={`mx-auto w-full max-w-6xl px-3 py-6 sm:px-8 sm:py-11 ${withBottomDock ? "page-bottom-dock" : ""}`}
-    >
+    <main className="mx-auto w-full max-w-6xl px-3 py-6 sm:px-8 sm:py-11">
       <div className="animate-fade-up">
         {backHref && (
           <Link
